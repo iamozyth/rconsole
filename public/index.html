@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rconsole</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="dot" id="dot"></span>
+    <h1>rconsole</h1>
+    <span class="muted" id="status">connecting…</span>
+  </div>
+  <div class="stats" id="stats">
+    <div class="stat"><span>TPS</span><b id="s-tps">–</b></div>
+    <div class="stat"><span>Players</span><b id="s-players">–</b></div>
+    <div class="stat"><span>Game time</span><b id="s-time">–</b></div>
+    <div class="stat"><span>CPU</span><b id="s-cpu">–</b></div>
+    <div class="stat"><span>RAM</span><b id="s-mem">–</b></div>
+    <div class="stat"><span>Disk</span><b id="s-disk">–</b></div>
+    <div class="stat"><span>Host up</span><b id="s-uptime">–</b></div>
+  </div>
+</header>
+
+<div class="banner" id="restart-banner" hidden>
+  <span>Server restarting in <b id="restart-left"></b></span>
+  <button id="restart-cancel">Cancel restart</button>
+</div>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="console" aria-selected="true">Console</button>
+  <button role="tab" data-tab="players">Players</button>
+  <button role="tab" data-tab="backups">Backups</button>
+  <button role="tab" data-tab="schedule">Schedule</button>
+</nav>
+
+<main>
+  <!-- Console ---------------------------------------------------------- -->
+  <section class="tab" id="tab-console">
+    <div class="console panel">
+      <div class="toolbar">
+        <label class="check"><input type="checkbox" id="follow" checked> Follow</label>
+        <label class="check"><input type="checkbox" id="chat-only"> Chat &amp; joins only</label>
+        <input class="field small" id="filter" placeholder="Filter…" autocomplete="off">
+        <button id="clear-log">Clear</button>
+      </div>
+      <div id="log" class="log"></div>
+      <form class="prompt" id="form">
+        <span>/</span>
+        <input id="cmd" autocomplete="off" spellcheck="false" placeholder="type a command, e.g. say hello">
+      </form>
+    </div>
+    <aside class="side">
+      <section class="panel pad">
+        <h2>Online <span id="count" class="muted"></span></h2>
+        <ul id="online" class="people"></ul>
+      </section>
+      <section class="panel pad">
+        <h2>Quick actions</h2>
+        <div class="grid">
+          <button data-c="save-all">Save all</button>
+          <button data-c="weather clear">Clear sky</button>
+          <button data-c="time set day">Day</button>
+          <button data-c="time set night">Night</button>
+        </div>
+      </section>
+      <section class="panel pad">
+        <h2>Restart</h2>
+        <div class="row">
+          <select class="field" id="restart-delay">
+            <option value="60">in 1 minute</option>
+            <option value="300" selected>in 5 minutes</option>
+            <option value="600">in 10 minutes</option>
+            <option value="10">in 10 seconds</option>
+          </select>
+          <button class="danger" id="restart-start">Restart</button>
+        </div>
+        <p class="hint">Players get countdown warnings in chat. Minecraft must auto-restart after <code>stop</code>.</p>
+      </section>
+    </aside>
+  </section>
+
+  <!-- Players ---------------------------------------------------------- -->
+  <section class="tab" id="tab-players" hidden>
+    <div class="cards">
+      <section class="panel pad">
+        <div class="head">
+          <h2>Whitelist</h2>
+          <label class="switch"><input type="checkbox" id="wl-toggle"> <span id="wl-state">off</span></label>
+        </div>
+        <form class="row add" data-cmd="whitelist add {v}" data-kind="player">
+          <input class="field" placeholder="player name" autocomplete="off" required>
+          <button>Add</button>
+        </form>
+        <ul class="people" id="list-whitelist"></ul>
+      </section>
+
+      <section class="panel pad">
+        <h2>Operators</h2>
+        <form class="row add" data-cmd="op {v}" data-kind="player">
+          <input class="field" placeholder="player name" autocomplete="off" required>
+          <button>Op</button>
+        </form>
+        <ul class="people" id="list-ops"></ul>
+      </section>
+
+      <section class="panel pad">
+        <h2>Banned players</h2>
+        <form class="row add" data-cmd="ban {v}" data-kind="player" data-confirm>
+          <input class="field" placeholder="player name" autocomplete="off" required>
+          <input class="field" placeholder="reason (optional)" autocomplete="off" data-reason>
+          <button class="danger">Ban</button>
+        </form>
+        <ul class="people" id="list-bans"></ul>
+      </section>
+
+      <section class="panel pad">
+        <h2>Banned IPs</h2>
+        <form class="row add" data-cmd="ban-ip {v}" data-kind="ip" data-confirm>
+          <input class="field" placeholder="IP or online player" autocomplete="off" required>
+          <input class="field" placeholder="reason (optional)" autocomplete="off" data-reason>
+          <button class="danger">Ban IP</button>
+        </form>
+        <ul class="people" id="list-ipbans"></ul>
+      </section>
+    </div>
+    <p class="hint" id="access-error"></p>
+  </section>
+
+  <!-- Backups ---------------------------------------------------------- -->
+  <section class="tab" id="tab-backups" hidden>
+    <section class="panel pad">
+      <div class="head">
+        <div>
+          <h2>World backups</h2>
+          <p class="hint" id="backup-info"></p>
+        </div>
+        <button class="primary" id="backup-now">Back up now</button>
+      </div>
+      <p id="backup-state" class="hint"></p>
+      <table class="table">
+        <thead><tr><th>Backup</th><th>Size</th><th>Created</th><th></th></tr></thead>
+        <tbody id="backup-list"></tbody>
+      </table>
+    </section>
+  </section>
+
+  <!-- Schedule --------------------------------------------------------- -->
+  <section class="tab" id="tab-schedule" hidden>
+    <section class="panel pad">
+      <h2>New task</h2>
+      <form id="task-form" class="task-form">
+        <label>Type
+          <select class="field" name="type">
+            <option value="restart">Restart (with countdown)</option>
+            <option value="backup">Backup</option>
+            <option value="command">Command</option>
+          </select>
+        </label>
+        <label>Time <input class="field" type="time" name="time" value="04:00" required></label>
+        <label data-for="restart">Warn (minutes) <input class="field" type="number" name="warnMinutes" value="5" min="0" max="60"></label>
+        <label data-for="command" hidden>Command <input class="field" name="command" placeholder="say Hello"></label>
+        <label>Name <input class="field" name="name" placeholder="optional"></label>
+        <fieldset class="days">
+          <legend>Days <span class="muted">(none = every day)</span></legend>
+          <label><input type="checkbox" value="1">Mon</label>
+          <label><input type="checkbox" value="2">Tue</label>
+          <label><input type="checkbox" value="3">Wed</label>
+          <label><input type="checkbox" value="4">Thu</label>
+          <label><input type="checkbox" value="5">Fri</label>
+          <label><input type="checkbox" value="6">Sat</label>
+          <label><input type="checkbox" value="0">Sun</label>
+        </fieldset>
+        <button class="primary">Add task</button>
+      </form>
+      <p class="hint" id="task-error"></p>
+    </section>
+
+    <section class="panel pad">
+      <h2>Scheduled tasks</h2>
+      <table class="table">
+        <thead><tr><th>Task</th><th>When</th><th>Next run</th><th>Last result</th><th></th></tr></thead>
+        <tbody id="task-list"></tbody>
+      </table>
+    </section>
+  </section>
+</main>
+</body>
+</html>

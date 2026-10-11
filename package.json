@@ -1,7 +1,7 @@
 {
   "name": "rconsole",
-  "version": "1.0.0",
-  "description": "A minimal web console for managing a Minecraft server over RCON",
+  "version": "2.0.0",
+  "description": "A lightweight web console for managing a Minecraft server over RCON",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

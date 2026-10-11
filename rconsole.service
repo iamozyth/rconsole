@@ -1,0 +1,25 @@
+[Unit]
+Description=rconsole (Minecraft RCON web console)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=debian
+WorkingDirectory=/opt/rconsole
+EnvironmentFile=/etc/rconsole.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+# Scheduled tasks are stored in /var/lib/rconsole.
+StateDirectory=rconsole
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# The only place rconsole writes to besides its state directory.
+ReadWritePaths=/srv/minecraft-backups
+
+[Install]
+WantedBy=multi-user.target
