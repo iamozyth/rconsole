@@ -864,7 +864,7 @@ kbd {
   .form-actions .btn { flex: 1; }
   .panel-head { flex-wrap: wrap; }
   .version { font-size: 20px; flex-wrap: wrap; row-gap: 6px; }
-  #upd-rollback { margin-left: 0; }
+  #upd-rollback { margin-left: -14px; } /* align quiet button text with the panel edge */
   .toasts { left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); align-items: stretch; }
   .toast { max-width: none; }
   .dialog-body { padding-left: 20px; }
