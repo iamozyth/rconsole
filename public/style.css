@@ -1033,6 +1033,42 @@ kbd {
 .self-actions { align-items: center; flex-wrap: wrap; gap: 12px; }
 .self-actions .note { flex: 1; min-width: 240px; margin: 0; }
 
+/* Notifications, map, phone "More" ----------------------------------------- */
+
+.notify-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.notify-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 20px; }
+.notify-events .check { font-weight: 500; align-items: flex-start; }
+.notify-events .check input { margin-top: 2px; }
+.notify-form .form-actions .note { margin-right: auto; }
+.map-frame { position: relative; height: calc(100vh - 150px); min-height: 420px; border: 1px solid var(--line); border-top: 4px solid var(--area); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.map-open { position: absolute; top: 10px; right: 10px; z-index: 2; box-shadow: var(--shadow); }
+.map-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
+.steps { margin: 0; padding: 16px 16px 16px 36px; display: flex; flex-direction: column; gap: 12px; line-height: 1.55; }
+.steps li::marker { color: var(--area); font-weight: 700; }
+.steps .btn { margin-left: 8px; vertical-align: middle; }
+.nav-more { display: none; }
+.more-sheet {
+  width: 100%;
+  max-width: none;
+  margin: auto 0 0;
+  padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
+  border: 0;
+  border-top: 4px solid var(--area);
+  background: var(--surface);
+  color: var(--text);
+}
+.more-sheet[open] { animation: sheet-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes sheet-in { from { transform: translateY(40px); opacity: 0; } }
+.more-sheet::backdrop { background: var(--overlay); }
+.more-list { display: flex; flex-direction: column; }
+.more-item { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 0; border-radius: var(--r); background: none; color: var(--text); font: 600 15px var(--font); text-align: left; cursor: pointer; }
+.more-item .tile { display: grid; place-items: center; width: 36px; height: 32px; border-radius: var(--r); background: color-mix(in srgb, var(--tab, var(--text-3)) 14%, transparent); color: var(--tab, var(--text-2)); }
+.more-item .tile svg { width: 18px; height: 18px; }
+.more-item.on { background: color-mix(in srgb, var(--tab) 12%, transparent); }
+.more-item[data-tab='schedule'] { --tab: var(--c-schedule); }
+.more-item[data-tab='insights'] { --tab: var(--c-insights); }
+.more-item[data-tab='map'] { --tab: var(--c-map); }
+
 /* Schedule ------------------------------------------------------------ */
 
 .task-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
@@ -1311,4 +1347,14 @@ kbd {
   .cmd-suggest li { grid-template-columns: minmax(0, 1fr); }
   .sg-desc { grid-column: 1; }
   .sg-detail { display: none; }
+}
+
+@media (max-width: 760px) {
+  .nav [role='tab']:nth-child(n + 5) { display: none; }
+  .nav .nav-more { flex: 1; display: flex !important; flex-direction: column; align-items: center; gap: 3px; padding: 4px 2px; border: 0; background: none; color: var(--text-2); font: 550 11px var(--font); cursor: pointer; --tab: var(--text-2); }
+  .nav .nav-more.on { color: var(--area); --tab: var(--area); }
+  .nav .nav-more.on .tile { background: var(--area); color: var(--on-area); }
+  .notify-form { grid-template-columns: minmax(0, 1fr); }
+  .notify-form .fld.wide { grid-column: auto; }
+  .map-frame { height: calc(100vh - 230px); }
 }

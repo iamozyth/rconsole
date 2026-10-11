@@ -27,6 +27,9 @@ const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
 const { CommandCatalog } = require('./lib/commands');
 const { SelfUpdate } = require('./lib/selfupdate');
+const { Notify } = require('./lib/notify');
+const prom = require('./lib/prom');
+const crypto = require('crypto');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp } = require('./lib/auth');
 
 if (!config.rconPassword) {
@@ -52,8 +55,9 @@ const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJ
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion });
 const commandCatalog = new CommandCatalog({ rcon, log });
+const notify = new Notify({ stateDir: config.stateDir, log, publicUrl: config.publicUrl });
 const selfUpdate = new SelfUpdate({ dir: __dirname, stateDir: config.stateDir, runner: config.jobRunner, log });
-const audit = new Audit({ stateDir: config.stateDir, log });
+const audit = new Audit({ stateDir: config.stateDir, log, onRecord: (e) => notify.onAudit(e) });
 // Operations run in the background after the request returned 202; record how they ended.
 ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target: st.label, ok: !st.error, ...(st.error ? { error: st.error } : {}) });
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
@@ -301,6 +305,8 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/backups\/([^/]+)$/, ([n]) => ['backup delete', dec(n)]],
   ['POST', /^\/api\/restart$/, (p, b) => ['server restart', `in ${b.seconds}s`]],
   ['DELETE', /^\/api\/restart$/, () => ['countdown cancel', '']],
+  ['POST', /^\/api\/notify$/, (p, b) => ['notifications', Object.entries(b.events || {}).map(([k, v]) => `${k}=${v ? 'on' : 'off'}`).join(', ') || (b.url !== undefined ? 'topic' : '')]],
+  ['POST', /^\/api\/notify\/test$/, () => ['notifications test', '']],
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
@@ -324,6 +330,18 @@ function auditRequest(req, pathname, status, error) {
   audit.record({ user: req.user, ip: clientIp(req), action, target: String(target || '').slice(0, 300) || undefined, detail: action === 'command' ? undefined : summarize(req.body), ok: !error, status, error });
 }
 
+route('GET', /^\/api\/notify$/, () => notify.view());
+route('POST', /^\/api\/notify$/, async (req) => notify.update(await readJson(req)));
+route('POST', /^\/api\/notify\/test$/, async (req) => {
+  if (!notify.config.url) throw httpError(409, 'Set the ntfy topic URL first');
+  try {
+    await notify.send('test', 'rconsole test notification', `Sent by ${req.user}. Notifications work.`, { force: true });
+  } catch (err) {
+    throw httpError(502, `ntfy: ${err.message}`);
+  }
+  return { ok: true };
+});
+route('GET', /^\/api\/map$/, (req) => ({ configured: Boolean(config.mapUrl), src: config.mapUrl ? `/map/${mapToken(req)}/` : null }));
 route('GET', /^\/api\/self-update$/, (req) => selfUpdate.overview({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 route('POST', /^\/api\/self-update$/, async (req) => [202, await selfUpdate.start()]);
 route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
@@ -559,6 +577,101 @@ route('POST', /^\/api\/tasks\/([\w-]+)\/run$/, async (req, res, [id]) => {
   return [202, { ok: true }];
 });
 
+
+// ---------------------------------------------------------------------------
+// Prometheus (/metrics, bearer token) and the map proxy (/map/ -> MAP_URL)
+// ---------------------------------------------------------------------------
+
+function tokenMatches(given, expected) {
+  const a = crypto.createHash('sha256').update(String(given)).digest();
+  const b = crypto.createHash('sha256').update(String(expected)).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+async function serveMetrics(req, res) {
+  if (!config.metricsToken) return send(res, 404, { error: 'Set METRICS_TOKEN to enable /metrics' });
+  const auth = String(req.headers.authorization || '');
+  if (!auth.startsWith('Bearer ') || !tokenMatches(auth.slice(7), config.metricsToken)) {
+    return send(res, 401, { error: 'Bearer token required' }, undefined, { 'WWW-Authenticate': 'Bearer' });
+  }
+  try {
+    send(res, 200, await prom.render({ metrics, stats, power, backups, maintenance, selfUpdate, updates }), 'text/plain; version=0.0.4; charset=utf-8');
+  } catch (err) {
+    send(res, 500, { error: err.message });
+  }
+}
+
+// The map (squaremap, BlueMap...) runs its own small web server; it's only
+// reachable through rconsole, after sign-in. The map shows player-controlled
+// text, so it must not be able to act as the signed-in admin: rconsole frames
+// it in a sandbox without allow-same-origin (no access to rconsole's page,
+// cookies or API), and the proxy authenticates by a per-session token in the
+// path instead of the cookie. squaremap uses relative URLs, so the token rides
+// along on every tile and script request.
+// `sandbox` keeps the map in an opaque origin even when opened in its own tab.
+const MAP_CSP = "sandbox allow-scripts allow-popups; default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'none'";
+const HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'set-cookie', 'content-security-policy', 'x-frame-options', 'strict-transport-security', 'access-control-allow-origin', 'access-control-allow-credentials']);
+const mapTokens = new Map(); // token -> session cookie token
+const MAP_TOKEN_RE = /^\/map\/([A-Za-z0-9_-]{32})(\/.*)$/;
+
+function mapToken(req) {
+  const session = cookies(req)[COOKIE];
+  for (const [t, s] of mapTokens) if (s === session) return t;
+  const t = crypto.randomBytes(24).toString('base64url');
+  mapTokens.set(t, session);
+  return t;
+}
+
+// Valid while the session that asked for it is.
+function mapSessionUser(token) {
+  const session = mapTokens.get(token);
+  const s = session && sessions.get(session);
+  if (!s || !users.get(s.user)) {
+    mapTokens.delete(token);
+    return null;
+  }
+  return s.user;
+}
+
+function proxyMap(req, res, pathname) {
+  if (!config.mapUrl) return send(res, 404, { error: 'No map configured (MAP_URL)' });
+  const m = pathname.match(MAP_TOKEN_RE);
+  if (!m || !mapSessionUser(m[1])) return send(res, 401, { error: 'Map link expired; reopen the Map tab' });
+  pathname = `/map${m[2]}`;
+  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Read-only' });
+  const target = new URL(config.mapUrl);
+  const search = new URL(req.url, 'http://x').search;
+  const upstream = http.request({
+    host: target.hostname,
+    port: target.port || 80,
+    method: req.method,
+    path: `${target.pathname.replace(/\/$/, '')}${pathname.slice(4)}${search}`,
+    // No cookies: the session cookie stays with rconsole.
+    headers: { accept: req.headers.accept || '*/*', 'accept-encoding': req.headers['accept-encoding'] || '', 'if-none-match': req.headers['if-none-match'] || '', 'if-modified-since': req.headers['if-modified-since'] || '', 'user-agent': 'rconsole-map-proxy' },
+    timeout: 15000,
+  }, (up) => {
+    const headers = Object.fromEntries(Object.entries(up.headers).filter(([k]) => !HOP.has(k)));
+    res.writeHead(up.statusCode, {
+      ...headers,
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Content-Security-Policy': MAP_CSP,
+      // The sandboxed frame has an opaque origin; its fetch()es are CORS.
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': up.headers['cache-control'] || 'private, max-age=60',
+    });
+    up.pipe(res);
+  });
+  upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
+  upstream.on('error', (err) => {
+    if (!res.headersSent) send(res, 502, { error: `Map server unreachable at ${config.mapUrl}: ${err.message}` });
+    else res.destroy();
+  });
+  upstream.end();
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
@@ -589,6 +702,8 @@ const server = http.createServer(async (req, res) => {
   if (isRead && PUBLIC_FILES[pathname]) return send(res, 200, ...PUBLIC_FILES[pathname]);
   if (req.method === 'POST' && pathname === '/api/login') return handle(req, res, login);
   if (req.method === 'GET' && pathname === '/healthz') return send(res, 200, { ok: true });
+  if (req.method === 'GET' && pathname === '/metrics') return serveMetrics(req, res);
+  if (pathname.startsWith('/map/')) return proxyMap(req, res, pathname);
 
   req.user = currentUser(req);
   if (!req.user) {
@@ -612,6 +727,11 @@ const server = http.createServer(async (req, res) => {
 scheduler.load().then(() => {
   logTail.start();
   metrics.start();
+  metrics.onSample((sample) => notify.onSample(sample, { stats, ops, countdown, backups }));
+  logTail.on('line', (line) => notify.onLogLine(line));
+  const updateCheck = () => notify.checkUpdates({ updates, plugins, selfUpdate }).catch((err) => log(`notify: ${err.message}`));
+  setTimeout(updateCheck, 5 * 60 * 1000).unref();
+  setInterval(updateCheck, 24 * 3600 * 1000).unref();
   selfUpdate.startTimer();
   playerHistory.history().catch((err) => log(`players: ${err.message}`)); // backfill from old logs
   server.listen(config.webPort, config.webHost, () => {

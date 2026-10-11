@@ -13,6 +13,9 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 - **Worlds**: switch between worlds, create new ones (seed, type), delete with an automatic archive
 - **Backups**: per-world backups (autosave paused during the copy), download, delete, per-world retention, and restore, either over a world (with a safety backup, stopping the server if needed) or as a new world
 - **Insights**: 24 h and 7 day charts of TPS, players, CPU and memory (host and Minecraft process) with downtime marked; search across `latest.log` and all rotated `.log.gz` files; a filterable audit trail of every change and sign-in
+- **Notifications**: push alerts through [ntfy](https://ntfy.sh): server down/up, lag, failed backups and tasks, low disk, new updates, sign-in lockouts, optionally joins
+- **Map**: squaremap (or BlueMap) inside rconsole, behind your sign-in and isolated from it
+- **Prometheus**: `/metrics` with a bearer token
 - **Schedule**: daily or weekly restarts with in-game countdown warnings, backups and arbitrary commands
 - **Settings**: edit `server.properties` through a typed form with a review step; difficulty, game mode and whitelist apply live, everything else is flagged "restart to apply"
 - **Plugins**: identify installed jars on Modrinth by hash, update (with rollback), enable/disable, remove, and search and install new plugins for your Minecraft version, SHA-512 verified
@@ -141,6 +144,11 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user t
 | `BACKUP_KEEP`   | `10`                     | Newest backups to keep, `0` keeps all                |
 | `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
 | `MC_SERVICE`    | `minecraft.service`      | systemd unit rconsole starts, stops and restarts     |
+| `NTFY_URL` / `NTFY_TOKEN` | (none) | ntfy topic and token; otherwise set them in the UI (Server → Overview) |
+| `PUBLIC_URL`    | (none)                   | rconsole's own URL, so notifications open it when tapped |
+| `METRICS_TOKEN` | (none)                   | Enables `/metrics` for Prometheus with this bearer token |
+| `MAP_URL`       | (none)                   | squaremap/BlueMap web server, e.g. `http://127.0.0.1:8100` |
+| `SELF_UPDATE_CHECK` | `1`                  | `0` turns off the background check for rconsole updates |
 | `MODRINTH_API`  | `https://api.modrinth.com/v2` | Modrinth API for the plugin manager             |
 
 ## Traefik
@@ -213,6 +221,32 @@ If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole
 - **Metrics** are sampled every 30 seconds while rconsole runs: TPS/MSPT, players online, host CPU and memory, and the Minecraft process's CPU and RSS (from `/proc/<MainPID>`, so it needs `MC_SERVICE` to be readable via `systemctl show`). 24 hours are kept at full resolution and 7 days as 5-minute averages, in `/var/lib/rconsole/metrics.json`.
 - **Player history** is rebuilt from `logs/latest.log` and `logs/*.log.gz`. What has been read from rotated logs is cached in `/var/lib/rconsole/players.json`, so history survives old logs being deleted. Log lines only carry a time of day; dates come from the rotated file names and the last write of `latest.log`.
 - **Log search** reads newest first and stops at 500 matches or after 8 seconds; use the date range to reach further back.
+
+## Notifications
+
+Install the ntfy app, subscribe to a topic with a long, unguessable name (anyone who knows it can read it, or use a self-hosted ntfy with an access token), and paste the topic URL under **Server → Overview → Notifications**. **Send test** checks the setup. Each kind of alert can be switched off; repeats of the same alert are held back for 10 minutes and there are at most 30 per hour.
+
+## Prometheus
+
+Set `METRICS_TOKEN` and scrape `/metrics`:
+
+```yaml
+scrape_configs:
+  - job_name: minecraft
+    scheme: https
+    authorization: { credentials: <METRICS_TOKEN> }
+    static_configs: [{ targets: ['rconsole.example.com'] }]
+```
+
+It exports up/TPS/MSPT/players, host CPU, memory and disk, the Minecraft process's memory and CPU, backup count, size, age and failure, and available Paper builds and rconsole commits.
+
+## Map
+
+1. Install squaremap under **Server → Plugins** and restart the server.
+2. In `plugins/squaremap/config.yml` set `internal-webserver.bind: 127.0.0.1` and a free `port` (e.g. `8100`), so the map isn't public.
+3. Add `MAP_URL=http://127.0.0.1:8100` to `/etc/rconsole.env` and restart rconsole.
+
+The **Map** area then shows it. The map displays player-controlled text, so rconsole keeps it at arm's length: it runs in a sandbox with its own opaque origin (no access to rconsole's page, cookies or API), and the proxy accepts it through a per-session link instead of your session cookie. The link stops working when you sign out.
 
 ## Plugins
 

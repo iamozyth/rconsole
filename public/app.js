@@ -156,7 +156,10 @@ const AREAS = {
   server: { name: 'Server', icon: 'server' },
   schedule: { name: 'Schedule', icon: 'schedule' },
   insights: { name: 'Insights', icon: 'insights' },
+  map: { name: 'Map', icon: 'map' },
 };
+// On phones the tab bar shows the first four; the rest live under "More".
+const PHONE_TABS = 4;
 // Old bookmarks keep working.
 const ALIASES = { backups: 'worlds', updates: 'server/updates' };
 const tabLoaders = {};
@@ -190,6 +193,7 @@ function showTab(route) {
     b.tabIndex = on ? 0 : -1;
   }
   for (const s of document.querySelectorAll('.area')) s.hidden = s.id !== `tab-${name}`;
+  $('nav-more').classList.toggle('on', Object.keys(AREAS).indexOf(name) >= PHONE_TABS);
   $('main').scrollTop = 0;
   tabLoaders[name]?.();
   showView(name, view);
@@ -2299,6 +2303,99 @@ document.addEventListener('keydown', (e) => {
 $('palette-open').addEventListener('click', () => openPalette());
 $('palette-open-m').addEventListener('click', () => openPalette());
 if (/Mac|iPhone|iPad/.test(navigator.platform)) $('palette-key').textContent = '⌘K';
+
+// ---------------------------------------------------------------------------
+// Notifications (ntfy)
+// ---------------------------------------------------------------------------
+
+const notifyForm = $('notify-form');
+
+async function loadNotify() {
+  try {
+    const n = await api('GET', '/api/notify');
+    const f = notifyForm.elements;
+    f.url.value = n.url;
+    f.url.disabled = n.fromEnv;
+    f.token.value = '';
+    f.token.placeholder = n.hasToken ? 'Saved; leave empty to keep' : 'tk_… (only for protected topics)';
+    f.token.disabled = n.fromEnv;
+    f.tpsBelow.value = n.tpsBelow;
+    f.tpsMinutes.value = n.tpsMinutes;
+    $('notify-events').replaceChildren(...n.events.map((e) => el('label', { class: 'check' }, el('input', { type: 'checkbox', name: `ev-${e.key}`, checked: e.enabled || undefined }), el('span', {}, e.label))));
+    $('notify-note').textContent = n.fromEnv ? 'Topic and token come from NTFY_URL / NTFY_TOKEN in rconsole.env.' : n.url ? 'Notifications are on.' : 'Off until a topic URL is set. Pick a long, unguessable topic name: anyone who knows it can read the alerts.';
+    $('ntfy-test').disabled = !n.url;
+  } catch (e) {
+    $('notify-note').textContent = e.message;
+  }
+}
+viewLoaders['server/overview'] = loadNotify;
+
+notifyForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = notifyForm.elements;
+  const body = {
+    events: Object.fromEntries([...notifyForm.querySelectorAll('[name^=ev-]')].map((c) => [c.name.slice(3), c.checked])),
+    tpsBelow: Number(f.tpsBelow.value),
+    tpsMinutes: Number(f.tpsMinutes.value),
+  };
+  if (!f.url.disabled) body.url = f.url.value.trim();
+  if (!f.token.disabled && f.token.value) body.token = f.token.value;
+  await busy(notifyForm.querySelector('.btn-primary'), async () => {
+    try {
+      await api('POST', '/api/notify', body);
+      toast('Notification settings saved.');
+      loadNotify();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
+$('ntfy-test').addEventListener('click', (e) => busy(e.currentTarget, () => api('POST', '/api/notify/test').then(() => toast('Test notification sent. Check your phone.')).catch((err) => toast(err.message, 'bad'))));
+
+// ---------------------------------------------------------------------------
+// Map
+// ---------------------------------------------------------------------------
+
+let mapChecked = false;
+tabLoaders.map = async () => {
+  if (mapChecked && $('map-iframe').src) return;
+  try {
+    const { configured, src } = await api('GET', '/api/map');
+    mapChecked = true;
+    $('map-frame').hidden = !configured;
+    $('map-setup').hidden = configured;
+    if (configured) {
+      $('map-iframe').src = src;
+      $('map-open').href = src;
+    }
+  } catch {
+    $('map-setup').hidden = false;
+  }
+};
+$('map-install').addEventListener('click', () => {
+  showTab('server/plugins');
+  const f = $('plugin-search');
+  f.elements.q.value = 'squaremap';
+  f.requestSubmit();
+});
+
+// ---------------------------------------------------------------------------
+// Phones: "More" sheet for the areas that don't fit the tab bar
+// ---------------------------------------------------------------------------
+
+const moreSheet = $('more-sheet');
+$('nav-more').addEventListener('click', () => {
+  const current = document.body.dataset.area;
+  $('more-list').replaceChildren(...Object.entries(AREAS).slice(PHONE_TABS).map(([key, a]) =>
+    el('button', { class: `more-item${key === current ? ' on' : ''}`, 'data-tab': key, onclick: () => { moreSheet.close(); showTab(key); } },
+      el('span', { class: 'tile' }, icon(a.icon)), a.name)),
+    el('button', { class: 'more-item', onclick: () => { moreSheet.close(); openPalette(); } }, el('span', { class: 'tile' }, icon('search')), 'Search & run'),
+    el('button', { class: 'more-item', onclick: signOut }, el('span', { class: 'tile' }, icon('signout')), 'Sign out'));
+  $('nav-more').setAttribute('aria-expanded', 'true');
+  moreSheet.showModal();
+});
+moreSheet.addEventListener('close', () => $('nav-more').setAttribute('aria-expanded', 'false'));
+moreSheet.addEventListener('click', (e) => { if (e.target === moreSheet) moreSheet.close(); });
 
 async function signOut() {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
