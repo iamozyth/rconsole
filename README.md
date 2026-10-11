@@ -12,6 +12,8 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 - **Worlds**: switch between worlds, create new ones (seed, type), delete with an automatic archive
 - **Backups**: per-world backups (autosave paused during the copy), download, delete, per-world retention, and restore, either over a world (with a safety backup, stopping the server if needed) or as a new world
 - **Schedule**: daily or weekly restarts with in-game countdown warnings, backups and arbitrary commands
+- **Settings**: edit `server.properties` through a typed form with a review step; difficulty, game mode and whitelist apply live, everything else is flagged "restart to apply"
+- **Plugins**: identify installed jars on Modrinth by hash, update (with rollback), enable/disable, remove, and search and install new plugins for your Minecraft version, SHA-512 verified
 - **Updates**: Paper build and Minecraft version updates from PaperMC, SHA-256 verified, with automatic backup, countdown restart and one-click rollback
 - **Security**: user accounts with scrypt-hashed passwords, optional TOTP 2FA, session cookies, brute-force lockout, audit log, strict CSP, sandboxed systemd service
 
@@ -137,6 +139,7 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user t
 | `BACKUP_KEEP`   | `10`                     | Newest backups to keep, `0` keeps all                |
 | `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
 | `MC_SERVICE`    | `minecraft.service`      | systemd unit rconsole starts, stops and restarts     |
+| `MODRINTH_API`  | `https://api.modrinth.com/v2` | Modrinth API for the plugin manager             |
 
 ## Traefik
 
@@ -183,6 +186,16 @@ The **Updates** tab reads the running Paper version from the server log and list
 **Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
 
 If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-net@*'` or `journalctl -u 'rconsole-job@*'`.
+
+## Plugins
+
+**Server → Plugins** lists every `.jar` and `.jar.disabled` in `plugins/`, reads its `plugin.yml`, and looks its SHA-512 up on Modrinth to show the project and any newer release for your Minecraft version and a Paper-compatible loader. Jars Modrinth doesn't know show as "Unknown source" and can still be disabled or removed.
+
+- **Install / Update** download in `rconsole-net@` from Modrinth's CDN only and check the SHA-512 against the API. An update keeps the old jar in `plugins/.rconsole-previous/` for **Roll back**.
+- **Disable** renames the jar to `.jar.disabled`; **Remove** moves it to `BACKUP_DIR/.plugin-trash/`. Plugin config folders are left alone.
+- Every change applies on the next start; the "Restart to apply" bar lists what is waiting.
+
+rconsole reads the jars through the `minecraft` group, so they need to be group-readable (`sudo chmod -R g+rX /srv/minecraft/plugins`).
 
 ## Upgrading from 1.x (rconsole-backup@ / rconsole-update@)
 

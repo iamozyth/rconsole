@@ -307,7 +307,15 @@
     <section class="area" id="tab-server" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Server sections">
         <button role="tab" data-view="overview" aria-selected="true">Overview</button>
+        <button role="tab" data-view="settings" aria-selected="false">Settings</button>
+        <button role="tab" data-view="plugins" aria-selected="false">Plugins</button>
         <button role="tab" data-view="updates" aria-selected="false">Updates</button>
+      </div>
+
+      <div class="pending-bar" id="pending-bar" role="status" hidden>
+        <svg><use href="#pg-restart"/></svg>
+        <span><b>Restart to apply.</b> <span id="pending-list"></span></span>
+        <button class="btn btn-sm" id="pending-restart">Restart…</button>
       </div>
 
       <div class="view" data-view="overview">
@@ -345,6 +353,49 @@
             </div>
           </section>
         </div>
+      </div>
+
+      <div class="view" data-view="settings" hidden>
+        <form class="settings" id="settings-form" novalidate>
+          <div class="grid-2" id="settings-groups"></div>
+          <div class="savebar" id="settings-bar" hidden>
+            <span id="settings-dirty"></span>
+            <button type="button" class="btn btn-quiet" id="settings-discard">Discard</button>
+            <button type="submit" class="btn btn-primary"><svg><use href="#pg-save"/></svg>Review changes</button>
+          </div>
+        </form>
+        <section class="panel">
+          <header class="panel-head"><div class="head-text"><h2>Other properties</h2><p class="note">Read-only. RCON, ports and world keys stay out of reach so rconsole can't lock you out; worlds are switched under Worlds.</p></div></header>
+          <table class="table props">
+            <thead><tr><th>Key</th><th>Value</th></tr></thead>
+            <tbody id="settings-other"></tbody>
+          </table>
+        </section>
+      </div>
+
+      <div class="view" data-view="plugins" hidden>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Installed plugins</h2><p class="note" id="plugins-info"></p></div>
+            <button class="btn" id="plugins-refresh"><svg><use href="#pg-refresh"/></svg>Check for updates</button>
+          </header>
+          <table class="table">
+            <thead><tr><th>Plugin</th><th>Source</th><th class="num">Size</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="plugin-list"></tbody>
+          </table>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><div class="head-text"><h2>Add from Modrinth</h2><p class="note">Only versions for your Minecraft version and a Paper-compatible loader are offered. Downloads are checked against Modrinth's SHA-512.</p></div></header>
+          <form class="panel-body row" id="plugin-search" role="search">
+            <input class="field" name="q" type="search" placeholder="Search plugins, e.g. squaremap" aria-label="Search Modrinth" maxlength="100" autocomplete="off">
+            <button class="btn btn-primary"><svg><use href="#pg-search"/></svg>Search</button>
+          </form>
+          <table class="table" id="plugin-results-table" hidden>
+            <thead><tr><th>Plugin</th><th>Author</th><th class="num">Downloads</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="plugin-results"></tbody>
+          </table>
+        </section>
       </div>
 
       <div class="view" data-view="updates" hidden>

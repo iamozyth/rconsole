@@ -22,6 +22,8 @@ const properties = require('../lib/properties');
 const settings = require('../lib/settings');
 const paper = require('../lib/paper');
 const names = require('../lib/names');
+const modrinth = require('../lib/modrinth');
+const { FILE_RE: PLUGIN_FILE_RE } = require('../lib/plugins');
 
 const MC = config.mcDir;
 const BK = config.backupDir;
@@ -208,6 +210,99 @@ async function paperUpdate({ version, build, rollback }) {
   return { version, build, sha256: download.sha256, size: download.size };
 }
 
+// --- plugins ------------------------------------------------------------------
+
+const pluginsDir = path.join(MC, 'plugins');
+const previousDir = path.join(pluginsDir, '.rconsole-previous');
+const previousIndexFile = path.join(previousDir, 'index.json');
+
+function pluginFile(file) {
+  if (!PLUGIN_FILE_RE.test(String(file)) || path.basename(file) !== file) fail('Invalid plugin file name');
+  return file;
+}
+
+const readIndex = () => {
+  try {
+    return JSON.parse(fs.readFileSync(previousIndexFile, 'utf8'));
+  } catch {
+    return {};
+  }
+};
+function writeIndex(index) {
+  fs.mkdirSync(previousDir, { recursive: true });
+  fs.writeFileSync(`${previousIndexFile}.tmp`, JSON.stringify(index, null, 2));
+  fs.renameSync(`${previousIndexFile}.tmp`, previousIndexFile);
+}
+
+// Moves a plugin jar out of the way into BACKUP_DIR/.plugin-trash.
+function trashPlugin(file) {
+  const dir = path.join(BK, '.plugin-trash');
+  fs.mkdirSync(dir, { recursive: true });
+  const dest = path.join(dir, `${names.timestamp()}-${file}`);
+  fs.copyFileSync(path.join(pluginsDir, file), dest);
+  fs.rmSync(path.join(pluginsDir, file));
+  return path.basename(dest);
+}
+
+// Installs a Modrinth version (re-resolved here, never taken from rconsole),
+// optionally replacing an installed jar that is kept for rollback.
+async function pluginInstall({ versionId, replace }) {
+  const version = await modrinth.version(String(versionId));
+  const file = modrinth.primaryFile(version);
+  if (replace) {
+    pluginFile(replace);
+    if (!exists(path.join(pluginsDir, replace))) fail(`${replace} is not installed`);
+  } else if (exists(path.join(pluginsDir, file.filename)) || exists(path.join(pluginsDir, `${file.filename}.disabled`))) {
+    fail(`${file.filename} is already installed`);
+  }
+  const body = await fetchVerified(file.url, 'sha512', file.sha512, modrinth.USER_AGENT);
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const tmp = path.join(pluginsDir, `.${file.filename}.download`);
+  fs.writeFileSync(tmp, body, { mode: 0o640 });
+  try {
+    if (replace) {
+      fs.mkdirSync(previousDir, { recursive: true });
+      fs.copyFileSync(path.join(pluginsDir, replace), path.join(previousDir, replace));
+      if (replace !== file.filename) fs.rmSync(path.join(pluginsDir, replace));
+      const index = readIndex();
+      index[file.filename] = replace;
+      writeIndex(index);
+    }
+    fs.renameSync(tmp, path.join(pluginsDir, file.filename));
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+  return { file: file.filename, version: version.version_number, projectId: version.project_id, replaced: replace || null };
+}
+
+async function pluginToggle({ file, enabled }) {
+  pluginFile(file);
+  const isDisabled = file.endsWith('.disabled');
+  if (Boolean(enabled) === !isDisabled) fail(enabled ? 'Already enabled' : 'Already disabled');
+  const to = enabled ? file.replace(/\.disabled$/, '') : `${file}.disabled`;
+  if (exists(path.join(pluginsDir, to))) fail(`${to} already exists`);
+  fs.renameSync(path.join(pluginsDir, file), path.join(pluginsDir, to));
+  return { file: to, enabled: Boolean(enabled) };
+}
+
+async function pluginRemove({ file }) {
+  pluginFile(file);
+  if (!exists(path.join(pluginsDir, file))) fail(`${file} not found`);
+  return { removed: file, trashed: trashPlugin(file) };
+}
+
+async function pluginRollback({ file }) {
+  pluginFile(file);
+  const index = readIndex();
+  const previous = index[file];
+  if (!previous || !PLUGIN_FILE_RE.test(previous) || !exists(path.join(previousDir, previous))) fail('No previous version to roll back to');
+  if (exists(path.join(pluginsDir, file))) trashPlugin(file);
+  fs.renameSync(path.join(previousDir, previous), path.join(pluginsDir, previous));
+  delete index[file];
+  writeIndex(index);
+  return { file: previous, rolledBackFrom: file };
+}
+
 // --- dispatch -----------------------------------------------------------------
 
 const TASKS = {
@@ -216,6 +311,10 @@ const TASKS = {
   'world-delete': deleteWorld,
   properties: setProperties,
   'paper-update': paperUpdate,
+  'plugin-install': pluginInstall,
+  'plugin-toggle': pluginToggle,
+  'plugin-remove': pluginRemove,
+  'plugin-rollback': pluginRollback,
 };
 
 function writeResult(file, result) {

@@ -832,6 +832,7 @@ function renderPower(s) {
   $('power-start').disabled = !p.available || p.active === 'active' || busyNow;
   $('power-stop').disabled = !p.available || p.active !== 'active' || busyNow;
   $('power-restart').disabled = !p.available || p.active !== 'active' || busyNow;
+  renderPending(s.pending);
   const m = s.maintenance || {};
   $('maint-toggle').checked = Boolean(m.enabled);
   $('maint-state').textContent = m.enabled ? 'On' : 'Off';
@@ -876,6 +877,257 @@ $('maint-toggle').addEventListener('change', async (e) => {
 });
 
 tabLoaders.server = () => lastStatus && renderPower(lastStatus);
+
+function renderPending(items = []) {
+  $('pending-bar').hidden = !items.length;
+  $('pending-list').textContent = items.length ? `${items.length} change${items.length === 1 ? '' : 's'} wait for the next start: ${items.join(', ')}.` : '';
+  $('pending-restart').disabled = !serverRunning() || Boolean(lastStatus?.restart?.remaining != null);
+}
+$('pending-restart').addEventListener('click', async () => {
+  const delay = delaySelect(60);
+  if (!(await confirmAction({ title: 'Restart to apply changes?', body: 'Players are warned, the world is saved and the server comes straight back with the new settings and plugins.', confirm: 'Restart server', icon: 'restart', content: fld('Restart', delay) }))) return;
+  await startOp('/api/server/power', { action: 'restart', seconds: Number(delay.value) });
+});
+
+// ---------------------------------------------------------------------------
+// Server: settings (server.properties)
+// ---------------------------------------------------------------------------
+
+let settingsSchema = [];
+const settingsForm = $('settings-form');
+
+function settingControl(raw) {
+  const spec = { ...raw, value: raw.value ?? raw.default ?? null };
+  const id = `set-${spec.key}`;
+  const attrs = { id, name: spec.key, 'data-initial': spec.value ?? '' };
+  if (spec.type === 'bool') {
+    return el('label', { class: 'switch' }, el('input', { ...attrs, type: 'checkbox', role: 'switch', checked: spec.value === 'true' || undefined }), el('span', { 'data-switch-label': true }, spec.value === 'true' ? 'On' : 'Off'));
+  }
+  if (spec.type === 'enum') {
+    return el('select', { ...attrs, class: 'field' }, ...spec.values.map((v) => el('option', { value: v, selected: v === spec.value || undefined }, v[0].toUpperCase() + v.slice(1))));
+  }
+  if (spec.type === 'int') return el('input', { ...attrs, class: 'field num', type: 'number', inputmode: 'numeric', min: spec.min, max: spec.max, step: 1, value: spec.value ?? '', placeholder: 'Default' });
+  return el('input', { ...attrs, class: 'field', maxlength: spec.max, value: spec.value ?? '', placeholder: 'Default' });
+}
+
+const controlValue = (c) => (c.type === 'checkbox' ? String(c.checked) : c.value.trim());
+
+function settingsChanges() {
+  const out = [];
+  for (const spec of settingsSchema) {
+    const c = settingsForm.elements[spec.key];
+    if (!c) continue;
+    const v = controlValue(c);
+    const initial = c.dataset.initial;
+    if (c.type === 'checkbox' ? v !== String(initial === 'true') : v !== initial) out.push({ spec, from: initial, to: v, control: c });
+  }
+  return out;
+}
+
+function syncSettingsBar() {
+  const changes = settingsChanges();
+  for (const row of settingsForm.querySelectorAll('.setting')) row.classList.toggle('dirty', changes.some((c) => c.spec.key === row.dataset.key));
+  for (const sw of settingsForm.querySelectorAll('.switch input')) sw.nextElementSibling.textContent = sw.checked ? 'On' : 'Off';
+  $('settings-bar').hidden = !changes.length;
+  $('settings-dirty').textContent = `${changes.length} unsaved change${changes.length === 1 ? '' : 's'}`;
+}
+
+async function loadSettings() {
+  try {
+    const { schema, other, pending } = await api('GET', '/api/settings');
+    settingsSchema = schema;
+    renderPending(pending);
+    const groups = [...new Set(schema.map((s) => s.group))];
+    $('settings-groups').replaceChildren(...groups.map((g) => el('section', { class: 'panel' },
+      el('header', { class: 'panel-head' }, el('h2', {}, g)),
+      el('div', { class: 'settings-list' }, ...schema.filter((s) => s.group === g).map((spec) => el('div', { class: 'setting', 'data-key': spec.key },
+        el('label', { class: 'setting-label', for: `set-${spec.key}` }, el('span', {}, spec.label),
+          el('span', { class: 'setting-key' }, spec.key, spec.value == null ? el('span', { class: 'setting-default' }, 'default') : null, spec.live ? el('span', { class: 'pill own', title: 'Applied immediately over RCON while the server runs' }, 'live') : null),
+          spec.warning ? el('span', { class: 'setting-warn' }, icon('alert'), spec.warning) : null),
+        settingControl(spec)))))));
+    $('settings-other').replaceChildren(...(other.length
+      ? other.map((o) => el('tr', {}, el('td', { class: 'mono-cell' }, o.key), el('td', { class: 'mono-cell' }, o.value === '' ? el('span', { class: 'sub' }, 'empty') : o.value)))
+      : [emptyRow(2, 'No other properties.')]));
+    syncSettingsBar();
+  } catch (e) {
+    $('settings-groups').replaceChildren(el('section', { class: 'panel' }, el('div', { class: 'panel-body note' }, `Can't read server.properties: ${e.message}`)));
+  }
+}
+viewLoaders['server/settings'] = loadSettings;
+
+settingsForm.addEventListener('input', syncSettingsBar);
+settingsForm.addEventListener('change', syncSettingsBar);
+$('settings-discard').addEventListener('click', loadSettings);
+settingsForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const changes = settingsChanges();
+  for (const { spec, control } of changes) {
+    const bad = spec.type === 'int' && (control.value === '' || !control.checkValidity());
+    control.setAttribute('aria-invalid', bad);
+    if (bad) {
+      control.focus();
+      return toast(`${spec.label}: enter a whole number from ${spec.min} to ${spec.max}.`, 'bad');
+    }
+  }
+  if (!changes.length) return;
+  const running = serverRunning();
+  const show = (v) => (v === '' ? 'empty' : v);
+  const diff = el('ul', { class: 'diff' }, ...changes.map(({ spec, from, to }) => el('li', {},
+    el('b', {}, spec.label),
+    el('span', { class: 'diff-values' }, el('del', {}, show(from)), ' → ', el('ins', {}, show(to))),
+    el('span', { class: 'note' }, spec.live && running ? 'Applies now' : 'Applies on next start'))));
+  const risky = changes.some((c) => c.spec.warning && c.to === 'false');
+  if (!(await confirmAction({
+    title: `Apply ${changes.length} change${changes.length === 1 ? '' : 's'}?`,
+    body: risky ? changes.find((c) => c.spec.warning).spec.warning : '',
+    confirm: 'Apply', tone: risky ? 'danger' : 'primary', icon: 'settings', content: diff,
+  }))) return;
+  await busy(settingsForm.querySelector('[type=submit]'), async () => {
+    try {
+      const r = await api('POST', '/api/settings', { set: Object.fromEntries(changes.map((c) => [c.spec.key, c.to])) });
+      toast(r.restart.length ? `Saved. ${r.live.length ? `${r.live.length} applied now, ` : ''}${r.restart.length} on next start.` : 'Saved and applied.');
+      refreshStatus(true);
+      loadSettings();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Server: plugins (Modrinth)
+// ---------------------------------------------------------------------------
+
+let pluginsLoaded = false;
+
+function pluginIcon(url) {
+  if (!url) return el('span', { class: 'plugin-tile' }, icon('plugins'));
+  const img = el('img', { class: 'plugin-tile', src: url, alt: '', loading: 'lazy', width: 32, height: 32 });
+  img.addEventListener('error', () => img.replaceWith(el('span', { class: 'plugin-tile' }, icon('plugins'))));
+  return img;
+}
+
+function pluginJob(btn, method, url, body, message) {
+  return busy(btn, async () => {
+    try {
+      const r = await api(method, url, body);
+      toast(typeof message === 'function' ? message(r) : message);
+      refreshStatus(true);
+      loadPlugins();
+      return true;
+    } catch (e) {
+      toast(e.message, 'bad');
+      return false;
+    }
+  });
+}
+
+function pluginButton(label, iconName, fn, { danger, primary } = {}) {
+  const btn = el('button', { class: `btn btn-sm ${primary ? 'btn-primary' : 'btn-quiet'}${danger ? ' danger' : ''}` }, icon(iconName), label);
+  btn.addEventListener('click', () => fn(btn));
+  return btn;
+}
+
+function pluginRow(p) {
+  const file = encodeURIComponent(p.file);
+  const meta = [p.version ? `v${p.version}` : null, p.authors.length ? `by ${p.authors.join(', ')}` : null].filter(Boolean).join(' · ');
+  return el('tr', { class: p.enabled ? null : 'off' },
+    el('td', { class: 'primary-cell', 'data-label': 'Plugin' },
+      el('div', { class: 'plugin' }, pluginIcon(p.modrinth?.icon),
+        el('div', {},
+          el('span', {}, p.modrinth?.title || p.name, ' ',
+            !p.enabled ? el('span', { class: 'pill' }, 'Disabled') : null,
+            p.update ? el('span', { class: 'pill own' }, icon('updates'), `${p.update.version} available`) : null,
+            p.error ? el('span', { class: 'pill bad' }, icon('alert'), p.error) : null),
+          el('span', { class: 'sub' }, meta || p.file),
+          p.description ? el('span', { class: 'sub clamp' }, p.description) : null))),
+    el('td', { 'data-label': 'Source' }, p.modrinth
+      ? el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(p.modrinth.slug || p.modrinth.projectId)}`, target: '_blank', rel: 'noopener' }, 'Modrinth')
+      : el('span', { class: 'sub' }, 'Unknown source')),
+    el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(p.size)),
+    el('td', { class: 'act' },
+      p.update ? pluginButton('Update', 'updates', (b) => updatePlugin(p, b), { primary: true }) : null,
+      p.canRollback ? pluginButton('Roll back', 'rollback', (b) => rollbackPlugin(p, b)) : null,
+      pluginButton(p.enabled ? 'Disable' : 'Enable', p.enabled ? 'pause' : 'play', (b) =>
+        pluginJob(b, 'POST', `/api/plugins/${file}/toggle`, { enabled: !p.enabled }, `${p.name} ${p.enabled ? 'disabled' : 'enabled'}. Restart to apply.`)),
+      pluginButton('Remove', 'delete', (b) => removePlugin(p, b), { danger: true })));
+}
+
+async function updatePlugin(p, btn) {
+  if (!(await confirmAction({
+    title: `Update ${p.modrinth?.title || p.name}?`,
+    body: `${p.version || p.file} → ${p.update.version}. The current jar is kept so you can roll back. The new version loads on the next start.`,
+    confirm: 'Update', icon: 'updates',
+  }))) return;
+  await pluginJob(btn, 'POST', `/api/plugins/${encodeURIComponent(p.file)}/update`, null, (r) => `Installed ${r.file}. Restart to apply.`);
+}
+
+async function rollbackPlugin(p, btn) {
+  if (!(await confirmAction({ title: `Roll back ${p.name}?`, body: 'Puts the jar from before the last update back. Applies on the next start.', confirm: 'Roll back', icon: 'rollback' }))) return;
+  await pluginJob(btn, 'POST', `/api/plugins/${encodeURIComponent(p.file)}/rollback`, null, (r) => `Rolled back to ${r.file}. Restart to apply.`);
+}
+
+async function removePlugin(p, btn) {
+  if (!(await confirmAction({
+    title: `Remove ${p.name}?`,
+    body: `${p.file} is moved to the plugin trash in the backup folder. Its config folder in plugins/ is left alone. The server unloads it on the next start.`,
+    confirm: 'Remove plugin', tone: 'danger', icon: 'delete',
+  }))) return;
+  await pluginJob(btn, 'DELETE', `/api/plugins/${encodeURIComponent(p.file)}`, null, `${p.name} removed. Restart to apply.`);
+}
+
+async function loadPlugins(refresh) {
+  if (!pluginsLoaded) skeletonRows($('plugin-list'), 4);
+  const btn = $('plugins-refresh');
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    const o = await api('GET', `/api/plugins${refresh ? '?refresh' : ''}`);
+    pluginsLoaded = true;
+    renderPending(o.pending);
+    const updates = o.plugins.filter((p) => p.update).length;
+    $('plugins-info').textContent = o.remoteError
+      ? `${o.plugins.length} jar${o.plugins.length === 1 ? '' : 's'}. Can't reach Modrinth: ${o.remoteError}`
+      : `${o.plugins.length} jar${o.plugins.length === 1 ? '' : 's'} for Minecraft ${o.gameVersion || '?'}${updates ? `, ${updates} update${updates === 1 ? '' : 's'} available` : ''}. Changes apply on the next start.`;
+    if (refresh) toast(o.remoteError ? `Couldn't check Modrinth: ${o.remoteError}` : updates ? `${updates} update${updates === 1 ? '' : 's'} available.` : 'All Modrinth plugins are up to date.', o.remoteError ? 'bad' : 'ok');
+    $('plugin-list').replaceChildren(...(o.plugins.length
+      ? o.plugins.map(pluginRow)
+      : [emptyRow(4, el('b', {}, 'No plugins yet. '), 'Search Modrinth below to add one; squaremap gives you a live web map.')]));
+  } catch (e) {
+    $('plugin-list').replaceChildren(emptyRow(4, `Can't list plugins: ${e.message}`));
+  } finally {
+    btn.removeAttribute('aria-busy');
+  }
+}
+viewLoaders['server/plugins'] = () => loadPlugins();
+$('plugins-refresh').addEventListener('click', () => loadPlugins(true));
+
+$('plugin-search').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = e.target.elements.q.value.trim();
+  if (!q) return;
+  const table = $('plugin-results-table');
+  await busy(e.target.querySelector('button'), async () => {
+    try {
+      const { results } = await api('GET', `/api/plugins/search?q=${encodeURIComponent(q)}`);
+      table.hidden = false;
+      $('plugin-results').replaceChildren(...(results.length
+        ? results.map((r) => el('tr', {},
+            el('td', { class: 'primary-cell', 'data-label': 'Plugin' }, el('div', { class: 'plugin' }, pluginIcon(r.icon),
+              el('div', {}, el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(r.slug)}`, target: '_blank', rel: 'noopener' }, r.title), el('span', { class: 'sub clamp' }, r.description)))),
+            el('td', { 'data-label': 'Author' }, r.author),
+            el('td', { class: 'num', 'data-label': 'Downloads' }, new Intl.NumberFormat(undefined, { notation: 'compact' }).format(r.downloads)),
+            el('td', { class: 'act' }, r.installed
+              ? el('span', { class: 'pill own' }, icon('check'), 'Installed')
+              : pluginButton('Install', 'download', async (b) => {
+                  if (!(await confirmAction({ title: `Install ${r.title}?`, body: `The newest release for this server is downloaded from Modrinth, checked, and loaded on the next start.`, confirm: 'Install', icon: 'plugins' }))) return;
+                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id }, (x) => `Installed ${x.file}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
+                }, { primary: true }))))
+        : [emptyRow(4, `Nothing on Modrinth matches “${q}” for this server.`)]));
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Schedule

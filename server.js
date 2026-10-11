@@ -18,6 +18,9 @@ const { Ops } = require('./lib/ops');
 const { Worlds } = require('./lib/worlds');
 const { Maintenance } = require('./lib/maintenance');
 const { readProperties } = require('./lib/access');
+const { Pending } = require('./lib/pending');
+const { Plugins } = require('./lib/plugins');
+const settingsSchema = require('./lib/settings');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp } = require('./lib/auth');
 
 if (!config.rconPassword) {
@@ -38,7 +41,10 @@ const countdown = new Countdown({ rcon, log, power });
 const ops = new Ops({ log });
 const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs, backups, power, countdown, ops, rcon, log });
 const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
+const pending = new Pending({ stateDir: config.stateDir, power });
 const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log });
+const gameVersion = async () => (await updates.installed())?.version || null;
+const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion });
 const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log });
 const users = new Users(config.stateDir);
 const sessions = new Sessions();
@@ -82,7 +88,7 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Content-Security-Policy':
-    "default-src 'self'; img-src 'self' https://mc-heads.net; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'self'; img-src 'self' https://mc-heads.net https://cdn.modrinth.com; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 };
 
 const httpError = (status, message, extra) => Object.assign(new Error(message), { status, extra });
@@ -274,6 +280,7 @@ route('GET', /^\/api\/status$/, async () => ({
   backup: backups.state,
   update: updates.state,
   op: ops.state,
+  pending: await pending.list(),
 }));
 
 // --- server power & maintenance ---------------------------------------------
@@ -312,6 +319,71 @@ route('POST', /^\/api\/maintenance$/, async (req) => {
   const { enabled, message } = await readJson(req);
   return enabled ? maintenance.enable({ user: req.user, message }) : maintenance.disable({ user: req.user });
 });
+
+// --- settings (server.properties) ------------------------------------------
+
+route('GET', /^\/api\/settings$/, async () => {
+  const values = await readProperties(config.mcDir);
+  const editable = new Set(settingsSchema.EDITABLE.map((e) => e.key));
+  const worldKeys = new Set(settingsSchema.WORLD_KEYS.map((e) => e.key));
+  return {
+    schema: settingsSchema.EDITABLE.map(({ live, ...spec }) => ({ ...spec, live: Boolean(live), value: values[spec.key] ?? null })),
+    other: Object.entries(values)
+      .filter(([k]) => !editable.has(k) && !worldKeys.has(k))
+      .map(([key, value]) => ({ key, value: settingsSchema.SECRET_KEYS.has(key) ? (value ? '••••••••' : '') : value })),
+    pending: await pending.list(),
+  };
+});
+
+route('POST', /^\/api\/settings$/, async (req) => {
+  const { set } = await readJson(req);
+  let updates;
+  try {
+    updates = settingsSchema.normalizeAll(set);
+  } catch (err) {
+    throw httpError(400, err.message);
+  }
+  const current = await readProperties(config.mcDir);
+  const changed = Object.fromEntries(Object.entries(updates).filter(([k, v]) => current[k] !== v));
+  if (!Object.keys(changed).length) throw httpError(400, 'Nothing changed');
+  await jobs.run('properties', { set: changed });
+  log(`${req.user}: settings ${Object.entries(changed).map(([k, v]) => `${k}=${v}`).join(', ')}`);
+  const live = [];
+  const restart = [];
+  const running = (await power.state()).active === 'active';
+  for (const [key, value] of Object.entries(changed)) {
+    const spec = settingsSchema.EDITABLE.find((e) => e.key === key);
+    if (spec.live && running) {
+      try {
+        await rcon.send(spec.live(value));
+        live.push(key);
+        continue;
+      } catch {}
+    }
+    restart.push(key);
+    pending.add(`setting ${key}`);
+  }
+  return { changed, live, restart };
+});
+
+// --- plugins -----------------------------------------------------------------
+
+const pluginFile = (raw) => plugins.checkFile(decodeURIComponent(raw));
+
+route('GET', /^\/api\/plugins$/, async (req) => plugins.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
+route('GET', /^\/api\/plugins\/search$/, async (req) => ({ results: await plugins.search(new URL(req.url, 'http://x').searchParams.get('q')) }));
+route('POST', /^\/api\/plugins$/, async (req) => {
+  const { projectId } = await readJson(req);
+  if (!/^[A-Za-z0-9_-]{2,64}$/.test(String(projectId || ''))) throw httpError(400, 'Invalid project');
+  return plugins.install(projectId, req.user);
+});
+route('POST', /^\/api\/plugins\/([^/]+)\/update$/, async (req, res, [f]) => plugins.update(pluginFile(f), req.user));
+route('POST', /^\/api\/plugins\/([^/]+)\/toggle$/, async (req, res, [f]) => {
+  const { enabled } = await readJson(req);
+  return plugins.change('plugin-toggle', pluginFile(f), { enabled: Boolean(enabled) }, req.user);
+});
+route('POST', /^\/api\/plugins\/([^/]+)\/rollback$/, async (req, res, [f]) => plugins.change('plugin-rollback', pluginFile(f), {}, req.user));
+route('DELETE', /^\/api\/plugins\/([^/]+)$/, async (req, res, [f]) => plugins.change('plugin-remove', pluginFile(f), {}, req.user));
 
 // --- worlds ---------------------------------------------------------------------
 
