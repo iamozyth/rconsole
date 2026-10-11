@@ -7,10 +7,11 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 
 - **Console**: live server log (chat, joins, warnings, errors) with filter and chat-only view, plus a command prompt with history (↑/↓)
 - **Stats**: TPS/MSPT, players, in-game day and time, host CPU, RAM, disk and uptime
-- **Players**: whitelist (with on/off switch), operators, banned players and IPs, with one-click add and remove
+- **Players**: whitelist (with on/off switch), operators, banned players and IPs, with one-click add and remove; history of everyone who played (sessions, playtime, last IP, daily activity) built from the server logs
 - **Server**: start, stop and restart the Minecraft service with in-game countdowns; maintenance mode (only operators can join, whitelist restored afterwards)
 - **Worlds**: switch between worlds, create new ones (seed, type), delete with an automatic archive
 - **Backups**: per-world backups (autosave paused during the copy), download, delete, per-world retention, and restore, either over a world (with a safety backup, stopping the server if needed) or as a new world
+- **Insights**: 24 h and 7 day charts of TPS, players, CPU and memory (host and Minecraft process) with downtime marked; search across `latest.log` and all rotated `.log.gz` files; a filterable audit trail of every change and sign-in
 - **Schedule**: daily or weekly restarts with in-game countdown warnings, backups and arbitrary commands
 - **Settings**: edit `server.properties` through a typed form with a review step; difficulty, game mode and whitelist apply live, everything else is flagged "restart to apply"
 - **Plugins**: identify installed jars on Modrinth by hash, update (with rollback), enable/disable, remove, and search and install new plugins for your Minecraft version, SHA-512 verified
@@ -24,7 +25,7 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 - **2FA**: optional TOTP per user, with replay protection.
 - **Brute force**: 5 failed logins per client IP or per username within 15 minutes lock that IP or name for 15 minutes.
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.
-- **Audit**: every command, backup, restart and login is logged with the user name (`journalctl -u rconsole`).
+- **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.
 - **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
 - **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
 - **polkit** lets the `rconsole` user start exactly these job units and start/stop/restart `minecraft.service`, nothing else. rconsole can't run arbitrary code as the Minecraft user, and updates only install downloads whose hash matches the publisher's API.
@@ -186,6 +187,12 @@ The **Updates** tab reads the running Paper version from the server log and list
 **Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
 
 If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-net@*'` or `journalctl -u 'rconsole-job@*'`.
+
+## Insights
+
+- **Metrics** are sampled every 30 seconds while rconsole runs: TPS/MSPT, players online, host CPU and memory, and the Minecraft process's CPU and RSS (from `/proc/<MainPID>`, so it needs `MC_SERVICE` to be readable via `systemctl show`). 24 hours are kept at full resolution and 7 days as 5-minute averages, in `/var/lib/rconsole/metrics.json`.
+- **Player history** is rebuilt from `logs/latest.log` and `logs/*.log.gz`. What has been read from rotated logs is cached in `/var/lib/rconsole/players.json`, so history survives old logs being deleted. Log lines only carry a time of day; dates come from the rotated file names and the last write of `latest.log`.
+- **Log search** reads newest first and stops at 500 matches or after 8 seconds; use the date range to reach further back.
 
 ## Plugins
 

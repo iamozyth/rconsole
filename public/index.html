@@ -67,6 +67,7 @@
     <button role="tab" data-tab="worlds" aria-selected="false" aria-controls="tab-worlds"><span class="tile"><svg><use href="#pg-worlds"/></svg></span><span class="label">Worlds</span></button>
     <button role="tab" data-tab="server" aria-selected="false" aria-controls="tab-server"><span class="tile"><svg><use href="#pg-server"/></svg></span><span class="label">Server</span></button>
     <button role="tab" data-tab="schedule" aria-selected="false" aria-controls="tab-schedule"><span class="tile"><svg><use href="#pg-schedule"/></svg></span><span class="label">Schedule</span></button>
+    <button role="tab" data-tab="insights" aria-selected="false" aria-controls="tab-insights"><span class="tile"><svg><use href="#pg-insights"/></svg></span><span class="label">Insights</span></button>
   </nav>
   <div class="rail-foot">
     <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Early preview</a>
@@ -164,6 +165,11 @@
 
     <!-- Players -->
     <section class="area" id="tab-players" role="tabpanel" hidden>
+      <div class="subnav segmented" role="tablist" aria-label="Players sections">
+        <button role="tab" data-view="access" aria-selected="true">Access</button>
+        <button role="tab" data-view="history" aria-selected="false">History</button>
+      </div>
+      <div class="view" data-view="access">
       <div class="area-error" id="access-error" role="alert" hidden></div>
       <div class="grid-2">
         <section class="panel">
@@ -205,6 +211,25 @@
             <button class="btn btn-danger"><svg><use href="#pg-ban"/></svg>Ban IP</button>
           </form>
           <ul class="people" id="list-ipbans"></ul>
+        </section>
+      </div>
+      </div>
+
+      <div class="view" data-view="history" hidden>
+        <dl class="kpis" id="ph-kpis"></dl>
+        <section class="panel">
+          <header class="panel-head"><div class="head-text"><h2>Daily activity</h2><p class="note">Hours played per day over the last 30 days, from the server logs.</p></div></header>
+          <div class="panel-body"><div class="chart" id="ph-daily"></div></div>
+        </section>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Everyone who played</h2><p class="note" id="ph-info"></p></div>
+            <input class="field ph-filter" id="ph-filter" type="search" placeholder="Filter by name" aria-label="Filter players" maxlength="16">
+          </header>
+          <table class="table">
+            <thead><tr><th>Player</th><th>Last seen</th><th>First seen</th><th class="num">Sessions</th><th class="num">Playtime</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="ph-list"></tbody>
+          </table>
         </section>
       </div>
     </section>
@@ -435,6 +460,61 @@
           <table class="table">
             <thead><tr><th>Version</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
             <tbody id="upd-versions"></tbody>
+          </table>
+        </section>
+      </div>
+    </section>
+    <!-- Insights -->
+    <section class="area" id="tab-insights" role="tabpanel" hidden>
+      <div class="subnav segmented" role="tablist" aria-label="Insights sections">
+        <button role="tab" data-view="metrics" aria-selected="true">Metrics</button>
+        <button role="tab" data-view="logs" aria-selected="false">Log search</button>
+        <button role="tab" data-view="audit" aria-selected="false">Audit</button>
+      </div>
+
+      <div class="view" data-view="metrics">
+        <div class="metrics-head">
+          <div class="segmented" role="radiogroup" aria-label="Time range" id="m-range">
+            <button role="radio" aria-checked="false" data-range="1h">1 h</button>
+            <button role="radio" aria-checked="false" data-range="6h">6 h</button>
+            <button role="radio" aria-checked="true" data-range="24h">24 h</button>
+            <button role="radio" aria-checked="false" data-range="7d">7 days</button>
+          </div>
+          <p class="note" id="m-info"></p>
+        </div>
+        <div class="grid-2 charts">
+          <section class="panel"><header class="panel-head"><h2>TPS</h2><dl class="chart-stats" id="ms-tps"></dl></header><div class="chart" id="mc-tps"></div></section>
+          <section class="panel"><header class="panel-head"><h2>Players online</h2><dl class="chart-stats" id="ms-players"></dl></header><div class="chart" id="mc-players"></div></section>
+          <section class="panel"><header class="panel-head"><h2>CPU</h2><dl class="chart-stats" id="ms-cpu"></dl></header><div class="chart" id="mc-cpu"></div></section>
+          <section class="panel"><header class="panel-head"><h2>Memory</h2><dl class="chart-stats" id="ms-mem"></dl></header><div class="chart" id="mc-mem"></div></section>
+        </div>
+      </div>
+
+      <div class="view" data-view="logs" hidden>
+        <section class="panel">
+          <form class="panel-body log-search" id="ls-form" role="search">
+            <label class="fld wide"><span>Text</span><input class="field" name="q" type="search" maxlength="200" placeholder="e.g. Can't keep up" autocomplete="off"></label>
+            <label class="fld"><span>Player</span><input class="field" name="player" maxlength="16" placeholder="Any" autocomplete="off"></label>
+            <label class="fld"><span>Level</span><select class="field" name="level"><option value="">Any</option><option value="WARN">Warnings and errors</option><option value="ERROR">Errors</option><option value="INFO">Info</option></select></label>
+            <label class="fld"><span>From</span><input class="field" name="from" type="date"></label>
+            <label class="fld"><span>To</span><input class="field" name="to" type="date"></label>
+            <div class="form-actions"><p class="note" id="ls-info">Searches latest.log and every rotated log, newest first. Up to 500 matches.</p><button class="btn btn-primary"><svg><use href="#pg-search"/></svg>Search logs</button></div>
+          </form>
+          <ol class="log-results" id="ls-results" hidden></ol>
+        </section>
+      </div>
+
+      <div class="view" data-view="audit" hidden>
+        <section class="panel">
+          <form class="panel-body audit-filters" id="au-form">
+            <label class="fld"><span>User</span><select class="field" name="user"><option value="">Everyone</option></select></label>
+            <label class="fld"><span>Action</span><select class="field" name="action"><option value="">All actions</option></select></label>
+            <label class="fld wide"><span>Contains</span><input class="field" name="q" type="search" maxlength="100" placeholder="World, command, IP…" autocomplete="off"></label>
+            <label class="check"><input type="checkbox" name="failed"><span>Failed only</span></label>
+          </form>
+          <table class="table audit">
+            <thead><tr><th>When</th><th>User</th><th>Action</th><th>Details</th></tr></thead>
+            <tbody id="au-list"></tbody>
           </table>
         </section>
       </div>

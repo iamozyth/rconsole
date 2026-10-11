@@ -155,6 +155,7 @@ const AREAS = {
   worlds: { name: 'Worlds', icon: 'worlds' },
   server: { name: 'Server', icon: 'server' },
   schedule: { name: 'Schedule', icon: 'schedule' },
+  insights: { name: 'Insights', icon: 'insights' },
 };
 // Old bookmarks keep working.
 const ALIASES = { backups: 'worlds', updates: 'server/updates' };
@@ -1349,6 +1350,420 @@ async function upgradeVersion(version, btn) {
 
 $('upd-refresh').addEventListener('click', () => loadUpdates(true));
 $('upd-rollback').addEventListener('click', () => startUpdate({ rollback: true }, { title: 'Roll back to the previous jar?', body: 'Swaps the server jar back to the one before the last update.', confirm: 'Roll back', tone: 'primary', icon: 'rollback' }));
+
+// ---------------------------------------------------------------------------
+// Charts (inline SVG, drawn at the container's real width)
+// ---------------------------------------------------------------------------
+
+function svgEl(tag, attrs = {}, ...children) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null) node.setAttribute(k, v);
+  node.append(...children);
+  return node;
+}
+
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const p = 10 ** Math.floor(Math.log10(v));
+  return [1, 2, 2.5, 5, 10].map((m) => m * p).find((m) => m >= v);
+}
+
+const timeLabel = (ms, span) => new Date(ms).toLocaleString(undefined, span > 2 * 86400000 ? { weekday: 'short', day: 'numeric' } : { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+const charts = new Map(); // box -> { draw, data }
+const chartObserver = new ResizeObserver((entries) => {
+  for (const e of entries) {
+    const c = charts.get(e.target);
+    if (c && Math.abs(e.contentRect.width - (c.width || 0)) > 4) c.draw();
+  }
+});
+
+function chartTip(box) {
+  let tip = box.querySelector('.chart-tip');
+  if (!tip) {
+    tip = el('div', { class: 'chart-tip', hidden: true });
+    box.append(tip);
+  }
+  return tip;
+}
+
+// o: { t: [ms], from, to, step (s), series: [{ values, label, fmt, cls }], max, yFmt, up: [0|1] }
+function lineChart(box, o) {
+  const draw = () => {
+    const W = box.clientWidth || 600;
+    const H = 168;
+    const L = 44, R = 10, T = 10, B = 24;
+    charts.get(box).width = W;
+    const all = o.series.flatMap((s) => s.values).filter((v) => v != null);
+    const max = o.max ?? niceMax(Math.max(...all, o.minMax || 0));
+    const x = (t) => L + ((t - o.from) / (o.to - o.from)) * (W - L - R);
+    const y = (v) => T + (1 - Math.min(v, max) / max) * (H - T - B);
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'chart-svg', role: 'img', 'aria-label': o.label });
+    for (let i = 0; i <= 4; i++) {
+      const v = (max * i) / 4;
+      svg.append(svgEl('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: i ? 'grid' : 'axis' }),
+        svgEl('text', { x: L - 6, y: y(v) + 4, class: 'ylab' }, o.yFmt(v)));
+    }
+    const span = o.to - o.from;
+    const ticks = W < 480 ? 3 : 5;
+    for (let i = 0; i <= ticks; i++) {
+      const t = o.from + (span * i) / ticks;
+      svg.append(svgEl('text', { x: x(t), y: H - 6, class: `xlab${i === 0 ? ' first' : i === ticks ? ' last' : ''}` }, timeLabel(t, span)));
+    }
+    const gap = o.step * 2500;
+    // Downtime: shade stretches where the server was down.
+    if (o.up) {
+      let start = null;
+      o.t.forEach((t, i) => {
+        if (o.up[i] === 0 && start == null) start = t;
+        if ((o.up[i] !== 0 || i === o.t.length - 1) && start != null) {
+          const end = o.up[i] === 0 ? t + o.step * 1000 : t;
+          svg.append(svgEl('rect', { x: x(start), y: T, width: Math.max(2, x(end) - x(start)), height: H - T - B, class: 'down' }));
+          start = null;
+        }
+      });
+    }
+    o.series.forEach((s, si) => {
+      let d = '';
+      let fill = '';
+      let seg = [];
+      const flush = () => {
+        if (seg.length) fill += `M${seg[0][0]},${y(0)}L${seg.map((p) => p.join(',')).join('L')}L${seg[seg.length - 1][0]},${y(0)}Z`;
+        seg = [];
+      };
+      o.t.forEach((t, i) => {
+        const v = s.values[i];
+        if (v == null) return flush();
+        const pt = [x(t).toFixed(1), y(v).toFixed(1)];
+        const prevT = o.t[i - 1];
+        const broken = !seg.length || t - prevT > gap || s.values[i - 1] == null;
+        if (broken) flush();
+        d += `${broken ? 'M' : 'L'}${pt.join(',')}`;
+        seg.push(pt);
+      });
+      flush();
+      if (si === 0 && fill) svg.append(svgEl('path', { d: fill, class: 'fill' }));
+      if (d) svg.append(svgEl('path', { d, class: `line ${s.cls || ''}` }));
+    });
+    const cursor = svgEl('line', { y1: T, y2: H - B, class: 'cursor', visibility: 'hidden' });
+    const dots = o.series.map((s) => svgEl('circle', { r: 3.5, class: `dot ${s.cls || ''}`, visibility: 'hidden' }));
+    svg.append(cursor, ...dots);
+    const empty = !o.t.length ? svgEl('text', { x: (L + W - R) / 2, y: (T + H - B) / 2, class: 'empty' }, 'No samples yet') : null;
+    if (empty) svg.append(empty);
+    const tip = chartTip(box);
+    svg.addEventListener('pointermove', (e) => {
+      if (!o.t.length) return;
+      const r = svg.getBoundingClientRect();
+      const px = e.clientX - r.left;
+      const t = o.from + ((px - L) / (W - L - R)) * span;
+      let i = o.t.findIndex((v) => v >= t);
+      if (i < 0) i = o.t.length - 1;
+      if (i > 0 && t - o.t[i - 1] < o.t[i] - t) i--;
+      const cx = x(o.t[i]);
+      cursor.setAttribute('x1', cx);
+      cursor.setAttribute('x2', cx);
+      cursor.setAttribute('visibility', 'visible');
+      o.series.forEach((s, si) => {
+        const v = s.values[i];
+        dots[si].setAttribute('visibility', v == null ? 'hidden' : 'visible');
+        if (v != null) { dots[si].setAttribute('cx', cx); dots[si].setAttribute('cy', y(v)); }
+      });
+      tip.replaceChildren(el('b', {}, new Date(o.t[i]).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })),
+        ...o.series.map((s) => el('span', { class: `tip-row ${s.cls || ''}` }, el('i'), `${s.label}: `, el('b', {}, s.values[i] == null ? '–' : s.fmt(s.values[i])))),
+        ...(o.up && o.up[i] === 0 ? [el('span', { class: 'tip-row' }, 'Server down')] : []));
+      tip.hidden = false;
+      tip.style.left = `${Math.min(Math.max(cx, 80), W - 80)}px`;
+    });
+    svg.addEventListener('pointerleave', () => {
+      tip.hidden = true;
+      cursor.setAttribute('visibility', 'hidden');
+      dots.forEach((d) => d.setAttribute('visibility', 'hidden'));
+    });
+    box.querySelector('svg')?.remove();
+    box.prepend(svg);
+    if (o.series.length > 1 && !box.querySelector('.legend')) {
+      box.append(el('div', { class: 'legend' }, ...o.series.map((s) => el('span', { class: s.cls || '' }, el('i'), s.label))));
+    }
+  };
+  if (!charts.has(box)) chartObserver.observe(box);
+  charts.set(box, { draw, width: 0 });
+  draw();
+}
+
+function barChart(box, bars, { label, fmt: valueFmt, detail }) {
+  const draw = () => {
+    const W = box.clientWidth || 600;
+    const H = 150;
+    const L = 44, R = 10, T = 10, B = 24;
+    charts.get(box).width = W;
+    const max = niceMax(Math.max(...bars.map((b) => b.value), 0));
+    const bw = (W - L - R) / Math.max(bars.length, 1);
+    const y = (v) => T + (1 - v / max) * (H - T - B);
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'chart-svg', role: 'img', 'aria-label': label });
+    for (let i = 0; i <= 4; i++) {
+      const v = (max * i) / 4;
+      svg.append(svgEl('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: i ? 'grid' : 'axis' }), svgEl('text', { x: L - 6, y: y(v) + 4, class: 'ylab' }, valueFmt(v)));
+    }
+    const tip = chartTip(box);
+    bars.forEach((b, i) => {
+      const bx = L + i * bw;
+      if (i % Math.ceil(bars.length / 6) === 0) svg.append(svgEl('text', { x: bx + bw / 2, y: H - 6, class: 'xlab' }, b.label));
+      const rect = svgEl('rect', { x: bx + bw * 0.15, width: bw * 0.7, y: y(b.value), height: Math.max(b.value ? 1.5 : 0, y(0) - y(b.value)), class: 'bar' });
+      const hit = svgEl('rect', { x: bx, width: bw, y: T, height: H - T - B, class: 'hit' });
+      hit.addEventListener('pointerenter', () => {
+        tip.replaceChildren(el('b', {}, b.title), ...detail(b).map((d) => el('span', { class: 'tip-row' }, d)));
+        tip.hidden = false;
+        tip.style.left = `${Math.min(Math.max(bx + bw / 2, 80), W - 80)}px`;
+        rect.classList.add('on');
+      });
+      hit.addEventListener('pointerleave', () => {
+        tip.hidden = true;
+        rect.classList.remove('on');
+      });
+      svg.append(rect, hit);
+    });
+    box.querySelector('svg')?.remove();
+    box.prepend(svg);
+  };
+  if (!charts.has(box)) chartObserver.observe(box);
+  charts.set(box, { draw, width: 0 });
+  draw();
+}
+
+const statList = (id, items) => $(id).replaceChildren(...items.filter(Boolean).map(([k, v]) => el('div', {}, el('dt', {}, k), el('dd', {}, v))));
+const nums = (a) => a.filter((v) => v != null);
+const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+const lastOf = (a) => [...a].reverse().find((v) => v != null) ?? null;
+
+// ---------------------------------------------------------------------------
+// Insights: metrics
+// ---------------------------------------------------------------------------
+
+let metricsRange = '24h';
+
+async function loadMetrics() {
+  try {
+    const m = await api('GET', `/api/metrics?range=${metricsRange}`);
+    const base = { t: m.t, from: m.from, to: m.to, step: m.step, up: m.up };
+    const pct = (v) => fmt.pct(v);
+    const n = m.t.length;
+    $('m-info').textContent = n
+      ? `${n} sample${n === 1 ? '' : 's'}, ${m.step === 30 ? 'every 30 seconds' : '5-minute averages'}. Shaded: server down.`
+      : 'Collecting. The first sample arrives within 30 seconds; history builds up from there.';
+    const tps = nums(m.tps);
+    lineChart($('mc-tps'), { ...base, label: 'TPS', max: 20, yFmt: (v) => String(Math.round(v)), series: [{ values: m.tps, label: 'TPS', fmt: (v) => v.toFixed(1) }] });
+    statList('ms-tps', [['Now', lastOf(m.tps)?.toFixed(1) ?? '–'], ['Avg', avg(tps)?.toFixed(1) ?? '–'], ['Low', tps.length ? Math.min(...tps).toFixed(1) : '–']]);
+    const pl = nums(m.players);
+    lineChart($('mc-players'), { ...base, label: 'Players online', minMax: 4, yFmt: (v) => (Number.isInteger(v) ? String(v) : ''), series: [{ values: m.players, label: 'Players', fmt: String }] });
+    statList('ms-players', [['Now', lastOf(m.players) ?? '–'], ['Peak', pl.length ? Math.max(...pl) : '–']]);
+    lineChart($('mc-cpu'), { ...base, label: 'CPU', max: 1, yFmt: pct, series: [{ values: m.cpu, label: 'Host', fmt: pct }, { values: m.pcpu, label: 'Minecraft', fmt: pct, cls: 'alt' }] });
+    statList('ms-cpu', [['Host', lastOf(m.cpu) != null ? pct(lastOf(m.cpu)) : '–'], ['Minecraft', lastOf(m.pcpu) != null ? pct(lastOf(m.pcpu)) : '–']]);
+    lineChart($('mc-mem'), { ...base, label: 'Memory', max: 1, yFmt: pct, series: [{ values: m.mem, label: 'Host used', fmt: pct }] });
+    statList('ms-mem', [['Host', lastOf(m.mem) != null ? pct(lastOf(m.mem)) : '–'], ['Minecraft RSS', lastOf(m.rss) != null ? fmt.bytes(lastOf(m.rss)) : '–']]);
+  } catch (e) {
+    $('m-info').textContent = `Can't load metrics: ${e.message}`;
+  }
+}
+viewLoaders['insights/metrics'] = loadMetrics;
+
+$('m-range').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-range]');
+  if (!b) return;
+  metricsRange = b.dataset.range;
+  for (const x of $('m-range').querySelectorAll('[data-range]')) x.setAttribute('aria-checked', x === b);
+  loadMetrics();
+});
+setInterval(() => {
+  if (!document.hidden && document.body.dataset.area === 'insights' && currentView('insights') === 'metrics') loadMetrics();
+}, 30000);
+
+// ---------------------------------------------------------------------------
+// Insights: log search
+// ---------------------------------------------------------------------------
+
+function highlight(text, needle) {
+  if (!needle) return [text];
+  const out = [];
+  const low = text.toLowerCase();
+  let i = 0;
+  for (let j = low.indexOf(needle); j >= 0 && out.length < 40; j = low.indexOf(needle, i)) {
+    out.push(text.slice(i, j), el('mark', {}, text.slice(j, j + needle.length)));
+    i = j + needle.length;
+  }
+  out.push(text.slice(i));
+  return out;
+}
+
+async function searchLogsUi() {
+  const f = $('ls-form').elements;
+  const params = new URLSearchParams();
+  for (const k of ['q', 'player', 'level', 'from', 'to']) if (f[k].value.trim()) params.set(k, f[k].value.trim());
+  if (![...params.keys()].some((k) => ['q', 'player', 'level'].includes(k))) {
+    f.q.focus();
+    return toast('Enter some text, a player or a level to search for.', 'bad');
+  }
+  const list = $('ls-results');
+  await busy($('ls-form').querySelector('.btn-primary'), async () => {
+    try {
+      const r = await api('GET', `/api/logs/search?${params}`);
+      const needle = f.q.value.trim().toLowerCase();
+      list.hidden = false;
+      list.replaceChildren(...(r.results.length
+        ? r.results.map((x) => el('li', { class: `lvl-${x.level.toLowerCase()}` },
+            el('time', { datetime: new Date(x.t).toISOString(), title: x.file }, new Date(x.t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })),
+            el('span', { class: 'lvl' }, x.level),
+            el('span', { class: 'msg' }, ...highlight(x.msg, needle))))
+        : [el('li', { class: 'empty-state' }, 'No matching lines.')]));
+      $('ls-info').textContent = `${r.results.length}${r.truncated ? '+' : ''} match${r.results.length === 1 ? '' : 'es'} in ${r.scanned} of ${r.files} log file${r.files === 1 ? '' : 's'}${r.truncated ? '. Showing the newest 500; narrow the search for more.' : r.timedOut ? '. Stopped early to keep the server responsive; narrow the dates for older logs.' : '.'}`;
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+$('ls-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  searchLogsUi();
+});
+
+function searchPlayerLogs(name) {
+  const f = $('ls-form').elements;
+  $('ls-form').reset();
+  f.player.value = name;
+  showTab('insights/logs');
+  searchLogsUi();
+}
+
+// ---------------------------------------------------------------------------
+// Insights: audit
+// ---------------------------------------------------------------------------
+
+function fillSelect(select, values, allLabel) {
+  const cur = select.value;
+  select.replaceChildren(el('option', { value: '' }, allLabel), ...values.map((v) => el('option', { value: v, selected: v === cur || undefined }, v)));
+}
+
+let auditTimer;
+async function loadAudit() {
+  const f = $('au-form').elements;
+  const params = new URLSearchParams();
+  for (const k of ['user', 'action', 'q']) if (f[k].value.trim()) params.set(k, f[k].value.trim());
+  if (f.failed.checked) params.set('failed', '1');
+  try {
+    const r = await api('GET', `/api/audit?${params}`);
+    fillSelect(f.user, r.users, 'Everyone');
+    fillSelect(f.action, r.actions, 'All actions');
+    $('au-list').replaceChildren(...(r.entries.length
+      ? r.entries.map((e) => el('tr', { class: e.ok ? null : 'failed' },
+          el('td', { 'data-label': 'When' }, fmt.date(e.at), el('span', { class: 'sub' }, fmt.relative(e.at))),
+          el('td', { class: 'primary-cell', 'data-label': 'User' }, e.user || '–', e.ip ? el('span', { class: 'sub mono' }, e.ip) : null),
+          el('td', { 'data-label': 'Action' }, el('span', { class: `pill ${e.ok ? '' : 'bad'}` }, e.ok ? null : icon('alert'), e.action)),
+          el('td', { 'data-label': 'Details' },
+            e.target ? el('span', { class: 'mono-cell' }, e.target) : null,
+            e.error ? el('span', { class: 'sub bad' }, e.error) : null)))
+      : [emptyRow(4, r.total ? 'Nothing matches these filters.' : 'No actions recorded yet. Every change made through rconsole and every sign-in shows up here.')]));
+  } catch (e) {
+    $('au-list').replaceChildren(emptyRow(4, `Can't read the audit log: ${e.message}`));
+  }
+}
+viewLoaders['insights/audit'] = loadAudit;
+$('au-form').addEventListener('change', loadAudit);
+$('au-form').addEventListener('input', (e) => {
+  if (e.target.name !== 'q') return;
+  clearTimeout(auditTimer);
+  auditTimer = setTimeout(loadAudit, 250);
+});
+$('au-form').addEventListener('submit', (e) => e.preventDefault());
+
+// ---------------------------------------------------------------------------
+// Players: history
+// ---------------------------------------------------------------------------
+
+let historyPlayers = [];
+const dur = (ms) => fmt.duration(Math.round(ms / 1000));
+
+function sessionList(p) {
+  return el('ol', { class: 'sessions' }, ...[...p.recent].reverse().map((s) => el('li', {},
+    el('span', {}, fmt.date(s.start)),
+    el('span', { class: 'note' }, s.end ? `${dur(s.end - s.start)}` : 'online now'))));
+}
+
+function historyRow(p) {
+  const detail = el('tr', { class: 'detail', hidden: true }, el('td', { colspan: 6 },
+    el('div', { class: 'player-detail' },
+      el('div', {}, el('h3', {}, 'Recent sessions'), sessionList(p)),
+      el('div', { class: 'stack' },
+        el('dl', { class: 'facts' },
+          p.uuid ? el('div', {}, el('dt', {}, 'UUID'), el('dd', { class: 'mono' }, p.uuid)) : null,
+          p.ip ? el('div', {}, el('dt', {}, 'Last IP'), el('dd', { class: 'mono' }, p.ip)) : null),
+        el('div', { class: 'row wrap' },
+          rowActionBtn('Whitelist', 'add', `whitelist add ${p.name}`),
+          rowActionBtn('Make op', 'op', `op ${p.name}`, CONFIRM_ADD.op(p.name)),
+          p.online ? rowActionBtn('Kick', 'remove', `kick ${p.name}`, { title: `Kick ${p.name}?`, confirm: 'Kick', tone: 'danger', icon: 'remove' }) : null,
+          rowActionBtn('Ban', 'ban', `ban ${p.name}`, CONFIRM_ADD.ban(p.name), true),
+          el('button', { class: 'btn btn-quiet btn-sm', onclick: () => searchPlayerLogs(p.name) }, icon('search'), 'Search logs'))))));
+  const toggle = el('button', { class: 'btn btn-quiet btn-sm', 'aria-expanded': 'false' }, icon('history'), 'Details');
+  toggle.addEventListener('click', () => {
+    detail.hidden = !detail.hidden;
+    toggle.setAttribute('aria-expanded', !detail.hidden);
+  });
+  const row = el('tr', { 'data-name': p.name.toLowerCase() },
+    el('td', { class: 'primary-cell', 'data-label': 'Player' }, el('div', { class: 'plugin' }, avatar(p.uuid || p.name),
+      el('div', {}, p.name, p.online ? el('span', { class: 'pill own' }, 'Online') : null))),
+    el('td', { 'data-label': 'Last seen' }, p.online ? 'Now' : [fmt.relative(new Date(p.last).toISOString()), el('span', { class: 'sub' }, fmt.date(new Date(p.last).toISOString()))]),
+    el('td', { 'data-label': 'First seen' }, fmt.date(new Date(p.first).toISOString())),
+    el('td', { class: 'num', 'data-label': 'Sessions' }, String(p.sessions)),
+    el('td', { class: 'num', 'data-label': 'Playtime' }, dur(p.playtime)),
+    el('td', { class: 'act' }, toggle));
+  return [row, detail];
+}
+
+function rowActionBtn(label, iconName, command, confirmOpts, danger) {
+  const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}` }, icon(iconName), label);
+  btn.addEventListener('click', async () => {
+    if (confirmOpts && !(await confirmAction(confirmOpts))) return;
+    busy(btn, () => mutate(command));
+  });
+  return btn;
+}
+
+function renderHistoryRows() {
+  const q = $('ph-filter').value.trim().toLowerCase();
+  const shown = historyPlayers.filter((p) => !q || p.name.toLowerCase().includes(q));
+  $('ph-list').replaceChildren(...(shown.length
+    ? shown.flatMap(historyRow)
+    : [emptyRow(6, historyPlayers.length ? `Nobody called “${q}” has played here.` : 'No player activity in the logs yet.')]));
+}
+
+async function loadPlayerHistory() {
+  if (!historyPlayers.length) skeletonRows($('ph-list'), 6);
+  try {
+    const h = await api('GET', '/api/players/history');
+    historyPlayers = h.players;
+    const now = Date.now();
+    const week = h.players.filter((p) => now - p.last < 7 * 86400000).length;
+    const total30 = h.daily.reduce((n, d) => n + d.playtime, 0);
+    statList('ph-kpis', [
+      ['Players seen', String(h.players.length)],
+      ['Online now', String(h.players.filter((p) => p.online).length)],
+      ['Active this week', String(week)],
+      ['Played, 30 days', dur(total30)],
+    ]);
+    $('ph-info').textContent = `From ${h.files} log file${h.files === 1 ? '' : 's'}. Old logs are remembered even after they are deleted.`;
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now - i * 86400000);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const found = h.daily.find((x) => x.day === key);
+      days.push({ value: (found?.playtime || 0) / 3600000, players: found?.players || 0, label: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), title: d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) });
+    }
+    barChart($('ph-daily'), days, { label: 'Hours played per day', fmt: (v) => `${+v.toFixed(1)}h`, detail: (b) => [`${b.value.toFixed(1)} hours played`, `${b.players} player${b.players === 1 ? '' : 's'}`] });
+    renderHistoryRows();
+  } catch (e) {
+    $('ph-list').replaceChildren(emptyRow(6, `Can't read player history: ${e.message}`));
+  }
+}
+viewLoaders['players/history'] = loadPlayerHistory;
+$('ph-filter').addEventListener('input', renderHistoryRows);
 
 // ---------------------------------------------------------------------------
 

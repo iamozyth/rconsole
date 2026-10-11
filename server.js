@@ -21,6 +21,10 @@ const { readProperties } = require('./lib/access');
 const { Pending } = require('./lib/pending');
 const { Plugins } = require('./lib/plugins');
 const settingsSchema = require('./lib/settings');
+const { Audit, summarize } = require('./lib/audit');
+const { Metrics } = require('./lib/metrics');
+const { PlayerHistory } = require('./lib/players');
+const { searchLogs } = require('./lib/logsearch');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp } = require('./lib/auth');
 
 if (!config.rconPassword) {
@@ -45,7 +49,12 @@ const pending = new Pending({ stateDir: config.stateDir, power });
 const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log });
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion });
-const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log });
+const audit = new Audit({ stateDir: config.stateDir, log });
+// Operations run in the background after the request returned 202; record how they ended.
+ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target: st.label, ok: !st.error, ...(st.error ? { error: st.error } : {}) });
+const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
+const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
+const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log, audit: (e) => audit.record(e) });
 const users = new Users(config.stateDir);
 const sessions = new Sessions();
 const throttle = new Throttle();
@@ -167,7 +176,8 @@ function readJson(req, limit = 16 * 1024) {
     });
     req.on('end', () => {
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+        req.body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        resolve(req.body);
       } catch {
         reject(httpError(400, 'Invalid JSON'));
       }
@@ -216,6 +226,7 @@ async function login(req, res) {
   const wait = throttle.blocked(...keys);
   if (wait) {
     log(`auth: blocked login for "${name}" from ${ip} (${wait}s left)`);
+    audit.record({ user: name, ip, action: 'login', ok: false, error: 'locked out' });
     throw httpError(429, `Too many failed attempts. Try again in ${Math.ceil(wait / 60)} min.`, { 'Retry-After': wait });
   }
 
@@ -224,6 +235,7 @@ async function login(req, res) {
   if (!ok) {
     throttle.fail(...keys);
     log(`auth: failed login for "${name}" from ${ip}`);
+    audit.record({ user: name, ip, action: 'login', ok: false, error: 'wrong password' });
     throw httpError(401, 'Invalid username or password');
   }
 
@@ -233,6 +245,7 @@ async function login(req, res) {
     if (step === null || step <= (lastTotpStep.get(name) ?? -1)) {
       throttle.fail(...keys);
       log(`auth: wrong 2FA code for "${name}" from ${ip}`);
+      audit.record({ user: name, ip, action: 'login', ok: false, error: 'wrong 2FA code' });
       throw httpError(401, 'Invalid code', { needCode: true });
     }
     lastTotpStep.set(name, step);
@@ -241,6 +254,7 @@ async function login(req, res) {
   throttle.reset(...keys);
   const token = sessions.create(name);
   log(`auth: ${name} signed in from ${ip}`);
+  audit.record({ user: name, ip, action: 'login' });
   res.setHeader('Set-Cookie', sessionCookie(req, token, COOKIE_MAX_AGE));
   return { user: name };
 }
@@ -248,7 +262,10 @@ async function login(req, res) {
 function logout(req, res) {
   const user = currentUser(req);
   sessions.destroy(cookies(req)[COOKIE]);
-  if (user) log(`auth: ${user} signed out`);
+  if (user) {
+    log(`auth: ${user} signed out`);
+    audit.record({ user, ip: clientIp(req), action: 'logout' });
+  }
   res.setHeader('Set-Cookie', sessionCookie(req, '', 0));
   return { ok: true };
 }
@@ -258,10 +275,60 @@ function logout(req, res) {
 // ---------------------------------------------------------------------------
 
 const routes = [];
-const route = (method, pattern, handler) => routes.push({ method, pattern, handler });
+const route = (method, pattern, handler, audited = true) => routes.push({ method, pattern, handler, audited });
+
+// Audit names for state-changing requests: [method, path, (params, body, query) => [action, target]].
+const dec = decodeURIComponent;
+const AUDIT_NAMES = [
+  ['POST', /^\/api\/command$/, (p, b) => ['command', `/${String(b.command || '').replace(/^\//, '')}`]],
+  ['POST', /^\/api\/server\/power$/, (p, b) => [`server ${b.action}`, b.seconds ? `in ${b.seconds}s` : '']],
+  ['POST', /^\/api\/maintenance$/, (p, b) => [`maintenance ${b.enabled ? 'on' : 'off'}`, '']],
+  ['POST', /^\/api\/settings$/, (p, b) => ['settings', Object.entries(b.set || {}).map(([k, v]) => `${k}=${v}`).join(', ')]],
+  ['POST', /^\/api\/plugins$/, (p, b) => ['plugin install', b.projectId]],
+  ['POST', /^\/api\/plugins\/([^/]+)\/update$/, ([f]) => ['plugin update', dec(f)]],
+  ['POST', /^\/api\/plugins\/([^/]+)\/toggle$/, ([f], b) => [`plugin ${b.enabled ? 'enable' : 'disable'}`, dec(f)]],
+  ['POST', /^\/api\/plugins\/([^/]+)\/rollback$/, ([f]) => ['plugin rollback', dec(f)]],
+  ['DELETE', /^\/api\/plugins\/([^/]+)$/, ([f]) => ['plugin remove', dec(f)]],
+  ['POST', /^\/api\/worlds$/, (p, b) => ['world create', b.name]],
+  ['POST', /^\/api\/worlds\/([\w-]+)\/activate$/, ([n]) => ['world switch', n]],
+  ['DELETE', /^\/api\/worlds\/([\w-]+)$/, ([n], b, q) => ['world delete', `${n}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
+  ['POST', /^\/api\/backups$/, (p, b) => ['backup create', b.world || 'active world']],
+  ['POST', /^\/api\/backups\/([^/]+)\/restore$/, ([n], b) => [`backup restore`, `${dec(n)} → ${b.mode === 'new' ? b.target : 'replace'}`]],
+  ['DELETE', /^\/api\/backups\/([^/]+)$/, ([n]) => ['backup delete', dec(n)]],
+  ['POST', /^\/api\/restart$/, (p, b) => ['server restart', `in ${b.seconds}s`]],
+  ['DELETE', /^\/api\/restart$/, () => ['countdown cancel', '']],
+  ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
+  ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
+  ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task edit', id]],
+  ['DELETE', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task delete', id]],
+  ['POST', /^\/api\/tasks\/([\w-]+)\/run$/, ([id]) => ['task run', id]],
+];
+
+function auditRequest(req, pathname, status, error) {
+  const url = new URL(req.url, 'http://x');
+  let action = `${req.method} ${pathname}`;
+  let target = '';
+  for (const [method, re, name] of AUDIT_NAMES) {
+    const m = method === req.method && pathname.match(re);
+    if (!m) continue;
+    try {
+      [action, target] = name(m.slice(1), req.body || {}, url.searchParams);
+    } catch {}
+    break;
+  }
+  audit.record({ user: req.user, ip: clientIp(req), action, target: String(target || '').slice(0, 300) || undefined, detail: action === 'command' ? undefined : summarize(req.body), ok: !error, status, error });
+}
+
+route('GET', /^\/api\/metrics$/, (req) => metrics.series(new URL(req.url, 'http://x').searchParams.get('range') || '24h'));
+route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
+route('GET', /^\/api\/logs\/search$/, async (req) => searchLogs(config.mcDir, Object.fromEntries(new URL(req.url, 'http://x').searchParams)));
+route('GET', /^\/api\/audit$/, async (req) => {
+  const q = new URL(req.url, 'http://x').searchParams;
+  return audit.query({ user: q.get('user') || '', action: q.get('action') || '', q: q.get('q') || '', failed: q.has('failed'), limit: Math.min(Number(q.get('limit')) || 200, 1000) });
+});
 
 route('GET', /^\/api\/me$/, (req) => ({ user: req.user }));
-route('POST', /^\/api\/logout$/, logout);
+route('POST', /^\/api\/logout$/, logout, false);
 
 route('POST', /^\/api\/command$/, async (req) => {
   const { command } = await readJson(req);
@@ -487,14 +554,16 @@ route('POST', /^\/api\/tasks\/([\w-]+)\/run$/, async (req, res, [id]) => {
 // Dispatcher
 // ---------------------------------------------------------------------------
 
-async function handle(req, res, handler, params = []) {
+async function handle(req, res, handler, params = [], onDone) {
   try {
     const result = await handler(req, res, params);
     if (result === null) return; // handler wrote the response itself
     const [status, body] = Array.isArray(result) ? result : [200, result];
     send(res, status, body);
+    onDone?.(status);
   } catch (err) {
     const status = err.status || (err.code === 'ENOENT' ? 404 : 502);
+    onDone?.(status, err.message);
     const headers = err.extra?.['Retry-After'] ? { 'Retry-After': err.extra['Retry-After'] } : {};
     const body = { error: err.message, ...(err.extra?.needCode ? { needCode: true } : {}) };
     if (!res.headersSent) send(res, status, body, undefined, headers);
@@ -521,15 +590,20 @@ const server = http.createServer(async (req, res) => {
   if (isRead && APP_FILES[pathname]) return send(res, 200, ...APP_FILES[pathname]);
   if (req.method === 'GET' && pathname === '/api/logs') return streamLogs(req, res);
 
-  for (const { method, pattern, handler } of routes) {
+  for (const { method, pattern, handler, audited } of routes) {
     const match = pathname.match(pattern);
-    if (match && method === req.method) return handle(req, res, handler, match.slice(1));
+    if (match && method === req.method) {
+      const onDone = !isRead && audited ? (status, error) => auditRequest(req, pathname, status, error) : undefined;
+      return handle(req, res, handler, match.slice(1), onDone);
+    }
   }
   send(res, 404, { error: 'Not found' });
 });
 
 scheduler.load().then(() => {
   logTail.start();
+  metrics.start();
+  playerHistory.history().catch((err) => log(`players: ${err.message}`)); // backfill from old logs
   server.listen(config.webPort, config.webHost, () => {
     log(`rconsole listening on http://${config.webHost}:${config.webPort}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
@@ -542,6 +616,7 @@ scheduler.load().then(() => {
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     logTail.stop();
+    metrics.stop();
     rcon.close();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref(); // open log streams keep the server alive
