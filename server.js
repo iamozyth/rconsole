@@ -13,6 +13,11 @@ const { Backups } = require('./lib/backups');
 const { Scheduler, Countdown } = require('./lib/scheduler');
 const { Jobs } = require('./lib/jobs');
 const { Updates } = require('./lib/updates');
+const { Power } = require('./lib/power');
+const { Ops } = require('./lib/ops');
+const { Worlds } = require('./lib/worlds');
+const { Maintenance } = require('./lib/maintenance');
+const { readProperties } = require('./lib/access');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp } = require('./lib/auth');
 
 if (!config.rconPassword) {
@@ -25,9 +30,14 @@ const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 const rcon = new Rcon({ host: config.rconHost, port: config.rconPort, password: config.rconPassword });
 const logTail = new LogTail(path.join(config.mcDir, 'logs', 'latest.log'));
 const stats = new Stats({ rcon, mcDir: config.mcDir });
-const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner });
-const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: config.backupKeep, log });
-const countdown = new Countdown({ rcon, log });
+const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner, log });
+const activeWorld = async () => (await readProperties(config.mcDir))['level-name'] || 'world';
+const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: config.backupKeep, log, activeWorld });
+const power = new Power({ unit: config.mcService, log });
+const countdown = new Countdown({ rcon, log, power });
+const ops = new Ops({ log });
+const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs, backups, power, countdown, ops, rcon, log });
+const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
 const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log });
 const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log });
 const users = new Users(config.stateDir);
@@ -258,19 +268,84 @@ route('POST', /^\/api\/command$/, async (req) => {
 
 route('GET', /^\/api\/status$/, async () => ({
   ...(await stats.get()),
-  restart: { remaining: countdown.remaining },
+  power: await power.state(),
+  maintenance: { enabled: maintenance.state().enabled, since: maintenance.state().since ?? null },
+  restart: { remaining: countdown.remaining, verb: countdown.verb },
   backup: backups.state,
   update: updates.state,
+  op: ops.state,
 }));
+
+// --- server power & maintenance ---------------------------------------------
+
+const delayOf = (v, def = 60) => {
+  const s = v === undefined ? def : Number(v);
+  if (!Number.isFinite(s) || s < 0 || s > 3600) throw httpError(400, 'Delay must be 0-3600 seconds');
+  return Math.round(s);
+};
+
+route('POST', /^\/api\/server\/power$/, async (req) => {
+  const { action, seconds } = await readJson(req);
+  if (!['start', 'stop', 'restart'].includes(action)) throw httpError(400, 'action must be start, stop or restart');
+  const st = await power.state();
+  if (!st.available) throw httpError(409, `rconsole can't control ${config.mcService} (${st.error || 'unit not found'})`);
+  log(`${req.user}: server ${action}`);
+  if (action === 'start') {
+    if (st.active === 'active') throw httpError(409, 'The server is already running');
+    return [202, ops.start('Start the server', req.user, async (step) => {
+      step('starting');
+      await power.run('start');
+    })];
+  }
+  if (st.active !== 'active') {
+    if (action === 'stop') throw httpError(409, 'The server is not running');
+    return [202, ops.start('Start the server', req.user, () => power.run('start'))];
+  }
+  const delay = delayOf(seconds);
+  return [202, ops.start(action === 'stop' ? 'Stop the server' : 'Restart the server', req.user, async (step) => {
+    step(`${action === 'stop' ? 'stopping' : 'restarting'} in ${delay}s`);
+    await countdown.start(delay, `${action} by ${req.user}`, action === 'stop' ? { verb: 'stopping', finish: () => power.run('stop') } : {});
+  })];
+});
+
+route('POST', /^\/api\/maintenance$/, async (req) => {
+  const { enabled, message } = await readJson(req);
+  return enabled ? maintenance.enable({ user: req.user, message }) : maintenance.disable({ user: req.user });
+});
+
+// --- worlds ---------------------------------------------------------------------
+
+route('GET', /^\/api\/worlds$/, async () => ({ ...(await worlds.list()), op: ops.state }));
+route('POST', /^\/api\/worlds$/, async (req) => {
+  const { name, seed, type, seconds } = await readJson(req);
+  return [202, worlds.create({ name: String(name || '').trim(), seed, type, seconds: delayOf(seconds), user: req.user })];
+});
+route('POST', /^\/api\/worlds\/([\w-]+)\/activate$/, async (req, res, [name]) => {
+  const { seconds } = await readJson(req);
+  return [202, worlds.activate(name, { seconds: delayOf(seconds), user: req.user })];
+});
+route('DELETE', /^\/api\/worlds\/([\w-]+)$/, async (req, res, [name]) => {
+  const archive = new URL(req.url, 'http://x').searchParams.get('archive') !== '0';
+  return [202, worlds.remove(name, { archive, user: req.user })];
+});
 
 route('GET', /^\/api\/access$/, () => readAccess(config.mcDir));
 
 route('GET', /^\/api\/backups$/, async () => ({ dir: config.backupDir, keep: config.backupKeep, files: await backups.list(), state: backups.state }));
 
 route('POST', /^\/api\/backups$/, async (req) => {
-  log(`${req.user}: backup requested`);
-  backups.run().catch(() => {}); // progress is reported through state
+  const { world } = await readJson(req).catch(() => ({}));
+  if (world !== undefined && !require('./lib/names').isWorldName(String(world))) throw httpError(400, 'Invalid world name');
+  log(`${req.user}: backup requested${world ? ` (${world})` : ''}`);
+  backups.run(world).catch(() => {}); // progress is reported through state
   return [202, { state: backups.state }];
+});
+
+route('POST', /^\/api\/backups\/([^/]+)\/restore$/, async (req, res, [name]) => {
+  const { mode, target, seconds } = await readJson(req);
+  if (!['replace', 'new'].includes(mode)) throw httpError(400, 'mode must be replace or new');
+  backups.filePath(decodeURIComponent(name));
+  return [202, worlds.restore(decodeURIComponent(name), { mode, target: target ? String(target).trim() : undefined, seconds: delayOf(seconds), user: req.user })];
 });
 
 route('GET', /^\/api\/backups\/([^/]+)$/, async (req, res, [name]) => {
@@ -297,7 +372,7 @@ route('POST', /^\/api\/restart$/, async (req) => {
   const { seconds } = await readJson(req);
   const s = Number(seconds);
   if (!Number.isFinite(s) || s < 0 || s > 3600) throw httpError(400, 'seconds must be 0-3600');
-  countdown.start(s, `manual by ${req.user}`).catch(() => {});
+  countdown.start(s, `manual by ${req.user}`).catch((err) => log(`restart: ${err.message}`));
   return { remaining: countdown.remaining };
 });
 

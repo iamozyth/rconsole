@@ -1,7 +1,8 @@
-# World backup job, started by rconsole (see 50-rconsole.rules).
-# Runs as the Minecraft user because level.dat is readable by its owner only.
+# Offline helper job (backup, restore, world delete, server.properties),
+# started by rconsole; the request is BACKUP_DIR/.requests/%i.json.
+# Runs as the Minecraft user because world files are owner-readable only.
 [Unit]
-Description=rconsole world backup %i
+Description=rconsole job %i
 
 [Service]
 Type=oneshot
@@ -10,12 +11,12 @@ Group=minecraft
 UMask=0027
 EnvironmentFile=/etc/rconsole.env
 Environment=UV_USE_IO_URING=0
-ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js backup %i
-TimeoutStartSec=30min
+ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js job %i
+TimeoutStartSec=60min
 Nice=10
 IOSchedulingClass=idle
 
-ReadWritePaths=/srv/minecraft-backups
+ReadWritePaths=/srv/minecraft /srv/minecraft-backups
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 NoNewPrivileges=true

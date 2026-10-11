@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "user": "node cli.js user"
+    "user": "node cli.js user",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 
-// Privileged half of rconsole. Runs as the Minecraft user (via the
-// rconsole-backup@ / rconsole-update@ systemd units) and does exactly two
-// things: archive the world folders, and swap the Paper jar for a verified
-// download or the previous jar. rconsole itself never writes to MC_DIR.
+// Privileged half of rconsole. Runs as the Minecraft user, started by the
+// rconsole-job@ (offline) and rconsole-net@ (network) systemd units.
 //
-//   mc-helper.js backup <YYYY-MM-DD_HH-MM-SS>
-//   mc-helper.js update <version>_<build>
-//   mc-helper.js update rollback
+//   mc-helper.js job <id>        run BACKUP_DIR/.requests/<id>.json
+//   mc-helper.js backup <stamp>  legacy rconsole-backup@ unit
+//   mc-helper.js update <spec>   legacy rconsole-update@ unit
 //
-// The outcome is written to BACKUP_DIR/.jobs/<kind>-<instance>.json.
+// rconsole only writes the request; everything in it is validated here again,
+// and every path stays inside MC_DIR or BACKUP_DIR. The outcome goes to
+// BACKUP_DIR/.jobs/<id>.json.
 
 const fs = require('fs');
 const path = require('path');
@@ -18,107 +18,259 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const config = require('../lib/config');
 const { readProperties } = require('../lib/access');
+const properties = require('../lib/properties');
+const settings = require('../lib/settings');
 const paper = require('../lib/paper');
+const names = require('../lib/names');
 
-const [kind, instance] = process.argv.slice(2);
-const jobsDir = path.join(config.backupDir, '.jobs');
-const jar = path.join(config.mcDir, config.mcJar);
+const MC = config.mcDir;
+const BK = config.backupDir;
+const jobsDir = path.join(BK, '.jobs');
+const jar = path.join(MC, config.mcJar);
 
-function writeResult(result) {
-  // 0750 under UMask=0027: rconsole (group, inherited from the setgid backup
-  // dir) reads results, only the helper writes. No chmod: the units set
-  // RestrictSUIDSGID, which refuses touching the setgid bit.
-  fs.mkdirSync(jobsDir, { recursive: true, mode: 0o750 });
-  const file = path.join(jobsDir, `${kind}-${instance}.json`);
-  fs.writeFileSync(`${file}.tmp`, JSON.stringify({ ...result, finished: new Date().toISOString() }), { mode: 0o640 });
-  fs.renameSync(`${file}.tmp`, file);
-}
+const fail = (msg) => {
+  throw new Error(msg);
+};
 
-function run(cmd, args) {
+function run(cmd, args, { okCodes = [0], capture = false } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(cmd, args, { stdio: ['ignore', capture ? 'pipe' : 'ignore', 'pipe'] });
+    let stdout = '';
     let stderr = '';
+    child.stdout?.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', reject);
-    // tar exit 1 = "file changed as we read it", fine for region files.
-    child.on('close', (code) => (code <= 1 ? resolve() : reject(new Error(stderr.trim() || `${cmd} exited with ${code}`))));
+    child.on('close', (code) => (okCodes.includes(code) ? resolve(stdout) : reject(new Error(stderr.trim() || `${cmd} exited with ${code}`))));
   });
 }
 
-async function backup(stamp) {
-  if (!/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/.test(stamp)) throw new Error('invalid backup name');
-  const level = (await readProperties(config.mcDir))['level-name'] || 'world';
-  const worlds = [level, `${level}_nether`, `${level}_the_end`].filter((d) => {
-    try {
-      return fs.statSync(path.join(config.mcDir, d)).isDirectory();
-    } catch {
-      return false;
-    }
-  });
-  if (!worlds.length) throw new Error(`No world folder "${level}" in ${config.mcDir}`);
+const exists = (p) => {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
-  const name = `world-${stamp}.tar.gz`;
-  const final = path.join(config.backupDir, name);
+const worldDirs = (world) => names.DIMENSIONS.map((d) => world + d).filter((d) => exists(path.join(MC, d)));
+
+async function activeWorld() {
+  return (await readProperties(MC))['level-name'] || 'world';
+}
+
+function checkWorld(world) {
+  if (!names.isWorldName(world)) fail('Invalid world name');
+  return world;
+}
+
+// --- backup -----------------------------------------------------------------
+
+async function backup({ world, stamp }) {
+  world = checkWorld(world || (await activeWorld()));
+  if (!names.STAMP_RE.test(stamp || '')) fail('Invalid backup timestamp');
+  const dirs = worldDirs(world);
+  if (!dirs.length) fail(`No world folder "${world}" in ${MC}`);
+
+  const name = `${world}-${stamp}.tar.gz`;
+  const final = path.join(BK, name);
   const partial = `${final}.partial`;
   try {
-    await run('tar', ['-czf', partial, '-C', config.mcDir, ...worlds]);
+    // tar exit 1 = "file changed as we read it", fine for region files.
+    await run('tar', ['-czf', partial, '-C', MC, '--', ...dirs], { okCodes: [0, 1] });
     fs.chmodSync(partial, 0o640);
     fs.renameSync(partial, final);
   } catch (err) {
     fs.rmSync(partial, { force: true });
     throw err;
   }
-  return { file: name, size: fs.statSync(final).size, worlds };
+  return { file: name, world, size: fs.statSync(final).size, dirs };
 }
 
-async function update(spec) {
-  const previous = `${jar}.previous`;
+// --- restore ----------------------------------------------------------------
 
-  if (spec === 'rollback') {
-    if (!fs.existsSync(previous)) throw new Error('No previous jar to roll back to');
+// Lists an archive and refuses anything but plain files and directories under
+// one world's three dimension folders.
+async function inspectArchive(file) {
+  const listing = await run('tar', ['-tvzf', file], { capture: true });
+  const entries = listing.split('\n').filter(Boolean);
+  if (!entries.length) fail('The backup is empty');
+  const roots = new Set();
+  for (const line of entries) {
+    if (!'-d'.includes(line[0])) fail('The backup contains links or special files; refusing to restore it');
+    // GNU tar: perms owner/group size date time name
+    const m = line.match(/^\S+\s+\S+\s+\d+\s+\S+\s+\S+\s+(.+)$/);
+    if (!m) fail('Unexpected archive listing');
+    const name = m[1];
+    if (name.startsWith('/') || name.split('/').includes('..')) fail('The backup contains unsafe paths');
+    roots.add(name.split('/')[0]);
+  }
+  const bases = new Set([...roots].map((r) => r.replace(/_(nether|the_end)$/, '')));
+  if (bases.size !== 1) fail('The backup must contain exactly one world');
+  return checkWorld([...bases][0]);
+}
+
+// Extracts a backup as world `target`. With `replace`, the existing folders are
+// parked first and put back if extraction fails. rconsole stops the server
+// before replacing the active world.
+async function restore({ file, target, replace }) {
+  if (!names.parseBackupName(file)) fail('Invalid backup name');
+  checkWorld(target);
+  const archive = path.join(BK, file);
+  if (!exists(archive) || !fs.statSync(archive).isFile()) fail('Backup not found');
+  const base = await inspectArchive(archive);
+
+  const existing = worldDirs(target);
+  if (existing.length && !replace) fail(`A world named "${target}" already exists`);
+
+  const stamp = names.timestamp();
+  const parked = [];
+  try {
+    for (const d of existing) {
+      const aside = path.join(MC, `.restore-old-${stamp}-${d}`);
+      fs.renameSync(path.join(MC, d), aside);
+      parked.push([aside, path.join(MC, d)]);
+    }
+    const esc = (s) => s.replace(/[.\\^$*[\]]/g, '\\$&');
+    await run('tar', [
+      '-xzf', archive, '-C', MC, '--no-same-owner',
+      `--transform=s,^${esc(base)}_nether\\(/\\|$\\),${target}_nether\\1,`,
+      `--transform=s,^${esc(base)}_the_end\\(/\\|$\\),${target}_the_end\\1,`,
+      `--transform=s,^${esc(base)}\\(/\\|$\\),${target}\\1,`,
+    ]);
+  } catch (err) {
+    for (const d of names.DIMENSIONS) fs.rmSync(path.join(MC, target + d), { recursive: true, force: true });
+    for (const [aside, orig] of parked) fs.renameSync(aside, orig);
+    throw err;
+  }
+  for (const [aside] of parked) fs.rmSync(aside, { recursive: true, force: true });
+  return { restored: file, world: target, from: base, replaced: parked.length > 0 };
+}
+
+// --- worlds -----------------------------------------------------------------
+
+async function deleteWorld({ world, archive }) {
+  checkWorld(world);
+  if (world === (await activeWorld())) fail('The active world can’t be deleted');
+  const dirs = worldDirs(world);
+  if (!dirs.length) fail(`World "${world}" not found`);
+  let archived = null;
+  if (archive) archived = (await backup({ world, stamp: names.timestamp() })).file;
+  for (const d of dirs) fs.rmSync(path.join(MC, d), { recursive: true, force: true });
+  return { deleted: world, archived };
+}
+
+// --- server.properties --------------------------------------------------------
+
+async function setProperties({ set, world }) {
+  const updates = settings.normalizeAll(set, { allowWorldKeys: Boolean(world) });
+  const file = path.join(MC, 'server.properties');
+  const doc = properties.set(properties.parse(fs.readFileSync(file, 'utf8')), updates);
+  const tmp = path.join(MC, `.server.properties.rconsole-${process.pid}`);
+  fs.writeFileSync(tmp, properties.stringify(doc), { mode: fs.statSync(file).mode & 0o777 });
+  fs.renameSync(tmp, file);
+  return { changed: updates };
+}
+
+// --- Paper ------------------------------------------------------------------
+
+async function fetchVerified(url, algo, expected, userAgent) {
+  const res = await fetch(url, { headers: { 'User-Agent': userAgent }, redirect: 'follow' });
+  if (!res.ok) fail(`Download failed: HTTP ${res.status}`);
+  const body = Buffer.from(await res.arrayBuffer());
+  const actual = crypto.createHash(algo).update(body).digest('hex');
+  if (actual !== expected) fail(`Checksum mismatch (expected ${expected}, got ${actual})`);
+  return body;
+}
+
+async function paperUpdate({ version, build, rollback }) {
+  const previous = `${jar}.previous`;
+  if (rollback) {
+    if (!exists(previous)) fail('No previous jar to roll back to');
     const swap = `${jar}.swap`;
     fs.renameSync(jar, swap);
     fs.renameSync(previous, jar);
     fs.renameSync(swap, previous);
     return { rolledBack: true };
   }
-
-  const m = /^(\d+(?:\.\d+)+)_(\d+)$/.exec(spec || '');
-  if (!m) throw new Error('invalid update target');
-  const [, version, buildId] = m;
-
-  const download = await paper.download(version, Number(buildId));
-  const tmp = path.join(config.mcDir, `.${config.mcJar}.download`);
+  if (!/^\d+(\.\d+)+$/.test(String(version)) || !Number.isInteger(build) || build < 1) fail('Invalid update target');
+  const download = await paper.download(version, build);
+  const body = await fetchVerified(download.url, 'sha256', download.sha256, paper.USER_AGENT);
+  const tmp = path.join(MC, `.${config.mcJar}.download`);
   try {
-    const res = await fetch(download.url, { headers: { 'User-Agent': paper.USER_AGENT }, redirect: 'follow' });
-    if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
-    const body = Buffer.from(await res.arrayBuffer());
-    const sha256 = crypto.createHash('sha256').update(body).digest('hex');
-    if (sha256 !== download.sha256) throw new Error(`Checksum mismatch (expected ${download.sha256}, got ${sha256})`);
     fs.writeFileSync(tmp, body, { mode: 0o640 });
-    if (fs.existsSync(jar)) fs.copyFileSync(jar, previous);
+    if (exists(jar)) fs.copyFileSync(jar, previous);
     // Rename is atomic; the running JVM keeps the old inode until restart.
     fs.renameSync(tmp, jar);
   } finally {
     fs.rmSync(tmp, { force: true });
   }
-  return { version, build: Number(buildId), sha256: download.sha256, size: download.size };
+  return { version, build, sha256: download.sha256, size: download.size };
 }
 
-const tasks = { backup, update };
+// --- dispatch -----------------------------------------------------------------
 
-(async () => {
-  if (!tasks[kind] || !instance) {
-    console.error('usage: mc-helper.js <backup|update> <instance>');
+const TASKS = {
+  backup,
+  restore,
+  'world-delete': deleteWorld,
+  properties: setProperties,
+  'paper-update': paperUpdate,
+};
+
+function writeResult(file, result) {
+  // 0750 under UMask=0027: rconsole (group, inherited from the setgid backup
+  // dir) reads results, only the helper writes. No chmod: the units set
+  // RestrictSUIDSGID, which refuses touching the setgid bit.
+  fs.mkdirSync(jobsDir, { recursive: true, mode: 0o750 });
+  const out = path.join(jobsDir, file);
+  fs.writeFileSync(`${out}.tmp`, JSON.stringify({ ...result, finished: new Date().toISOString() }), { mode: 0o640 });
+  fs.renameSync(`${out}.tmp`, out);
+}
+
+async function main() {
+  const [mode, arg] = process.argv.slice(2);
+  let kind;
+  let args;
+  let resultFile;
+
+  if (mode === 'job') {
+    if (!names.JOB_ID_RE.test(arg || '')) fail('Invalid job id');
+    const request = JSON.parse(fs.readFileSync(path.join(BK, '.requests', `${arg}.json`), 'utf8'));
+    kind = String(request.kind);
+    args = request.args && typeof request.args === 'object' ? request.args : {};
+    resultFile = `${arg}.json`;
+  } else if (mode === 'backup') {
+    [kind, args, resultFile] = ['backup', { stamp: arg }, `backup-${arg}.json`];
+  } else if (mode === 'update') {
+    const m = /^([\d.]+)_(\d+)$/.exec(arg || '');
+    args = arg === 'rollback' ? { rollback: true } : m ? { version: m[1], build: Number(m[2]) } : {};
+    [kind, resultFile] = ['paper-update', `update-${arg}.json`];
+  } else {
+    console.error('usage: mc-helper.js job <id>');
     process.exit(2);
   }
-  try {
-    const result = await tasks[kind](instance);
-    writeResult({ ok: true, ...result });
-    console.log(`${kind} ${instance}: ok`);
-  } catch (err) {
-    writeResult({ ok: false, error: err.message });
-    console.error(`${kind} ${instance}: ${err.message}`);
+
+  if (!Object.hasOwn(TASKS, kind)) {
+    writeResult(resultFile, { ok: false, kind, error: `Unknown job kind ${kind}` });
     process.exit(1);
   }
-})();
+  try {
+    const result = await TASKS[kind](args);
+    writeResult(resultFile, { ok: true, kind, ...result });
+    console.log(`${kind}: ok`);
+  } catch (err) {
+    writeResult(resultFile, { ok: false, kind, error: err.message });
+    console.error(`${kind}: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+module.exports = { TASKS };
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err.message);
+    process.exit(1);
+  });
+}

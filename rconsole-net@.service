@@ -1,7 +1,7 @@
-# Paper jar update/rollback job, started by rconsole (see 50-rconsole.rules).
-# Downloads a build from PaperMC, verifies its SHA-256 and swaps the jar.
+# Network helper job (Paper and plugin downloads, SHA-verified), started by
+# rconsole; the request is BACKUP_DIR/.requests/%i.json.
 [Unit]
-Description=rconsole server update %i
+Description=rconsole download job %i
 After=network-online.target
 
 [Service]
@@ -11,8 +11,8 @@ Group=minecraft
 UMask=0027
 EnvironmentFile=/etc/rconsole.env
 Environment=UV_USE_IO_URING=0
-ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js update %i
-TimeoutStartSec=10min
+ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js job %i
+TimeoutStartSec=15min
 
 ReadWritePaths=/srv/minecraft /srv/minecraft-backups
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

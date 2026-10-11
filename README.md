@@ -1,11 +1,16 @@
 # rconsole
 
+> [!WARNING]
+> **Early preview, vibe-coded.** rconsole was written almost entirely by an AI coding assistant (Claude Code) in a few sessions, with a human steering, reviewing and testing it on one homelab server. It has automated tests and was checked against a real Paper server, but it has not had an independent security review or wide real-world use. Expect rough edges and breaking changes. Run it on a trusted network, keep your own backups, and read the code before you give it control of a server you care about.
+
 A lightweight web console for managing a Minecraft server over RCON. No dependencies, Node.js 18+.
 
 - **Console**: live server log (chat, joins, warnings, errors) with filter and chat-only view, plus a command prompt with history (↑/↓)
 - **Stats**: TPS/MSPT, players, in-game day and time, host CPU, RAM, disk and uptime
 - **Players**: whitelist (with on/off switch), operators, banned players and IPs, with one-click add and remove
-- **Backups**: one-click world backups (autosave paused during the copy), download, delete, automatic retention
+- **Server**: start, stop and restart the Minecraft service with in-game countdowns; maintenance mode (only operators can join, whitelist restored afterwards)
+- **Worlds**: switch between worlds, create new ones (seed, type), delete with an automatic archive
+- **Backups**: per-world backups (autosave paused during the copy), download, delete, per-world retention, and restore, either over a world (with a safety backup, stopping the server if needed) or as a new world
 - **Schedule**: daily or weekly restarts with in-game countdown warnings, backups and arbitrary commands
 - **Updates**: Paper build and Minecraft version updates from PaperMC, SHA-256 verified, with automatic backup, countdown restart and one-click rollback
 - **Security**: user accounts with scrypt-hashed passwords, optional TOTP 2FA, session cookies, brute-force lockout, audit log, strict CSP, sandboxed systemd service
@@ -19,7 +24,8 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.
 - **Audit**: every command, backup, restart and login is logged with the user name (`journalctl -u rconsole`).
 - **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
-- **Privileged jobs**: backups and jar updates must run as the Minecraft user (`level.dat` is owner-readable only). They run in two sandboxed systemd units, `rconsole-backup@` and `rconsole-update@`, executing the fixed script `bin/mc-helper.js`. A polkit rule lets the `rconsole` user start exactly these units and nothing else. rconsole can't run arbitrary code as the Minecraft user, and updates only install jars from papermc.io whose SHA-256 matches the API.
+- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
+- **polkit** lets the `rconsole` user start exactly these job units and start/stop/restart `minecraft.service`, nothing else. rconsole can't run arbitrary code as the Minecraft user, and updates only install downloads whose hash matches the publisher's API.
 
 rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below) and set `TRUST_PROXY` to the proxy's IP, so client IPs and `Secure` cookies are correct. For defence in depth, firewall port 80 so only the proxy can reach it.
 
@@ -82,16 +88,16 @@ sudo chown minecraft:minecraft /srv/minecraft-backups
 sudo chmod 2770 /srv/minecraft-backups
 ```
 
-### 5. Allow backup and update jobs
+### 5. Allow helper jobs and server control
 
 ```sh
 sudo apt install -y polkitd
-sudo cp /opt/rconsole/rconsole-backup@.service /opt/rconsole/rconsole-update@.service /etc/systemd/system/
+sudo cp /opt/rconsole/rconsole-job@.service /opt/rconsole/rconsole-net@.service /etc/systemd/system/
 sudo cp /opt/rconsole/50-rconsole.rules /etc/polkit-1/rules.d/
 sudo systemctl daemon-reload
 ```
 
-The units assume `/opt/rconsole`, `/srv/minecraft`, `/srv/minecraft-backups` and the user `minecraft`. Adjust them if yours differ. `MC_JAR` (default `paper.jar`) must match the jar your Minecraft unit starts.
+The units assume `/opt/rconsole`, `/srv/minecraft`, `/srv/minecraft-backups` and the user `minecraft`. The polkit rule assumes the server runs as `minecraft.service`. Adjust them if yours differ, and set `MC_SERVICE` to match. `MC_JAR` (default `paper.jar`) must match the jar your Minecraft unit starts.
 
 ### 6. Configure and start
 
@@ -130,6 +136,7 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user t
 | `BACKUP_DIR`    | `/srv/minecraft-backups` | Where backups are written (outside `MC_DIR`)         |
 | `BACKUP_KEEP`   | `10`                     | Newest backups to keep, `0` keeps all                |
 | `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
+| `MC_SERVICE`    | `minecraft.service`      | systemd unit rconsole starts, stops and restarts     |
 
 ## Traefik
 
@@ -175,7 +182,19 @@ The **Updates** tab reads the running Paper version from the server log and list
 
 **Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
 
-If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-update@*'` or `journalctl -u 'rconsole-backup@*'`.
+If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-net@*'` or `journalctl -u 'rconsole-job@*'`.
+
+## Upgrading from 1.x (rconsole-backup@ / rconsole-update@)
+
+```sh
+cd /opt/rconsole && git pull
+sudo cp rconsole-job@.service rconsole-net@.service /etc/systemd/system/
+sudo rm -f /etc/systemd/system/rconsole-backup@.service /etc/systemd/system/rconsole-update@.service
+sudo cp 50-rconsole.rules /etc/polkit-1/rules.d/
+sudo systemctl daemon-reload && sudo systemctl restart rconsole
+```
+
+Old `world-<date>.tar.gz` backups keep working; new ones are named after their world.
 
 ## Notes
 

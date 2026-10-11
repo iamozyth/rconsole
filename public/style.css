@@ -19,9 +19,11 @@
   /* Munich '72 program */
   --c-console: #0a70b5;
   --c-players: #0a7a3f;
-  --c-backups: #2a4596;
+  --c-worlds: #2a4596;
   --c-schedule: #b35000;
-  --c-updates: #6a3d9e;
+  --c-server: #6a3d9e;
+  --c-insights: #7f5b00;
+  --c-map: #00707a;
   --c-danger: #c0262d;
   --on-area: #ffffff;
 
@@ -50,9 +52,11 @@
     /* Lufthansa navy, program hues lifted for a dark ground */
     --c-console: #5ab8f2;
     --c-players: #4fcb87;
-    --c-backups: #98aeff;
+    --c-worlds: #98aeff;
     --c-schedule: #ffa452;
-    --c-updates: #bf9af4;
+    --c-server: #bf9af4;
+    --c-insights: #e7bd4f;
+    --c-map: #4fd0d8;
     --c-danger: #ff7b7b;
     --on-area: #061226;
 
@@ -74,9 +78,11 @@
 
 body[data-area='console'] { --area: var(--c-console); }
 body[data-area='players'] { --area: var(--c-players); }
-body[data-area='backups'] { --area: var(--c-backups); }
+body[data-area='worlds'] { --area: var(--c-worlds); }
+body[data-area='server'] { --area: var(--c-server); }
 body[data-area='schedule'] { --area: var(--c-schedule); }
-body[data-area='updates'] { --area: var(--c-updates); }
+body[data-area='insights'] { --area: var(--c-insights); }
+body[data-area='map'] { --area: var(--c-map); }
 
 /* Base ---------------------------------------------------------------- */
 
@@ -163,9 +169,11 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
   transition: background-color 150ms ease-out, color 150ms ease-out;
 }
 .nav [data-tab='players'] { --tab: var(--c-players); }
-.nav [data-tab='backups'] { --tab: var(--c-backups); }
+.nav [data-tab='worlds'] { --tab: var(--c-worlds); }
+.nav [data-tab='server'] { --tab: var(--c-server); }
 .nav [data-tab='schedule'] { --tab: var(--c-schedule); }
-.nav [data-tab='updates'] { --tab: var(--c-updates); }
+.nav [data-tab='insights'] { --tab: var(--c-insights); }
+.nav [data-tab='map'] { --tab: var(--c-map); }
 .nav .tile {
   display: grid;
   place-items: center;
@@ -191,6 +199,9 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
   padding: 12px 8px 0;
   border-top: 1px solid var(--line);
 }
+.preview { padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; text-decoration: none; }
+.preview:hover { color: var(--text); border-color: var(--text-3); }
+.preview-note { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .who { font-weight: 600; font-size: 13px; color: var(--text-2); }
 .rail-foot .btn { margin-left: -10px; }
 
@@ -280,6 +291,47 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
 
 main { flex: 1; min-height: 0; overflow: auto; padding: 24px 28px 40px; scrollbar-gutter: stable; }
 .area { display: flex; flex-direction: column; gap: 20px; max-width: 1400px; }
+
+/* Status bars: maintenance badge, running operation -------------------- */
+
+.maint-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.maint-badge svg { width: 14px; height: 14px; }
+
+.op-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunken);
+  font-size: 13.5px;
+  font-weight: 550;
+  overflow: hidden;
+}
+.op-bar svg { width: 18px; height: 18px; }
+.op-bar[data-state='running']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 30%;
+  background: var(--text);
+  animation: indeterminate 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+.op-bar[data-state='failed'] { color: var(--c-danger); background: color-mix(in srgb, var(--c-danger) 8%, var(--surface)); }
 
 /* Panels -------------------------------------------------------------- */
 
@@ -650,6 +702,51 @@ kbd {
 .job[data-state='done'] svg { color: var(--area); }
 @keyframes indeterminate { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 
+/* Sub-views inside an area -------------------------------------------- */
+
+.subnav { align-self: flex-start; }
+.subnav [role='tab'] {
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-left: 1px solid var(--line-strong);
+  background: var(--field);
+  color: var(--text-2);
+  font: 600 13.5px var(--font);
+  cursor: pointer;
+}
+.subnav [role='tab']:first-child { border-left: 0; }
+.subnav [role='tab']:hover { color: var(--text); background: var(--sunken); }
+.subnav [role='tab'][aria-selected='true'] { background: var(--area); color: var(--on-area); }
+.view { display: flex; flex-direction: column; gap: 20px; }
+
+/* Server power ----------------------------------------------------------- */
+
+.power { display: flex; flex-direction: column; gap: 16px; }
+.power-state { display: flex; align-items: center; gap: 14px; }
+.power-state b { display: block; font-size: 20px; font-weight: 700; font-stretch: 105%; letter-spacing: -0.015em; }
+.power-light { width: 14px; height: 14px; border-radius: 50%; background: var(--text-3); flex: none; }
+.power-state[data-state='active'] .power-light { background: var(--c-players); }
+.power-state[data-state='inactive'] .power-light,
+.power-state[data-state='failed'] .power-light { background: var(--c-danger); }
+.power-state[data-state='activating'] .power-light,
+.power-state[data-state='deactivating'] .power-light { background: var(--text-2); animation: pulse 0.8s ease-in-out infinite alternate; }
+.power-actions { flex-wrap: wrap; }
+.power-actions .field { flex: 0 1 160px; }
+
+/* Worlds ----------------------------------------------------------------- */
+
+.world-new { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; border-bottom: 1px solid var(--line); }
+.world-new .form-actions .note { margin-right: auto; }
+.dims { display: flex; gap: 4px; flex-wrap: wrap; }
+.dialog-fields { display: flex; flex-direction: column; gap: 12px; padding: 0 20px 20px 68px; }
+.dialog-fields .fld .field { width: 100%; }
+.radio-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--r); cursor: pointer; background: var(--field); }
+.radio-row:has(input:checked) { border-color: var(--area); box-shadow: inset 0 0 0 1px var(--area); }
+.radio-row input { margin: 3px 0 0; }
+.radio-row b { display: block; font-weight: 600; }
+.radio-row .note { display: block; }
+
 /* Schedule ------------------------------------------------------------ */
 
 .task-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
@@ -771,6 +868,8 @@ kbd {
 /* Responsive ---------------------------------------------------------- */
 
 @media (max-width: 1180px) {
+  .op-bar { padding: 9px 20px; }
+  .world-new { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar { padding: 0 20px 0 0; }
   .topbar > .health { margin-left: 0; padding: 10px 20px; border-top: 1px solid var(--line); }
   main { padding: 20px; }
@@ -857,7 +956,14 @@ kbd {
   .table td.act .btn + .btn { margin-left: 0; }
   .table tbody tr:hover td { background: none; }
 
-  .task-form { grid-template-columns: minmax(0, 1fr); }
+  .task-form, .world-new { grid-template-columns: minmax(0, 1fr); }
+  .op-bar { padding: 9px 16px; }
+  .maint-badge { display: none; }
+  .subnav { align-self: stretch; }
+  .subnav [role='tab'] { flex: 1; }
+  .power-actions .field { flex-basis: 100%; }
+  .power-actions .btn { flex: 1; }
+  .dialog-fields { padding-left: 20px; }
   .fld.wide { grid-column: auto; }
   .day-row span { min-width: 0; flex: 1; }
   .day-row label { flex: 1 1 calc(25% - 6px); }

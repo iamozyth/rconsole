@@ -93,10 +93,13 @@ function avatar(id) {
 const TONES = { danger: 'var(--c-danger)', primary: null };
 const BTN_CLASS = { danger: 'btn btn-danger', primary: 'btn btn-primary' };
 
-function confirmAction({ title, body = '', confirm = 'Confirm', tone = 'primary', icon: iconName = 'alert' }) {
+function confirmAction({ title, body = '', confirm = 'Confirm', tone = 'primary', icon: iconName = 'alert', content = null }) {
   const dlg = $('dialog');
   $('dialog-title').textContent = title;
   $('dialog-body').textContent = body;
+  $('dialog-body').hidden = !body;
+  $('dialog-fields').replaceChildren(...(content ? [content] : []));
+  $('dialog-fields').hidden = !content;
   $('dialog-icon').setAttribute('href', `#pg-${iconName}`);
   $('dialog-tile').style.setProperty('--dlg', TONES[tone] || 'var(--area)');
   const ok = $('dialog-confirm');
@@ -149,13 +152,32 @@ const emptyItem = (...content) => el('li', { class: 'empty-state' }, ...content)
 const AREAS = {
   console: { name: 'Console', icon: 'console' },
   players: { name: 'Players', icon: 'players' },
-  backups: { name: 'Backups', icon: 'backups' },
+  worlds: { name: 'Worlds', icon: 'worlds' },
+  server: { name: 'Server', icon: 'server' },
   schedule: { name: 'Schedule', icon: 'schedule' },
-  updates: { name: 'Updates', icon: 'updates' },
 };
+// Old bookmarks keep working.
+const ALIASES = { backups: 'worlds', updates: 'server/updates' };
 const tabLoaders = {};
+const viewLoaders = {};
 
-function showTab(name) {
+function currentView(area) {
+  return document.querySelector(`#tab-${area} .subnav [aria-selected=true]`)?.dataset.view || null;
+}
+
+function showView(area, view) {
+  const section = $(`tab-${area}`);
+  const tabs = section?.querySelectorAll('.subnav [role=tab]');
+  if (!tabs?.length) return;
+  if (![...tabs].some((t) => t.dataset.view === view)) view = tabs[0].dataset.view;
+  for (const t of tabs) t.setAttribute('aria-selected', t.dataset.view === view);
+  for (const v of section.querySelectorAll(':scope > .view')) v.hidden = v.dataset.view !== view;
+  viewLoaders[`${area}/${view}`]?.();
+}
+
+function showTab(route) {
+  route = ALIASES[route] || route || '';
+  let [name, view] = route.split('/');
   if (!AREAS[name]) name = 'console';
   document.body.dataset.area = name;
   $('area-name').textContent = AREAS[name].name;
@@ -167,11 +189,21 @@ function showTab(name) {
     b.tabIndex = on ? 0 : -1;
   }
   for (const s of document.querySelectorAll('.area')) s.hidden = s.id !== `tab-${name}`;
-  if (location.hash.slice(1) !== name) history.replaceState(null, '', `#${name}`);
   $('main').scrollTop = 0;
   tabLoaders[name]?.();
+  showView(name, view);
+  const hash = currentView(name) ? `${name}/${currentView(name)}` : name;
+  if (location.hash.slice(1) !== hash) history.replaceState(null, '', `#${hash}`);
   if (name === 'console') scrollLog(true);
 }
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('.subnav [role=tab]');
+  if (!t) return;
+  const area = t.closest('.area').id.slice(4);
+  showView(area, t.dataset.view);
+  history.replaceState(null, '', `#${area}/${t.dataset.view}`);
+});
 
 window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
 const nav = document.querySelector('.nav');
@@ -339,12 +371,28 @@ function readout(id, content, cls = '') {
   $(id).parentElement.title = cls === 'bad' ? 'Critical' : cls === 'meh' ? 'Needs attention' : '';
 }
 
+const POWER_LABEL = {
+  active: 'Running',
+  inactive: 'Stopped',
+  failed: 'Crashed',
+  activating: 'Starting…',
+  deactivating: 'Stopping…',
+  reloading: 'Reloading…',
+};
+
+let lastStatus = null;
+
 function renderStatus(s) {
-  const { game, host, rcon } = s;
+  lastStatus = s;
+  const { game, host, rcon, power = {} } = s;
   const conn = $('conn');
+  const stopped = power.available && power.active !== 'active';
   conn.dataset.state = rcon.ok ? 'ok' : 'down';
-  $('status').textContent = rcon.ok ? 'Connected' : `RCON offline: ${rcon.error}`;
-  conn.title = rcon.ok ? 'RCON connected' : rcon.error;
+  $('status').textContent = rcon.ok ? 'Online' : stopped ? `Server ${POWER_LABEL[power.active]?.toLowerCase() || power.active}` : 'RCON offline';
+  conn.title = rcon.ok ? 'Server running, RCON connected' : rcon.error || '';
+  $('maint-badge').hidden = !s.maintenance?.enabled;
+  renderPower(s);
+  renderOp(s.op);
 
   if (game?.tps != null) {
     readout('s-tps', [game.tps.toFixed(1), game.mspt != null ? el('small', {}, ` ${game.mspt.toFixed(1)} ms`) : ''], game.tps >= 19 ? 'good' : game.tps >= 15 ? 'meh' : 'bad');
@@ -369,6 +417,7 @@ function renderStatus(s) {
 
   const remaining = s.restart?.remaining;
   countdownEnd = remaining != null ? Date.now() + remaining * 1000 : null;
+  countdownVerb = s.restart?.verb || 'restarting';
   tickCountdown();
 
   renderBackupState(s.backup);
@@ -381,10 +430,32 @@ function insertName(name) {
   input.focus();
 }
 
+let countdownVerb = 'restarting';
 function tickCountdown() {
   const left = countdownEnd ? Math.max(0, Math.round((countdownEnd - Date.now()) / 1000)) : null;
   $('restart-banner').hidden = left == null;
-  if (left != null) $('restart-left').textContent = fmt.countdown(left);
+  if (left == null) return;
+  $('restart-left').textContent = fmt.countdown(left);
+  $('restart-verb').textContent = countdownVerb === 'stopping' ? 'Server stops in' : 'Server restarts in';
+  $('restart-cancel').textContent = countdownVerb === 'stopping' ? 'Cancel stop' : 'Cancel restart';
+}
+
+// --- running operation (world switch, restore, power) ---
+let opWasRunning = false;
+function renderOp(op) {
+  if (!op) return;
+  const bar = $('op-bar');
+  const recentFail = op.error && Date.now() - Date.parse(op.finishedAt) < 60000;
+  bar.hidden = !op.running && !recentFail;
+  bar.dataset.state = op.running ? 'running' : 'failed';
+  $('op-icon').setAttribute('href', op.running ? '#pg-server' : '#pg-alert');
+  $('op-text').textContent = op.running ? `${op.label}: ${op.step}…` : recentFail ? `${op.label} failed: ${op.error}` : '';
+  if (opWasRunning && !op.running) {
+    toast(op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.`, op.error ? 'bad' : 'ok');
+    if (document.body.dataset.area === 'worlds') loadWorldsArea();
+  }
+  opWasRunning = op.running;
+  document.querySelectorAll('[data-op]').forEach((b) => (b.disabled = op.running));
 }
 setInterval(tickCountdown, 1000);
 
@@ -531,11 +602,14 @@ document.querySelectorAll('form.add').forEach((form) => {
 });
 
 // ---------------------------------------------------------------------------
-// Backups
+// Worlds & backups
 // ---------------------------------------------------------------------------
 
 let backupWasRunning = false;
 let backupsLoaded = false;
+let worldsLoaded = false;
+let worldNames = [];
+let activeWorldName = null;
 
 function setJob(box, state, iconName, text) {
   box.hidden = !state;
@@ -544,12 +618,19 @@ function setJob(box, state, iconName, text) {
   box.replaceChildren(icon(iconName), el('span', {}, text));
 }
 
+const DELAYS = [[0, 'Now'], [10, 'In 10 seconds'], [60, 'In 1 minute'], [300, 'In 5 minutes']];
+function delaySelect(selected = 60) {
+  return el('select', { class: 'field', name: 'seconds' }, ...DELAYS.map(([v, l]) => el('option', { value: v, selected: v === selected || undefined }, l)));
+}
+const fld = (label, control) => el('label', { class: 'fld' }, el('span', {}, label), control);
+const serverRunning = () => !lastStatus?.power?.available || lastStatus.power.active === 'active';
+
 function renderBackupState(state) {
   if (!state) return;
   const btn = $('backup-now');
   btn.disabled = state.running;
-  btn.querySelector('span').textContent = state.running ? 'Backing up…' : 'Back up now';
-  if (state.running) setJob($('backup-state'), 'running', 'backups', `Backing up the world. Started ${fmt.relative(state.startedAt)}; autosave is paused until it finishes.`);
+  btn.querySelector('span').textContent = state.running ? 'Backing up…' : 'Back up active world';
+  if (state.running) setJob($('backup-state'), 'running', 'backups', `Backing up ${state.world || 'the active world'}. Started ${fmt.relative(state.startedAt)}; autosave is paused until it finishes.`);
   else if (state.lastError) setJob($('backup-state'), 'failed', 'alert', `The last backup failed: ${state.lastError}`);
   else setJob($('backup-state'), null);
   if (backupWasRunning && !state.running) {
@@ -560,28 +641,152 @@ function renderBackupState(state) {
   backupWasRunning = state.running;
 }
 
+async function loadWorlds() {
+  if (!worldsLoaded) skeletonRows($('world-list'), 5);
+  try {
+    const { active, worlds } = await api('GET', '/api/worlds');
+    worldsLoaded = true;
+    activeWorldName = active;
+    worldNames = worlds.map((w) => w.name);
+    const total = worlds.reduce((n, w) => n + w.size, 0);
+    $('worlds-info').textContent = `${worlds.length} world${worlds.length === 1 ? '' : 's'}, ${fmt.bytes(total)}. The server plays one world at a time.`;
+    $('world-list').replaceChildren(...worlds.map((w) => el('tr', {},
+      el('td', { class: 'primary-cell', 'data-label': 'World' },
+        w.name, ' ', w.active ? el('span', { class: 'pill own' }, icon('check'), 'Active') : null,
+        el('span', { class: 'sub' }, [w.type && w.type !== 'normal' ? w.type.replace('_', ' ') : null, w.seed ? `seed ${w.seed}` : null, !w.generated ? 'generated on next start' : null].filter(Boolean).join(' · ') || null)),
+      el('td', { 'data-label': 'Dimensions' }, el('span', { class: 'dims' }, ...w.dimensions.map((d) => el('span', { class: 'pill' }, d.replace('the_end', 'end'))))),
+      el('td', { class: 'num', 'data-label': 'Size' }, w.generated ? fmt.bytes(w.size) : '–'),
+      el('td', { 'data-label': 'Last played' }, w.lastPlayed ? [fmt.date(w.lastPlayed), el('span', { class: 'sub' }, fmt.relative(w.lastPlayed))] : '–'),
+      el('td', { class: 'act' },
+        w.active ? null : worldButton('Switch', 'play', () => switchWorld(w.name)),
+        w.generated ? worldButton('Back up', 'backups', () => backupWorld(w.name)) : null,
+        w.active ? null : worldButton('Delete', 'delete', () => deleteWorld(w.name), true)))));
+  } catch (e) {
+    $('world-list').replaceChildren(emptyRow(5, `Can't list worlds: ${e.message}`));
+  }
+}
+
+function worldButton(label, iconName, fn, danger) {
+  const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}`, 'data-op': true, disabled: lastStatus?.op?.running || undefined }, icon(iconName), label);
+  btn.addEventListener('click', () => busy(btn, fn));
+  return btn;
+}
+
+async function startOp(url, body, okMessage) {
+  try {
+    const st = await api('POST', url, body);
+    renderOp(st.running !== undefined ? st : st.op);
+    if (okMessage) toast(okMessage);
+    refreshStatus(true);
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function switchWorld(name) {
+  const delay = delaySelect(60);
+  const running = serverRunning();
+  if (!(await confirmAction({
+    title: `Switch to ${name}?`,
+    body: running ? `The server restarts into ${name}. ${activeWorldName} stays on disk and you can switch back any time.` : `${name} is played from the next start.`,
+    confirm: 'Switch world', icon: 'worlds',
+    content: running ? fld('Restart', delay) : null,
+  }))) return;
+  await startOp(`/api/worlds/${encodeURIComponent(name)}/activate`, { seconds: Number(delay.value) });
+}
+
+async function backupWorld(name) {
+  try {
+    renderBackupState((await api('POST', '/api/backups', { world: name })).state);
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function deleteWorld(name) {
+  const archive = el('input', { type: 'checkbox', checked: true });
+  if (!(await confirmAction({
+    title: `Delete world ${name}?`,
+    body: 'Removes the overworld, nether and end folders of this world.',
+    confirm: 'Delete world', tone: 'danger', icon: 'delete',
+    content: el('label', { class: 'check' }, archive, el('span', {}, 'Archive it as a backup first')),
+  }))) return;
+  try {
+    const st = await api('DELETE', `/api/worlds/${encodeURIComponent(name)}?archive=${archive.checked ? 1 : 0}`);
+    renderOp(st);
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+const worldForm = $('world-new');
+function toggleWorldForm(open) {
+  worldForm.hidden = !open;
+  $('world-new-toggle').setAttribute('aria-expanded', open);
+  if (open) worldForm.elements.name.focus();
+}
+$('world-new-toggle').addEventListener('click', () => toggleWorldForm(worldForm.hidden));
+$('world-new-cancel').addEventListener('click', () => toggleWorldForm(false));
+worldForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = worldForm.elements;
+  const name = f.name.value.trim();
+  if (worldNames.includes(name)) return toast(`A world named ${name} already exists.`, 'bad');
+  await busy(worldForm.querySelector('.btn-primary'), () =>
+    startOp('/api/worlds', { name, seed: f.seed.value.trim(), type: f.type.value, seconds: Number(f.seconds.value) }, `Creating ${name}. The server switches to it ${serverRunning() ? 'after the countdown' : 'on next start'}.`));
+  worldForm.reset();
+  toggleWorldForm(false);
+});
+
 async function loadBackups() {
-  if (!backupsLoaded) skeletonRows($('backup-list'), 4);
+  if (!backupsLoaded) skeletonRows($('backup-list'), 5);
   try {
     const { dir, keep, files, state } = await api('GET', '/api/backups');
     backupsLoaded = true;
     const total = files.reduce((n, f) => n + f.size, 0);
-    $('backup-info').textContent = `${files.length} backup${files.length === 1 ? '' : 's'}, ${fmt.bytes(total)} in ${dir}. ${keep ? `The newest ${keep} are kept.` : 'All backups are kept.'}`;
+    $('backup-info').textContent = `${files.length} backup${files.length === 1 ? '' : 's'}, ${fmt.bytes(total)} in ${dir}. ${keep ? `The newest ${keep} of each world are kept.` : 'All backups are kept.'}`;
     renderBackupState(state);
+    const seen = new Set();
     $('backup-list').replaceChildren(...(files.length
-      ? files.map((f, i) => el('tr', {},
-          el('td', { class: 'primary-cell', 'data-label': 'Backup' }, el('span', { class: 'filename' }, f.name), i === 0 ? el('span', { class: 'sub' }, 'Latest') : null),
-          el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(f.size)),
-          el('td', { 'data-label': 'Created' }, fmt.date(f.created), el('span', { class: 'sub' }, fmt.relative(f.created))),
-          el('td', { class: 'act' },
-            el('a', { class: 'btn btn-sm', href: `/api/backups/${encodeURIComponent(f.name)}`, download: f.name }, icon('download'), 'Download'),
-            deleteBackupButton(f.name))))
-      : [emptyRow(4, el('b', {}, 'No backups yet. '), 'Back up now archives the world, nether and end into a .tar.gz while autosave is paused. Add a nightly backup under Schedule.')]));
+      ? files.map((f) => {
+          const latest = !seen.has(f.world) && seen.add(f.world);
+          return el('tr', {},
+            el('td', { class: 'primary-cell', 'data-label': 'Backup' }, el('span', { class: 'filename' }, f.name), latest ? el('span', { class: 'sub' }, `Latest of ${f.world}`) : null),
+            el('td', { 'data-label': 'World' }, f.world),
+            el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(f.size)),
+            el('td', { 'data-label': 'Created' }, fmt.date(f.created), el('span', { class: 'sub' }, fmt.relative(f.created))),
+            el('td', { class: 'act' },
+              worldButton('Restore', 'rollback', () => restoreBackup(f)),
+              el('a', { class: 'btn btn-quiet btn-sm', href: `/api/backups/${encodeURIComponent(f.name)}`, download: f.name }, icon('download'), 'Download'),
+              deleteBackupButton(f.name)));
+        })
+      : [emptyRow(5, el('b', {}, 'No backups yet. '), 'A backup archives a world with its nether and end into a .tar.gz while autosave is paused. Add a nightly backup under Schedule.')]));
   } catch (e) {
-    $('backup-list').replaceChildren(emptyRow(4, `Can't list backups: ${e.message}`));
+    $('backup-list').replaceChildren(emptyRow(5, `Can't list backups: ${e.message}`));
   }
 }
-tabLoaders.backups = loadBackups;
+
+async function restoreBackup(f) {
+  const isActive = f.world === activeWorldName;
+  const exists = worldNames.includes(f.world);
+  const target = el('input', { class: 'field', value: `${f.world}-restored`.slice(0, 32), maxlength: 32, 'aria-label': 'New world name' });
+  const delay = delaySelect(60);
+  const radio = (value, title, note, checked) => el('label', { class: 'radio-row' },
+    el('input', { type: 'radio', name: 'restore-mode', value, checked: checked || undefined }),
+    el('span', {}, el('b', {}, title), el('span', { class: 'note' }, note)));
+  const replace = radio('replace', exists ? `Replace ${f.world}` : `Restore ${f.world}`,
+    !exists ? 'Recreates the deleted world.'
+      : isActive ? 'The server stops, the current world is backed up for safety, then the backup is restored and the server starts again.'
+        : 'The current folders are backed up for safety, then overwritten.', true);
+  const asNew = radio('new', 'Restore as a new world', 'Extracts next to your other worlds; nothing is stopped or overwritten.');
+  const content = el('div', { class: 'stack' }, replace, asNew, fld('New world name', target), isActive && serverRunning() ? fld('Stop the server', delay) : null);
+  const sync = () => (target.closest('.fld').hidden = !asNew.querySelector('input').checked);
+  content.addEventListener('change', sync);
+  sync();
+  if (!(await confirmAction({ title: 'Restore backup?', body: f.name, confirm: 'Restore', tone: 'danger', icon: 'rollback', content }))) return;
+  const mode = asNew.querySelector('input').checked ? 'new' : 'replace';
+  await startOp(`/api/backups/${encodeURIComponent(f.name)}/restore`, { mode, target: mode === 'new' ? target.value.trim() : undefined, seconds: Number(delay.value) });
+}
 
 function deleteBackupButton(name) {
   const btn = el('button', { class: 'btn btn-quiet btn-sm danger', 'aria-label': `Delete ${name}` }, icon('delete'), 'Delete');
@@ -596,12 +801,81 @@ function deleteBackupButton(name) {
 $('backup-now').addEventListener('click', async (e) => {
   await busy(e.currentTarget, async () => {
     try {
-      renderBackupState((await api('POST', '/api/backups')).state);
+      renderBackupState((await api('POST', '/api/backups', {})).state);
     } catch (err) {
       toast(err.message, 'bad');
     }
   });
 });
+
+function loadWorldsArea() {
+  loadWorlds();
+  loadBackups();
+}
+tabLoaders.worlds = loadWorldsArea;
+
+// ---------------------------------------------------------------------------
+// Server: power & maintenance
+// ---------------------------------------------------------------------------
+
+function renderPower(s) {
+  const p = s.power || {};
+  const box = $('power-state');
+  const state = p.available ? p.active : 'unknown';
+  box.dataset.state = state;
+  $('power-label').textContent = p.available ? POWER_LABEL[p.active] || p.active : 'Not controllable';
+  $('power-detail').textContent = !p.available
+    ? ` · ${p.error || `rconsole can't control ${p.unit || 'the server service'}. See the README (polkit rule).`}`
+    : p.active === 'active' && p.since ? ` · since ${fmt.date(p.since)} (${fmt.relative(p.since)})${p.pid ? ` · PID ${p.pid}` : ''}`
+      : p.active === 'failed' ? ` · ${p.result}` : '';
+  const busyNow = Boolean(p.pending) || s.op?.running || s.restart?.remaining != null;
+  $('power-start').disabled = !p.available || p.active === 'active' || busyNow;
+  $('power-stop').disabled = !p.available || p.active !== 'active' || busyNow;
+  $('power-restart').disabled = !p.available || p.active !== 'active' || busyNow;
+  const m = s.maintenance || {};
+  $('maint-toggle').checked = Boolean(m.enabled);
+  $('maint-state').textContent = m.enabled ? 'On' : 'Off';
+  $('maint-info').textContent = m.enabled
+    ? `On since ${fmt.date(m.since)}. Only operators can join. Switching it off restores the whitelist.`
+    : 'Only operators can stay or join. Whitelisted players are taken off the whitelist and kicked, and put back when you switch it off.';
+}
+
+async function power(action) {
+  const seconds = Number($('power-delay').value);
+  if (action !== 'start') {
+    const ok = await confirmAction({
+      title: action === 'stop' ? `Stop the server${seconds ? ` in ${fmt.delay(seconds)}` : ' now'}?` : `Restart the server${seconds ? ` in ${fmt.delay(seconds)}` : ' now'}?`,
+      body: action === 'stop' ? 'Players are warned, the world is saved and the server stays off until you start it.' : 'Players are warned, the world is saved and the server comes straight back.',
+      confirm: action === 'stop' ? 'Stop server' : 'Restart server',
+      tone: action === 'stop' ? 'danger' : 'primary',
+      icon: action === 'stop' ? 'stop' : 'restart',
+    });
+    if (!ok) return;
+  }
+  await startOp('/api/server/power', { action, seconds });
+}
+$('power-start').addEventListener('click', (e) => busy(e.currentTarget, () => power('start')));
+$('power-stop').addEventListener('click', (e) => busy(e.currentTarget, () => power('stop')));
+$('power-restart').addEventListener('click', (e) => busy(e.currentTarget, () => power('restart')));
+
+$('maint-toggle').addEventListener('change', async (e) => {
+  const on = e.target.checked;
+  e.target.checked = !on; // reflect the server's answer, not the click
+  if (on && !(await confirmAction({
+    title: 'Turn on maintenance mode?',
+    body: 'Non-operators are taken off the whitelist and kicked with your message. Switching it off puts the whitelist back exactly as it was.',
+    confirm: 'Turn on', tone: 'danger', icon: 'maintenance',
+  }))) return;
+  try {
+    const r = await api('POST', '/api/maintenance', { enabled: on, message: $('maint-message').value });
+    toast(on ? `Maintenance on. ${r.removed.length} taken off the whitelist, ${r.kicked.length} kicked.` : `Maintenance off. ${r.restored.length} restored to the whitelist.`);
+  } catch (err) {
+    toast(err.message, 'bad');
+  }
+  refreshStatus(true);
+});
+
+tabLoaders.server = () => lastStatus && renderPower(lastStatus);
 
 // ---------------------------------------------------------------------------
 // Schedule
@@ -747,7 +1021,7 @@ function renderUpdateState(st) {
 }
 
 async function startUpdate(body, opts) {
-  const restart = fmt.delay(Number($('upd-delay').value));
+  const restart = fmt.delay(Number($('upd-delay').value)) || 'now';
   const backup = $('upd-backup').checked && !body.rollback;
   const ok = await confirmAction({
     ...opts,
@@ -802,7 +1076,7 @@ async function loadUpdates(refresh) {
     refreshBtn.removeAttribute('aria-busy');
   }
 }
-tabLoaders.updates = () => loadUpdates();
+viewLoaders['server/updates'] = () => loadUpdates();
 
 async function upgradeVersion(version, btn) {
   try {
