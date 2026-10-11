@@ -25,6 +25,7 @@ const { Audit, summarize } = require('./lib/audit');
 const { Metrics } = require('./lib/metrics');
 const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
+const { CommandCatalog } = require('./lib/commands');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp } = require('./lib/auth');
 
 if (!config.rconPassword) {
@@ -49,6 +50,7 @@ const pending = new Pending({ stateDir: config.stateDir, power });
 const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log });
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion });
+const commandCatalog = new CommandCatalog({ rcon, log });
 const audit = new Audit({ stateDir: config.stateDir, log });
 // Operations run in the background after the request returned 202; record how they ended.
 ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target: st.label, ok: !st.error, ...(st.error ? { error: st.error } : {}) });
@@ -84,7 +86,7 @@ const PUBLIC_FILES = {
   '/favicon.svg': load('favicon.svg', IMMUTABLE),
   '/fonts/archivo.woff2': load('fonts/archivo.woff2', IMMUTABLE),
 };
-const APP_FILES = { '/': load('index.html'), '/app.js': load('app.js') };
+const APP_FILES = { '/': load('index.html'), '/app.js': load('app.js'), '/commands.js': load('commands.js') };
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -319,6 +321,7 @@ function auditRequest(req, pathname, status, error) {
   audit.record({ user: req.user, ip: clientIp(req), action, target: String(target || '').slice(0, 300) || undefined, detail: action === 'command' ? undefined : summarize(req.body), ok: !error, status, error });
 }
 
+route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 route('GET', /^\/api\/metrics$/, (req) => metrics.series(new URL(req.url, 'http://x').searchParams.get('range') || '24h'));
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
 route('GET', /^\/api\/logs\/search$/, async (req) => searchLogs(config.mcDir, Object.fromEntries(new URL(req.url, 'http://x').searchParams)));

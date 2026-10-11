@@ -5,7 +5,8 @@
 
 A lightweight web console for managing a Minecraft server over RCON. No dependencies, Node.js 18+.
 
-- **Console**: live server log (chat, joins, warnings, errors) with filter and chat-only view, plus a command prompt with history (↑/↓)
+- **Console**: live server log (chat, joins, warnings, errors) with filter and chat-only view, plus a command prompt with history (↑/↓) and autocomplete: commands with descriptions and syntax, subcommands, online/whitelisted/banned players, game modes, game rules (Tab to complete, Ctrl+Space to list). Plugin commands are discovered from the server's `help`.
+- **Command palette**: Ctrl+K (⌘K) to jump to any view, run actions (restart, backup, maintenance, update checks…) or pick a Minecraft command
 - **Stats**: TPS/MSPT, players, in-game day and time, host CPU, RAM, disk and uptime
 - **Players**: whitelist (with on/off switch), operators, banned players and IPs, with one-click add and remove; history of everyone who played (sessions, playtime, last IP, daily activity) built from the server logs
 - **Server**: start, stop and restart the Minecraft service with in-game countdowns; maintenance mode (only operators can join, whitelist restored afterwards)

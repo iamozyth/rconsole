@@ -333,10 +333,18 @@ async function run(command) {
   refreshStatus(true);
 }
 
-$('form').addEventListener('submit', (e) => {
+$('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const cmd = $('cmd').value.trim();
   if (!cmd) return;
+  closeSuggestions();
+  $('cmd-hint').hidden = true;
+  const name = cmd.replace(/^\//, '').split(' ')[0].toLowerCase();
+  if (COMMANDS[name]?.danger && !(await confirmAction({
+    title: `Run /${name}?`,
+    body: `${COMMANDS[name].d}. Players get no warning. Server → Power stops or restarts with a countdown instead.`,
+    confirm: `Run /${name}`, tone: 'danger', icon: 'stop',
+  }))) return;
   history_.push(cmd);
   histPos = history_.length;
   $('cmd').value = '';
@@ -344,14 +352,296 @@ $('form').addEventListener('submit', (e) => {
   run(cmd.replace(/^\//, ''));
 });
 
-$('cmd').addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowUp' && histPos > 0) $('cmd').value = history_[--histPos];
+// ---------------------------------------------------------------------------
+// Command autocomplete: catalog (commands.js) merged with what the server
+// reports, argument completions from live lists.
+// ---------------------------------------------------------------------------
+
+let serverCommands = null;
+let serverCommandsLoading = null;
+let accessCache = null;
+let catalogCache = null;
+
+function loadServerCommands(refresh) {
+  if (serverCommandsLoading) return serverCommandsLoading;
+  serverCommandsLoading = api('GET', `/api/commands${refresh ? '?refresh' : ''}`)
+    .then((r) => { serverCommands = r.commands; catalogCache = null; })
+    .catch(() => {})
+    .finally(() => (serverCommandsLoading = null));
+  return serverCommandsLoading;
+}
+
+function ensureAccess() {
+  if (!accessCache) api('GET', '/api/access').then((a) => (accessCache = a)).catch(() => {});
+}
+
+// Splits a grammar string at top-level spaces.
+function splitTop(str, sep = ' ') {
+  const out = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of str) {
+    if ('([<'.includes(ch)) depth++;
+    if (')]>'.includes(ch)) depth--;
+    if (ch === sep && depth === 0) {
+      if (cur) out.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function parseSlot(tok) {
+  let optional = false;
+  if (/^\[.*\]$/.test(tok)) {
+    optional = true;
+    tok = tok.slice(1, -1);
+  }
+  if (/^\(.*\)$/.test(tok)) return { kind: 'choice', optional, text: tok, options: splitTop(tok.slice(1, -1), '|').map((o) => o.trim().split(' ')[0]).filter((o) => o && !o.startsWith('<')) };
+  if (/^<.*>$/.test(tok)) return { kind: 'arg', optional, text: tok, name: tok.slice(1, -1) };
+  if (tok === '…' || tok === '...') return { kind: 'rest', optional: true, text: '…' };
+  return { kind: 'literal', optional, text: tok, value: tok };
+}
+
+const GREEDY = /^(message|reason|text|action|command)$/i;
+
+function argType(name) {
+  const n = name.toLowerCase();
+  if (['player', 'target', 'victim'].includes(n)) return 'player';
+  if (['players', 'targets', 'entity', 'entities', 'destination'].includes(n)) return 'players';
+  if (n === 'rule') return 'gamerule';
+  if (n === 'value') return 'bool';
+  return n;
+}
+
+function argValues(name) {
+  const t = argType(name);
+  const online = lastStatus?.game?.players?.players || [];
+  if (t === 'player') return online;
+  if (t === 'players') return [...online, ...ARG_VALUES.selector];
+  if (t === 'whitelisted') return (accessCache?.whitelist || []).map((p) => p.name);
+  if (t === 'banned') return (accessCache?.bans || []).map((p) => p.name);
+  if (t === 'bannedip') return (accessCache?.ipBans || []).map((p) => p.ip);
+  if (t === 'op') return (accessCache?.ops || []).map((p) => p.name);
+  return ARG_VALUES[t] || [];
+}
+
+function commandCatalog() {
+  if (catalogCache) return catalogCache;
+  const map = new Map();
+  const onServer = serverCommands ? new Map(serverCommands.map((c) => [c.name, c])) : null;
+  for (const [name, c] of Object.entries(COMMANDS)) {
+    const target = c.alias ? COMMANDS[c.alias] : c;
+    map.set(name, { name, description: c.d, forms: (target.f || ['']).map((f) => splitTop(f).map(parseSlot)), syntax: target.f || [''], alias: c.alias || null, danger: Boolean(c.danger), known: !onServer || onServer.has(name) });
+  }
+  for (const c of serverCommands || []) {
+    if (map.has(c.name)) {
+      if (!map.get(c.name).description && c.description) map.get(c.name).description = c.description;
+      continue;
+    }
+    const syntax = c.usage.length ? c.usage : [''];
+    map.set(c.name, { name: c.name, description: c.description || 'Server command', forms: syntax.map((f) => splitTop(f).map(parseSlot)), syntax, plugin: true, known: true });
+  }
+  catalogCache = map;
+  return map;
+}
+
+// Tokens of the command line; the last one is the word being typed.
+function lineTokens(value) {
+  const v = value.replace(/^\//, '');
+  const parts = v.split(' ');
+  return parts;
+}
+
+function matchingForms(cmd, args) {
+  return cmd.forms.map((form, fi) => ({ form, fi })).filter(({ form }) => {
+    for (let i = 0; i < args.length; i++) {
+      const slot = form[i];
+      if (!slot) return form.some((sl) => sl.kind === 'rest' || (sl.kind === 'arg' && GREEDY.test(sl.name)));
+      if (slot.kind === 'rest' || (slot.kind === 'arg' && GREEDY.test(slot.name))) return true;
+      const a = args[i].toLowerCase();
+      if (slot.kind === 'literal' && slot.value.toLowerCase() !== a) return false;
+      if (slot.kind === 'choice' && slot.options.length && !slot.options.some((o) => o.toLowerCase() === a)) return false;
+    }
+    return true;
+  });
+}
+
+function rankByPrefix(values, word, key = (v) => v) {
+  const w = word.toLowerCase();
+  const pre = values.filter((v) => key(v).toLowerCase().startsWith(w));
+  const sub = w ? values.filter((v) => !key(v).toLowerCase().startsWith(w) && key(v).toLowerCase().includes(w)) : [];
+  return [...pre, ...sub];
+}
+
+// { items: [{ label, insert, detail, desc, danger }], hint: { cmd, form, slot } }
+function suggest(value) {
+  const tokens = lineTokens(value);
+  const cat = commandCatalog();
+  if (tokens.length === 1) {
+    const word = tokens[0];
+    if (!word) return { items: [], hint: null };
+    const all = [...cat.values()];
+    let ranked = rankByPrefix(all, word, (c) => c.name);
+    if (word.length > 2) {
+      const w = word.toLowerCase();
+      ranked = [...ranked, ...all.filter((c) => !ranked.includes(c) && (c.description || '').toLowerCase().includes(w))];
+    }
+    ranked.sort((a, b) => (b.known - a.known) || (a.name.toLowerCase().startsWith(word.toLowerCase()) ? 0 : 1) - (b.name.toLowerCase().startsWith(word.toLowerCase()) ? 0 : 1));
+    const exact = cat.get(word.toLowerCase());
+    return {
+      items: ranked.slice(0, 12).map((c) => ({ label: `/${c.name}`, insert: c.name, detail: c.syntax[0] || '', desc: c.alias ? `Alias of /${c.alias}` : c.description, danger: c.danger, muted: !c.known })),
+      hint: exact ? { cmd: exact, form: exact.forms[0], slot: -1 } : null,
+    };
+  }
+  const cmd = cat.get(tokens[0].toLowerCase());
+  if (!cmd) return { items: [], hint: null };
+  const args = tokens.slice(1, -1);
+  const word = tokens[tokens.length - 1];
+  const forms = matchingForms(cmd, args);
+  const k = args.length;
+  const values = [];
+  const details = new Map();
+  for (const { form } of forms) {
+    const slot = form[k];
+    if (!slot) continue;
+    const add = (v, d) => {
+      if (!values.includes(v)) {
+        values.push(v);
+        details.set(v, d);
+      }
+    };
+    if (slot.kind === 'literal') add(slot.value, 'subcommand');
+    else if (slot.kind === 'choice') slot.options.forEach((o) => add(o, 'subcommand'));
+    else if (slot.kind === 'arg') argValues(slot.name).forEach((v) => add(v, slot.name));
+  }
+  const w = word.toLowerCase();
+  const slotMatches = (slot) => slot && ((slot.kind === 'literal' && slot.value.toLowerCase().startsWith(w)) || (slot.kind === 'choice' && slot.options.some((o) => o.toLowerCase().startsWith(w))));
+  const hintForm = (w && forms.find(({ form }) => slotMatches(form[k]))?.form) || forms[0]?.form || cmd.forms[0];
+  return {
+    items: rankByPrefix(values, word).slice(0, 12).map((v) => ({ label: v, insert: v, detail: details.get(v), desc: '' })),
+    hint: { cmd, form: hintForm, slot: k },
+  };
+}
+
+const cmdInput = $('cmd');
+const suggestBox = $('cmd-suggest');
+const hintBox = $('cmd-hint');
+let suggestions = [];
+let activeSuggestion = -1;
+let navigated = false;
+
+function renderHint(h) {
+  hintBox.hidden = !h;
+  if (!h) return;
+  const parts = [el('b', {}, `/${h.cmd.name}`)];
+  h.form.forEach((slot, i) => parts.push(' ', el('span', { class: `slot${i === h.slot ? ' on' : ''}${slot.optional ? ' opt' : ''}` }, slot.optional && slot.kind !== 'rest' ? `[${slot.text}]` : slot.text)));
+  const more = h.cmd.forms.length > 1 ? el('span', { class: 'note' }, ` +${h.cmd.forms.length - 1} more form${h.cmd.forms.length > 2 ? 's' : ''}`) : null;
+  hintBox.replaceChildren(el('span', { class: 'sig' }, ...parts, more),
+    h.cmd.description ? el('span', { class: 'desc' }, h.cmd.danger ? icon('alert') : null, h.cmd.alias ? `Alias of /${h.cmd.alias}` : h.cmd.description) : null);
+  hintBox.classList.toggle('danger', h.cmd.danger);
+}
+
+function renderSuggestions() {
+  suggestBox.hidden = !suggestions.length;
+  cmdInput.setAttribute('aria-expanded', String(suggestions.length > 0));
+  suggestBox.replaceChildren(...suggestions.map((sg, i) => el('li', {
+    id: `sg-${i}`, role: 'option', 'aria-selected': String(i === activeSuggestion), class: sg.muted ? 'muted' : null,
+    onmousedown: (e) => { e.preventDefault(); acceptSuggestion(i); },
+  }, el('span', { class: 'sg-label' }, sg.label), sg.detail ? el('span', { class: 'sg-detail' }, sg.detail) : null, sg.desc ? el('span', { class: 'sg-desc' }, sg.desc) : null)));
+  if (activeSuggestion >= 0) cmdInput.setAttribute('aria-activedescendant', `sg-${activeSuggestion}`);
+  else cmdInput.removeAttribute('aria-activedescendant');
+  suggestBox.querySelector('[aria-selected=true]')?.scrollIntoView({ block: 'nearest' });
+}
+
+function updateSuggestions() {
+  const r = suggest(cmdInput.value);
+  const tokens = lineTokens(cmdInput.value);
+  const word = tokens[tokens.length - 1];
+  // Don't offer exactly what is already typed as the only option.
+  suggestions = r.items.length === 1 && r.items[0].insert.toLowerCase() === word.toLowerCase() ? [] : r.items;
+  activeSuggestion = -1;
+  navigated = false;
+  renderSuggestions();
+  renderHint(r.hint);
+}
+
+function closeSuggestions() {
+  suggestions = [];
+  activeSuggestion = -1;
+  renderSuggestions();
+}
+
+function acceptSuggestion(i) {
+  const sg = suggestions[i];
+  if (!sg) return;
+  const tokens = lineTokens(cmdInput.value);
+  tokens[tokens.length - 1] = sg.insert;
+  cmdInput.value = `${tokens.join(' ')} `;
+  cmdInput.focus();
+  updateSuggestions();
+}
+
+cmdInput.setAttribute('role', 'combobox');
+cmdInput.setAttribute('aria-autocomplete', 'list');
+cmdInput.setAttribute('aria-controls', 'cmd-suggest');
+cmdInput.setAttribute('aria-expanded', 'false');
+cmdInput.addEventListener('focus', () => {
+  if (!serverCommands) loadServerCommands().then(() => document.activeElement === cmdInput && updateSuggestions());
+  ensureAccess();
+});
+cmdInput.addEventListener('input', updateSuggestions);
+cmdInput.addEventListener('blur', () => setTimeout(() => {
+  if (document.activeElement !== cmdInput) {
+    closeSuggestions();
+    hintBox.hidden = true;
+  }
+}, 100));
+
+cmdInput.addEventListener('keydown', (e) => {
+  const open = suggestions.length > 0;
+  if (e.key === ' ' && e.ctrlKey) {
+    e.preventDefault();
+    updateSuggestions();
+    if (!suggestions.length && !cmdInput.value) {
+      suggestions = [...commandCatalog().values()].filter((c) => c.known).slice(0, 40).map((c) => ({ label: `/${c.name}`, insert: c.name, detail: c.syntax[0] || '', desc: c.description }));
+      renderSuggestions();
+    }
+    return;
+  }
+  if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    e.preventDefault();
+    const n = suggestions.length;
+    activeSuggestion = e.key === 'ArrowDown' ? (activeSuggestion + 1) % n : (activeSuggestion - 1 + n) % n;
+    navigated = true;
+    renderSuggestions();
+    return;
+  }
+  if (open && e.key === 'Tab') {
+    e.preventDefault();
+    acceptSuggestion(Math.max(0, activeSuggestion));
+    return;
+  }
+  if (open && e.key === 'Enter' && navigated && activeSuggestion >= 0) {
+    e.preventDefault();
+    acceptSuggestion(activeSuggestion);
+    return;
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (open) closeSuggestions();
+    else cmdInput.blur();
+    return;
+  }
+  if (e.key === 'ArrowUp' && histPos > 0) cmdInput.value = history_[--histPos];
   else if (e.key === 'ArrowDown') {
     histPos = Math.min(history_.length, histPos + 1);
-    $('cmd').value = history_[histPos] || '';
-  } else if (e.key === 'Escape') $('cmd').blur();
-  else return;
+    cmdInput.value = history_[histPos] || '';
+  } else return;
   e.preventDefault();
+  closeSuggestions();
+  renderHint(suggest(cmdInput.value).hint);
 });
 
 document.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => busy(b, () => run(b.dataset.c))));
@@ -531,6 +821,7 @@ async function loadAccess() {
   try {
     const a = await api('GET', '/api/access');
     accessLoaded = true;
+    accessCache = a;
     $('access-error').hidden = true;
     $('wl-toggle').checked = a.whitelistEnabled;
     $('wl-state').textContent = a.whitelistEnabled ? 'On' : 'Off';
@@ -1766,6 +2057,154 @@ viewLoaders['players/history'] = loadPlayerHistory;
 $('ph-filter').addEventListener('input', renderHistoryRows);
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Command palette (Ctrl/Cmd+K): go to any view, run rconsole actions, or pick
+// a Minecraft command to fill into the console.
+// ---------------------------------------------------------------------------
+
+const palette = $('palette');
+const paletteInput = $('palette-input');
+const paletteList = $('palette-list');
+let paletteItems = [];
+let paletteShown = [];
+let paletteActive = 0;
+
+function paletteActions() {
+  const items = [];
+  const views = [...document.querySelectorAll('.area')].flatMap((section) => {
+    const area = section.id.slice(4);
+    const subs = [...section.querySelectorAll('.subnav [role=tab]')];
+    const a = AREAS[area];
+    if (!a) return [];
+    return subs.length
+      ? subs.map((t) => ({ group: 'Go to', icon: a.icon, label: `${a.name} → ${t.textContent.trim()}`, keys: `${area} ${t.dataset.view}`, run: () => showTab(`${area}/${t.dataset.view}`) }))
+      : [{ group: 'Go to', icon: a.icon, label: a.name, keys: area, run: () => showTab(area) }];
+  });
+  items.push(...views);
+  const act = (label, iconName, keys, run, when = () => true) => when() && items.push({ group: 'Actions', icon: iconName, label, keys, run });
+  const p = lastStatus?.power || {};
+  act('Restart the server…', 'restart', 'reboot restart power', () => { showTab('server/overview'); power('restart'); }, () => p.available && p.active === 'active');
+  act('Stop the server…', 'stop', 'shutdown stop power off', () => { showTab('server/overview'); power('stop'); }, () => p.available && p.active === 'active');
+  act('Start the server', 'play', 'start power on boot', () => { showTab('server/overview'); power('start'); }, () => p.available && p.active !== 'active');
+  act(lastStatus?.maintenance?.enabled ? 'Turn off maintenance mode' : 'Turn on maintenance mode…', 'maintenance', 'maintenance lock whitelist', () => { showTab('server/overview'); $('maint-toggle').click(); });
+  act('Back up the active world', 'backups', 'backup save snapshot', () => { showTab('worlds'); $('backup-now').click(); });
+  act('Create a new world…', 'worlds', 'new world create generate', () => { showTab('worlds'); toggleWorldForm(true); });
+  act('Check for Paper updates', 'updates', 'paper update upgrade version', () => { showTab('server/updates'); loadUpdates(true); });
+  act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
+  act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
+  act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });
+  act('Add a scheduled task…', 'schedule', 'cron schedule task timer', () => { showTab('schedule'); });
+  act('Refresh the command list from the server', 'refresh', 'commands autocomplete reload plugins', () => loadServerCommands(true).then(() => toast(`${serverCommands?.length || 0} commands from the server.`)));
+  act('Sign out', 'signout', 'logout sign out', signOut);
+  for (const c of commandCatalog().values()) {
+    if (!c.known) continue;
+    items.push({ group: 'Minecraft commands', icon: 'console', label: `/${c.name}`, detail: c.alias ? `Alias of /${c.alias}` : c.description, keys: `/${c.name} ${c.description || ''}`, command: true, run: () => fillCommand(c.name) });
+  }
+  return items;
+}
+
+function fillCommand(name) {
+  showTab('console');
+  cmdInput.value = `${name} `;
+  cmdInput.focus();
+  updateSuggestions();
+}
+
+function scorePalette(item, q) {
+  if (!q) return item.command ? -1 : 1;
+  const hay = `${item.label} ${item.keys} ${item.detail || ''}`.toLowerCase();
+  const label = item.label.toLowerCase();
+  let score = 0;
+  for (const w of q.split(/\s+/).filter(Boolean)) {
+    if (label.startsWith(w) || label.includes(` ${w}`) || label.includes(`/${w}`)) score += 3;
+    else if (hay.includes(w)) score += 1;
+    else return -1;
+  }
+  return score;
+}
+
+function renderPalette() {
+  const raw = paletteInput.value.trim().toLowerCase();
+  const commandsOnly = raw.startsWith('/');
+  const q = commandsOnly ? raw : raw;
+  paletteShown = paletteItems
+    .filter((i) => !commandsOnly || i.command)
+    .map((i) => ({ i, s: scorePalette(i, q) }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 50)
+    .map((x) => x.i);
+  // Without a query, keep groups in their natural order and skip commands.
+  if (!q) paletteShown = paletteItems.filter((i) => !i.command);
+  paletteActive = Math.min(paletteActive, Math.max(0, paletteShown.length - 1));
+  let group = null;
+  const rows = [];
+  paletteShown.forEach((item, idx) => {
+    if (item.group !== group) {
+      group = item.group;
+      rows.push(el('li', { class: 'palette-group', role: 'presentation' }, group));
+    }
+    rows.push(el('li', {
+      id: `pal-${idx}`, role: 'option', 'aria-selected': String(idx === paletteActive),
+      onmousedown: (e) => { e.preventDefault(); runPalette(idx); },
+      onmousemove: () => { if (paletteActive !== idx) { paletteActive = idx; renderPaletteSelection(); } },
+    }, icon(item.icon), el('span', { class: 'pal-label' }, item.label), item.detail ? el('span', { class: 'pal-detail' }, item.detail) : null));
+  });
+  paletteList.replaceChildren(...(rows.length ? rows : [el('li', { class: 'palette-empty' }, 'Nothing matches. Try a Minecraft command with /.')]));
+  renderPaletteSelection();
+}
+
+function renderPaletteSelection() {
+  paletteList.querySelectorAll('[role=option]').forEach((li) => li.setAttribute('aria-selected', String(li.id === `pal-${paletteActive}`)));
+  paletteInput.setAttribute('aria-activedescendant', `pal-${paletteActive}`);
+  $(`pal-${paletteActive}`)?.scrollIntoView({ block: 'nearest' });
+}
+
+function runPalette(idx) {
+  const item = paletteShown[idx];
+  if (!item) return;
+  palette.close();
+  item.run();
+}
+
+function openPalette(prefill = '') {
+  if (palette.open) return;
+  if (!serverCommands) loadServerCommands().then(() => { if (palette.open) { catalogCache = null; paletteItems = paletteActions(); renderPalette(); } });
+  paletteItems = paletteActions();
+  paletteInput.value = prefill;
+  paletteActive = 0;
+  renderPalette();
+  palette.showModal();
+  paletteInput.focus();
+}
+
+paletteInput.addEventListener('input', () => {
+  paletteActive = 0;
+  renderPalette();
+});
+paletteInput.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const n = paletteShown.length || 1;
+    paletteActive = (paletteActive + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+    renderPaletteSelection();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    runPalette(paletteActive);
+  }
+});
+palette.addEventListener('click', (e) => { if (e.target === palette) palette.close(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'k' && (e.ctrlKey || e.metaKey) && !e.altKey) {
+    e.preventDefault();
+    if (palette.open) palette.close();
+    else openPalette();
+  }
+});
+$('palette-open').addEventListener('click', () => openPalette());
+$('palette-open-m').addEventListener('click', () => openPalette());
+if (/Mac|iPhone|iPad/.test(navigator.platform)) $('palette-key').textContent = '⌘K';
 
 async function signOut() {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});

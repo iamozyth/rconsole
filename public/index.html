@@ -8,6 +8,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
+<script src="/commands.js" defer></script>
 <script src="/app.js" defer></script>
 </head>
 <body class="app" data-area="console">
@@ -69,6 +70,7 @@
     <button role="tab" data-tab="schedule" aria-selected="false" aria-controls="tab-schedule"><span class="tile"><svg><use href="#pg-schedule"/></svg></span><span class="label">Schedule</span></button>
     <button role="tab" data-tab="insights" aria-selected="false" aria-controls="tab-insights"><span class="tile"><svg><use href="#pg-insights"/></svg></span><span class="label">Insights</span></button>
   </nav>
+  <button class="palette-btn" id="palette-open" aria-keyshortcuts="Control+K Meta+K"><svg><use href="#pg-search"/></svg><span>Search &amp; run</span><kbd id="palette-key">Ctrl K</kbd></button>
   <div class="rail-foot">
     <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Early preview</a>
     <span class="who" id="me"></span>
@@ -93,6 +95,7 @@
       <div class="readout"><dt>Disk free</dt><dd id="s-disk">–</dd></div>
       <div class="readout"><dt>Host up</dt><dd id="s-uptime">–</dd></div>
     </dl>
+    <button class="btn btn-quiet btn-icon mobile-only" id="palette-open-m" aria-label="Search and run"><svg><use href="#pg-search"/></svg></button>
     <button class="btn btn-quiet btn-icon mobile-only" id="logout-m" aria-label="Sign out"><svg><use href="#pg-signout"/></svg></button>
   </header>
   <div class="band" aria-hidden="true"></div>
@@ -124,8 +127,12 @@
         <div class="log-status" id="log-status" role="status" hidden><svg><use href="#pg-alert"/></svg><span id="log-status-text"></span></div>
         <div class="log" id="log" aria-live="off" tabindex="0" aria-label="Server log"></div>
         <form class="prompt" id="form" autocomplete="off">
+          <div class="cmd-pop">
+            <ul class="cmd-suggest" id="cmd-suggest" role="listbox" aria-label="Command suggestions" hidden></ul>
+            <div class="cmd-hint" id="cmd-hint" hidden></div>
+          </div>
           <span class="slash" aria-hidden="true">/</span>
-          <input id="cmd" spellcheck="false" autocapitalize="none" placeholder="Run a command, e.g. say Hello" aria-label="Command" enterkeyhint="send">
+          <input id="cmd" spellcheck="false" autocapitalize="none" placeholder="Run a command, e.g. say Hello. Tab completes" aria-label="Command" enterkeyhint="send">
           <kbd class="hint-key" aria-hidden="true">/</kbd>
           <button class="btn btn-primary btn-sm" aria-label="Run command"><svg><use href="#pg-send"/></svg><span class="desktop-only">Run</span></button>
         </form>
@@ -535,6 +542,16 @@
       <button class="btn" id="dialog-confirm" value="confirm"></button>
     </div>
   </form>
+</dialog>
+
+<dialog class="palette" id="palette" aria-label="Search and run">
+  <div class="palette-search">
+    <svg><use href="#pg-search"/></svg>
+    <input id="palette-input" placeholder="Go to, do or run…" autocomplete="off" spellcheck="false" role="combobox" aria-controls="palette-list" aria-expanded="true" aria-autocomplete="list">
+    <kbd>Esc</kbd>
+  </div>
+  <ul class="palette-list" id="palette-list" role="listbox"></ul>
+  <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> choose</span><span><kbd>↵</kbd> open</span><span>Type <kbd>/</kbd> for Minecraft commands</span></div>
 </dialog>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
