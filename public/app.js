@@ -209,7 +209,7 @@ function renderStatus(s) {
     setStat('s-tps', tps.toFixed(1) + (game.mspt != null ? ` · ${game.mspt.toFixed(1)}ms` : ''), tps >= 19 ? 'good' : tps >= 15 ? 'meh' : 'bad');
   } else setStat('s-tps', game ? 'n/a' : '–');
   setStat('s-players', game?.players ? `${game.players.online}/${game.players.max}` : '–');
-  setStat('s-time', game?.daytime != null ? `D${game.day ?? '?'} ${fmt.gameTime(game.daytime)}` : '–');
+  setStat('s-time', game?.daytime != null ? `${game.day != null ? `D${game.day} ` : ''}${fmt.gameTime(game.daytime)}` : '–');
   setStat('s-cpu', host.cpu != null ? fmt.pct(host.cpu) : '–', host.cpu != null ? level(host.cpu, 0.7, 0.9) : '');
   const memUsed = 1 - host.mem.available / host.mem.total;
   setStat('s-mem', `${fmt.bytes(host.mem.total - host.mem.available)} / ${fmt.bytes(host.mem.total)}`, level(memUsed, 0.8, 0.92));
