@@ -1,0 +1,36 @@
+# Paper jar update/rollback job, started by rconsole (see 50-rconsole.rules).
+# Downloads a build from PaperMC, verifies its SHA-256 and swaps the jar.
+[Unit]
+Description=rconsole server update %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=minecraft
+Group=minecraft
+UMask=0027
+EnvironmentFile=/etc/rconsole.env
+Environment=UV_USE_IO_URING=0
+ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js update %i
+TimeoutStartSec=10min
+
+ReadWritePaths=/srv/minecraft /srv/minecraft-backups
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

@@ -69,7 +69,7 @@ code { font-family: var(--mono); font-size: 12px; }
 main { max-width: 1280px; margin: 0 auto; padding: 20px; }
 
 #tab-console { display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
-#tab-backups, #tab-schedule { display: grid; gap: 16px; }
+#tab-backups, #tab-schedule, #tab-updates { display: grid; gap: 16px; }
 @media (max-width: 900px) { #tab-console { grid-template-columns: 1fr; } }
 
 /* Panels & controls -------------------------------------------------- */
@@ -197,3 +197,12 @@ button.link:hover { color: var(--danger); }
 .user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .top-right { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
 .log-status { padding: 8px 14px; border-bottom: 1px solid var(--line); background: #2a1515; color: var(--danger); font-size: 12px; }
+
+/* Updates -------------------------------------------------------------- */
+
+.version { font: 600 20px var(--mono); margin-top: 2px; }
+.update-options { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 12px; }
+.update-options .field.small { width: auto; margin-left: 6px; }
+.update-status { margin-top: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); font-size: 13px; }
+.update-status.running { border-color: #2c5a3e; color: var(--accent); }
+.update-status.failed { border-color: #5a2020; color: var(--danger); }

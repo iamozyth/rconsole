@@ -7,6 +7,7 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 - **Players**: whitelist (with on/off switch), operators, banned players and IPs, with one-click add and remove
 - **Backups**: one-click world backups (autosave paused during the copy), download, delete, automatic retention
 - **Schedule**: daily or weekly restarts with in-game countdown warnings, backups and arbitrary commands
+- **Updates**: Paper build and Minecraft version updates from PaperMC, SHA-256 verified, with automatic backup, countdown restart and one-click rollback
 - **Security**: user accounts with scrypt-hashed passwords, optional TOTP 2FA, session cookies, brute-force lockout, audit log, strict CSP, sandboxed systemd service
 
 ## Security model
@@ -18,6 +19,7 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.
 - **Audit**: every command, backup, restart and login is logged with the user name (`journalctl -u rconsole`).
 - **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
+- **Privileged jobs**: backups and jar updates must run as the Minecraft user (`level.dat` is owner-readable only). They run in two sandboxed systemd units, `rconsole-backup@` and `rconsole-update@`, executing the fixed script `bin/mc-helper.js`. A polkit rule lets the `rconsole` user start exactly these units and nothing else. rconsole can't run arbitrary code as the Minecraft user, and updates only install jars from papermc.io whose SHA-256 matches the API.
 
 rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below) and set `TRUST_PROXY` to the proxy's IP, so client IPs and `Secure` cookies are correct. For defence in depth, firewall port 80 so only the proxy can reach it.
 
@@ -72,15 +74,26 @@ sudo chmod -R g+rX /srv/minecraft
 
 New files Minecraft creates stay group-readable as long as its unit doesn't set a strict umask. Check with `systemctl show minecraft -p UMask`: `0022` or `0027` are fine, `0077` is not.
 
-Backups go to their own directory:
+Backups go to their own directory, written by the Minecraft user and readable (and deletable) by rconsole through the group:
 
 ```sh
 sudo mkdir -p /srv/minecraft-backups
-sudo chown rconsole:rconsole /srv/minecraft-backups
-sudo chmod 750 /srv/minecraft-backups
+sudo chown minecraft:minecraft /srv/minecraft-backups
+sudo chmod 2770 /srv/minecraft-backups
 ```
 
-### 5. Configure and start
+### 5. Allow backup and update jobs
+
+```sh
+sudo apt install -y polkitd
+sudo cp /opt/rconsole/rconsole-backup@.service /opt/rconsole/rconsole-update@.service /etc/systemd/system/
+sudo cp /opt/rconsole/50-rconsole.rules /etc/polkit-1/rules.d/
+sudo systemctl daemon-reload
+```
+
+The units assume `/opt/rconsole`, `/srv/minecraft`, `/srv/minecraft-backups` and the user `minecraft`. Adjust them if yours differ. `MC_JAR` (default `paper.jar`) must match the jar your Minecraft unit starts.
+
+### 6. Configure and start
 
 ```sh
 sudo cp /opt/rconsole/rconsole.env.example /etc/rconsole.env
@@ -91,7 +104,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now rconsole
 ```
 
-### 6. Create your account
+### 7. Create your account
 
 ```sh
 cd /opt/rconsole
@@ -116,6 +129,7 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user t
 | `MC_DIR`        | `/srv/minecraft`         | Server directory (logs, lists, worlds)               |
 | `BACKUP_DIR`    | `/srv/minecraft-backups` | Where backups are written (outside `MC_DIR`)         |
 | `BACKUP_KEEP`   | `10`                     | Newest backups to keep, `0` keeps all                |
+| `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
 
 ## Traefik
 
@@ -149,6 +163,19 @@ cd /opt/rconsole && git pull && sudo systemctl restart rconsole
 ```
 
 If `rconsole.service` changed, copy it again and run `sudo systemctl daemon-reload` first.
+
+## Updates
+
+The **Updates** tab reads the running Paper version from the server log and lists newer builds for that Minecraft version, plus newer Minecraft versions. An update:
+
+1. backs up the world (optional, on by default),
+2. downloads the build from PaperMC and checks its SHA-256 against the API,
+3. swaps the jar, keeping the old one as `paper.jar.previous`,
+4. restarts the server with the usual in-game countdown.
+
+**Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
+
+If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-update@*'` or `journalctl -u 'rconsole-backup@*'`.
 
 ## Notes
 

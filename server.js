@@ -11,6 +11,8 @@ const { Stats } = require('./lib/stats');
 const { readAccess } = require('./lib/access');
 const { Backups } = require('./lib/backups');
 const { Scheduler, Countdown } = require('./lib/scheduler');
+const { Jobs } = require('./lib/jobs');
+const { Updates } = require('./lib/updates');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp } = require('./lib/auth');
 
 if (!config.rconPassword) {
@@ -23,8 +25,10 @@ const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 const rcon = new Rcon({ host: config.rconHost, port: config.rconPort, password: config.rconPassword });
 const logTail = new LogTail(path.join(config.mcDir, 'logs', 'latest.log'));
 const stats = new Stats({ rcon, mcDir: config.mcDir });
-const backups = new Backups({ rcon, mcDir: config.mcDir, backupDir: config.backupDir, keep: config.backupKeep, log });
+const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner });
+const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: config.backupKeep, log });
 const countdown = new Countdown({ rcon, log });
+const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log });
 const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log });
 const users = new Users(config.stateDir);
 const sessions = new Sessions();
@@ -243,6 +247,7 @@ route('GET', /^\/api\/status$/, async () => ({
   ...(await stats.get()),
   restart: { remaining: countdown.remaining },
   backup: backups.state,
+  update: updates.state,
 }));
 
 route('GET', /^\/api\/access$/, () => readAccess(config.mcDir));
@@ -286,6 +291,17 @@ route('POST', /^\/api\/restart$/, async (req) => {
 route('DELETE', /^\/api\/restart$/, async (req) => {
   log(`${req.user}: cancelled restart`);
   return { cancelled: countdown.cancel() };
+});
+
+route('GET', /^\/api\/updates$/, async (req) => updates.overview({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
+
+route('GET', /^\/api\/updates\/builds$/, async (req) => ({
+  builds: await updates.builds(new URL(req.url, 'http://x').searchParams.get('version')),
+}));
+
+route('POST', /^\/api\/updates$/, async (req) => {
+  const { version, build, rollback, backup, restartSeconds } = await readJson(req);
+  return [202, updates.start({ version: String(version || ''), build: Number(build), rollback: Boolean(rollback), backup: backup !== false, restartSeconds, user: req.user })];
 });
 
 route('GET', /^\/api\/tasks$/, async () => ({ tasks: scheduler.list() }));

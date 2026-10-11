@@ -234,6 +234,7 @@ function renderStatus(s) {
   tickCountdown();
 
   renderBackupState(s.backup);
+  renderUpdateState(s.update);
 }
 
 function insertName(name) {
@@ -482,6 +483,101 @@ taskForm.addEventListener('submit', async (e) => {
     $('task-error').textContent = err.message;
   }
 });
+
+// ---------------------------------------------------------------------------
+// Updates
+// ---------------------------------------------------------------------------
+
+let updateWasRunning = false;
+let updateBusy = false;
+
+function renderUpdateState(st) {
+  if (!st) return;
+  updateBusy = st.running;
+  const box = $('upd-status');
+  box.hidden = !st.running && !st.error && !st.finishedAt;
+  box.className = `update-status ${st.running ? 'running' : st.error ? 'failed' : ''}`;
+  box.textContent = st.running
+    ? `Updating to ${st.target}: ${st.step}…`
+    : st.error
+      ? `Update to ${st.target} failed: ${st.error}`
+      : st.finishedAt
+        ? `Updated to ${st.target} at ${fmt.date(st.finishedAt)}.`
+        : '';
+  document.querySelectorAll('[data-update]').forEach((b) => (b.disabled = st.running));
+  $('upd-rollback').disabled = st.running;
+  if (updateWasRunning && !st.running) loadUpdates();
+  updateWasRunning = st.running;
+}
+
+async function startUpdate(body, label) {
+  const restart = $('upd-delay').selectedOptions[0].textContent;
+  const backup = $('upd-backup').checked && !body.rollback;
+  if (!confirm(`${label}?\n\n${backup ? 'The world is backed up first. ' : ''}Players are warned, then the server restarts ${restart}.`)) return;
+  try {
+    const st = await api('POST', '/api/updates', { ...body, backup, restartSeconds: Number($('upd-delay').value) });
+    renderUpdateState(st);
+    refreshStatus(true);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function loadUpdates(refresh) {
+  $('upd-refresh').disabled = true;
+  try {
+    const o = await api('GET', `/api/updates${refresh ? '?refresh' : ''}`);
+    $('upd-current').textContent = o.current ? `Paper ${o.current.version} · build ${o.current.build}` : 'Unknown';
+    $('upd-source').textContent = o.error ? `Couldn't reach PaperMC: ${o.error}` : o.current ? '' : 'Start the server once so its version shows in the log.';
+    $('upd-rollback').hidden = !o.canRollback;
+    renderUpdateState(o.state);
+
+    const updateBtn = (version, build, primary) =>
+      el('button', { class: primary ? 'primary' : '', 'data-update': true, disabled: updateBusy || undefined,
+        onclick: () => startUpdate({ version, build }, `Update to Paper ${version} build ${build}`) }, 'Update');
+
+    $('upd-builds').replaceChildren(
+      ...(o.newerBuilds.length
+        ? o.newerBuilds.map((b, i) =>
+            el('tr', {},
+              el('td', { class: 'mono' }, `#${b.id}`),
+              el('td', {}, el('span', { class: `pill ${b.channel === 'STABLE' ? 'on' : ''}` }, (b.channel || '?').toLowerCase())),
+              el('td', {}, b.time ? fmt.date(b.time) : '–'),
+              el('td', {}, updateBtn(o.current.version, b.id, i === 0))))
+        : [el('tr', {}, el('td', { class: 'empty', colspan: 4 }, o.current ? 'You are on the latest build.' : '–'))])
+    );
+
+    $('upd-versions').replaceChildren(
+      ...(o.newerVersions.length
+        ? o.newerVersions.map((v) =>
+            el('tr', {},
+              el('td', { class: 'mono' }, v),
+              el('td', {}, el('button', { 'data-update': true, disabled: updateBusy || undefined, onclick: () => upgradeVersion(v) }, 'Upgrade…'))))
+        : [el('tr', {}, el('td', { class: 'empty', colspan: 2 }, 'None'))])
+    );
+  } catch (e) {
+    $('upd-source').textContent = e.message;
+  } finally {
+    $('upd-refresh').disabled = false;
+  }
+}
+tabLoaders.updates = () => loadUpdates();
+
+async function upgradeVersion(version) {
+  try {
+    const { builds } = await api('GET', `/api/updates/builds?version=${encodeURIComponent(version)}`);
+    if (!builds.length) return alert(`No builds published for ${version} yet.`);
+    const b = builds[0];
+    const channel = (b.channel || '').toLowerCase();
+    if (!confirm(`Upgrade Minecraft to ${version} (Paper build ${b.id}, ${channel})?\n\nThis converts the world to the new version. Rolling back the jar afterwards does NOT undo that; only restoring the backup does.`)) return;
+    startUpdate({ version, build: b.id }, `Upgrade to Minecraft ${version}`);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+$('upd-refresh').addEventListener('click', () => loadUpdates(true));
+$('upd-rollback').addEventListener('click', () => startUpdate({ rollback: true }, 'Roll back to the previous server jar'));
 
 // ---------------------------------------------------------------------------
 

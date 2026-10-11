@@ -38,6 +38,7 @@
   <button role="tab" data-tab="players">Players</button>
   <button role="tab" data-tab="backups">Backups</button>
   <button role="tab" data-tab="schedule">Schedule</button>
+  <button role="tab" data-tab="updates">Updates</button>
 </nav>
 
 <main>
@@ -188,6 +189,48 @@
       <table class="table">
         <thead><tr><th>Task</th><th>When</th><th>Next run</th><th>Last result</th><th></th></tr></thead>
         <tbody id="task-list"></tbody>
+      </table>
+    </section>
+  </section>
+  <!-- Updates ------------------------------------------------------- -->
+  <section class="tab" id="tab-updates" hidden>
+    <section class="panel pad">
+      <div class="head">
+        <div>
+          <h2>Installed</h2>
+          <div class="version" id="upd-current">–</div>
+          <p class="hint" id="upd-source"></p>
+        </div>
+        <button id="upd-refresh">Check for updates</button>
+      </div>
+      <div class="update-status" id="upd-status" hidden></div>
+      <div class="update-options">
+        <label class="check"><input type="checkbox" id="upd-backup" checked> Back up the world first</label>
+        <label class="check">Restart
+          <select class="field small" id="upd-delay">
+            <option value="10">in 10 seconds</option>
+            <option value="60" selected>in 1 minute</option>
+            <option value="300">in 5 minutes</option>
+          </select>
+        </label>
+        <button class="link" id="upd-rollback" hidden>Roll back to previous jar</button>
+      </div>
+    </section>
+
+    <section class="panel pad">
+      <h2>New builds for this version</h2>
+      <table class="table">
+        <thead><tr><th>Build</th><th>Channel</th><th>Released</th><th></th></tr></thead>
+        <tbody id="upd-builds"></tbody>
+      </table>
+    </section>
+
+    <section class="panel pad">
+      <h2>Newer Minecraft versions</h2>
+      <p class="hint">Upgrading Minecraft converts the world and can't be undone by rolling back the jar. Keep the backup, and check that your plugins support the new version first.</p>
+      <table class="table">
+        <thead><tr><th>Version</th><th></th></tr></thead>
+        <tbody id="upd-versions"></tbody>
       </table>
     </section>
   </section>

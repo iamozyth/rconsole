@@ -1,0 +1,10 @@
+// /etc/polkit-1/rules.d/50-rconsole.rules
+// Lets the rconsole user start its backup and update jobs, and nothing else.
+polkit.addRule(function (action, subject) {
+  if (action.id === "org.freedesktop.systemd1.manage-units" &&
+      subject.user === "rconsole" &&
+      action.lookup("verb") === "start" &&
+      /^rconsole-(backup|update)@[A-Za-z0-9._-]+\.service$/.test(action.lookup("unit"))) {
+    return polkit.Result.YES;
+  }
+});

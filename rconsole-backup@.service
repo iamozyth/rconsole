@@ -1,0 +1,38 @@
+# World backup job, started by rconsole (see 50-rconsole.rules).
+# Runs as the Minecraft user because level.dat is readable by its owner only.
+[Unit]
+Description=rconsole world backup %i
+
+[Service]
+Type=oneshot
+User=minecraft
+Group=minecraft
+UMask=0027
+EnvironmentFile=/etc/rconsole.env
+Environment=UV_USE_IO_URING=0
+ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js backup %i
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=idle
+
+ReadWritePaths=/srv/minecraft-backups
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
