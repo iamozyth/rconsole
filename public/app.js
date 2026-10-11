@@ -1674,7 +1674,8 @@ async function loadSelfUpdate(refresh) {
       el('a', { class: 'mono', href: `https://github.com/${o.repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener' }, x.sha),
       el('span', {}, x.message),
       x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : null)));
-    $('self-actions').hidden = !behind;
+    $('self-update').hidden = !behind;
+    $('self-note').hidden = !behind;
     $('self-update').disabled = !o.canUpdate || u?.state === 'running';
     $('self-update').title = o.canUpdate ? '' : 'Needs the systemd install (see README)';
     if (refresh) toast(c.error ? `Couldn't check: ${c.error}` : behind ? `${behind} new commit${behind === 1 ? '' : 's'} for rconsole.` : 'rconsole is up to date.', c.error ? 'bad' : 'ok');
