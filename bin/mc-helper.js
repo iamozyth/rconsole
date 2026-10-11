@@ -25,8 +25,10 @@ const jobsDir = path.join(config.backupDir, '.jobs');
 const jar = path.join(config.mcDir, config.mcJar);
 
 function writeResult(result) {
-  fs.mkdirSync(jobsDir, { recursive: true });
-  fs.chmodSync(jobsDir, 0o2750); // rconsole (group) reads results, only the helper writes
+  // 0750 under UMask=0027: rconsole (group, inherited from the setgid backup
+  // dir) reads results, only the helper writes. No chmod: the units set
+  // RestrictSUIDSGID, which refuses touching the setgid bit.
+  fs.mkdirSync(jobsDir, { recursive: true, mode: 0o750 });
   const file = path.join(jobsDir, `${kind}-${instance}.json`);
   fs.writeFileSync(`${file}.tmp`, JSON.stringify({ ...result, finished: new Date().toISOString() }), { mode: 0o640 });
   fs.renameSync(`${file}.tmp`, file);
