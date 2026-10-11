@@ -10,6 +10,8 @@ Group=rconsole
 SupplementaryGroups=minecraft
 WorkingDirectory=/opt/rconsole
 EnvironmentFile=/etc/rconsole.env
+# libuv's io_uring backend is outside @system-service; use epoll.
+Environment=UV_USE_IO_URING=0
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=5
@@ -43,6 +45,8 @@ LockPersonality=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
+# Refuse other syscalls instead of killing the process (Node probes io_uring).
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target
