@@ -872,7 +872,7 @@ kbd {
 
 /* Touch screens keep :hover after a tap; drop hover tints there. */
 @media (hover: none) {
-  .btn:hover { background: var(--surface); border-color: var(--line-strong); }
+  .btn:hover { background: var(--field); border-color: var(--line-strong); }
   .btn-quiet:hover, .btn-quiet.danger:hover { background: transparent; color: var(--text-2); }
   .btn-primary:hover { background: var(--area); border-color: var(--area); }
   .btn-danger:hover { background: var(--c-danger); border-color: var(--c-danger); }
