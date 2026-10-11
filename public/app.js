@@ -90,8 +90,8 @@ function avatar(id) {
 // Feedback: confirm dialog, toasts, busy buttons
 // ---------------------------------------------------------------------------
 
-const TONES = { danger: 'var(--c-danger)', warn: 'var(--c-schedule)', primary: null };
-const BTN_CLASS = { danger: 'btn btn-danger', warn: 'btn btn-warn', primary: 'btn btn-primary' };
+const TONES = { danger: 'var(--c-danger)', primary: null };
+const BTN_CLASS = { danger: 'btn btn-danger', primary: 'btn btn-primary' };
 
 function confirmAction({ title, body = '', confirm = 'Confirm', tone = 'primary', icon: iconName = 'alert' }) {
   const dlg = $('dialog');
@@ -329,9 +329,14 @@ document.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click',
 
 let countdownEnd = null;
 
+// Nominal readouts stay neutral; only off-nominal ones are marked, so the
+// strip never borrows an area's colour.
 function readout(id, content, cls = '') {
-  $(id).replaceChildren(...[].concat(content));
-  $(id).className = cls;
+  const off = cls === 'meh' || cls === 'bad';
+  $(id).replaceChildren(...(off ? [icon('alert')] : []), ...[].concat(content));
+  $(id).className = off ? cls : '';
+  $(id).parentElement.classList.toggle('off', off);
+  $(id).parentElement.title = cls === 'bad' ? 'Critical' : cls === 'meh' ? 'Needs attention' : '';
 }
 
 function renderStatus(s) {
@@ -403,7 +408,7 @@ $('restart-start').addEventListener('click', async (e) => {
     title: `Restart in ${fmt.delay(seconds)}?`,
     body: 'Players are warned in chat with a countdown. The world is saved, the server stops and comes back on its own.',
     confirm: 'Start countdown',
-    tone: 'warn',
+    tone: 'primary',
     icon: 'restart',
   });
   if (!ok) return;
@@ -565,7 +570,7 @@ async function loadBackups() {
     renderBackupState(state);
     $('backup-list').replaceChildren(...(files.length
       ? files.map((f, i) => el('tr', {},
-          el('td', { class: 'primary-cell', 'data-label': 'Backup' }, el('span', { class: 'mono' }, f.name), i === 0 ? el('span', { class: 'sub' }, 'Latest') : null),
+          el('td', { class: 'primary-cell', 'data-label': 'Backup' }, el('span', { class: 'filename' }, f.name), i === 0 ? el('span', { class: 'sub' }, 'Latest') : null),
           el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(f.size)),
           el('td', { 'data-label': 'Created' }, fmt.date(f.created), el('span', { class: 'sub' }, fmt.relative(f.created))),
           el('td', { class: 'act' },
@@ -630,7 +635,7 @@ async function loadTasks() {
           return el('tr', {},
             el('td', { class: 'primary-cell', 'data-label': 'Task' },
               t.name || TYPE[t.type].label, ' ',
-              el('span', { class: `pill ${t.enabled ? 'ok' : ''}` }, t.enabled ? 'Active' : 'Paused'),
+              el('span', { class: `pill ${t.enabled ? 'own' : ''}` }, t.enabled ? 'Active' : 'Paused'),
               el('span', { class: `sub ${t.type === 'command' ? 'mono' : ''}` }, detail)),
             el('td', { 'data-label': 'When' }, `${t.time}`, el('span', { class: 'sub' }, describeDays(t.days))),
             el('td', { 'data-label': 'Next run' }, t.enabled && t.nextRun ? [fmt.date(t.nextRun), el('span', { class: 'sub' }, fmt.relative(t.nextRun))] : '–'),
@@ -671,7 +676,7 @@ async function taskAction(method, task, body) {
 async function runTask(task) {
   const label = task.name || TYPE[task.type].label;
   const opts = task.type === 'restart'
-    ? { title: `Restart now?`, body: `Starts the ${task.warnMinutes}-minute countdown with chat warnings, then restarts the server.`, confirm: 'Start countdown', tone: 'warn', icon: 'restart' }
+    ? { title: `Restart now?`, body: `Starts the ${task.warnMinutes}-minute countdown with chat warnings, then restarts the server.`, confirm: 'Start countdown', tone: 'primary', icon: 'restart' }
     : { title: `Run “${label}” now?`, body: task.type === 'command' ? `/${task.command}` : 'Takes a world backup now.', confirm: 'Run now', tone: 'primary', icon: TYPE[task.type].icon };
   if (!(await confirmAction(opts))) return;
   try {
@@ -769,7 +774,7 @@ async function loadUpdates(refresh) {
     $('upd-source').textContent = o.error ? `Can't reach PaperMC: ${o.error}` : o.current ? '' : 'Start the server once so its version shows in the log.';
     const latest = o.current && !o.newerBuilds.length;
     $('upd-channel').hidden = !o.current;
-    $('upd-channel').className = `pill ${latest ? 'ok' : 'warn'}`;
+    $('upd-channel').className = `pill ${latest ? '' : 'own'}`;
     $('upd-channel').replaceChildren(icon(latest ? 'check' : 'updates'), latest ? 'Latest build' : `${o.newerBuilds.length} update${o.newerBuilds.length === 1 ? '' : 's'} available`);
     $('upd-rollback').hidden = !o.canRollback;
     renderUpdateState(o.state);
@@ -778,7 +783,7 @@ async function loadUpdates(refresh) {
     $('upd-builds').replaceChildren(...(o.newerBuilds.length
       ? o.newerBuilds.map((b, i) => el('tr', {},
           el('td', { class: 'primary-cell', 'data-label': 'Build' }, `#${b.id}`, i === 0 ? el('span', { class: 'sub' }, 'Newest') : null),
-          el('td', { 'data-label': 'Channel' }, el('span', { class: `pill ${b.channel === 'STABLE' ? 'ok' : 'warn'}` }, (b.channel || 'unknown').toLowerCase())),
+          el('td', { 'data-label': 'Channel' }, el('span', { class: `pill ${b.channel === 'STABLE' ? 'own' : ''}` }, (b.channel || 'unknown').toLowerCase())),
           el('td', { 'data-label': 'Released' }, b.time ? [fmt.date(b.time), el('span', { class: 'sub' }, fmt.relative(b.time))] : '–'),
           el('td', { class: 'act' }, el('button', {
             class: `btn btn-sm ${i === 0 ? 'btn-primary' : ''}`, 'data-update': true, disabled: updateBusy || undefined,
@@ -817,7 +822,7 @@ async function upgradeVersion(version, btn) {
 }
 
 $('upd-refresh').addEventListener('click', () => loadUpdates(true));
-$('upd-rollback').addEventListener('click', () => startUpdate({ rollback: true }, { title: 'Roll back to the previous jar?', body: 'Swaps the server jar back to the one before the last update.', confirm: 'Roll back', tone: 'warn', icon: 'rollback' }));
+$('upd-rollback').addEventListener('click', () => startUpdate({ rollback: true }, { title: 'Roll back to the previous jar?', body: 'Swaps the server jar back to the one before the last update.', confirm: 'Roll back', tone: 'primary', icon: 'rollback' }));
 
 // ---------------------------------------------------------------------------
 

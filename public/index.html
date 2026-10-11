@@ -66,10 +66,10 @@
 <div class="column">
   <header class="topbar">
     <div class="area-title">
-      <span class="area-tile"><svg><use id="area-icon" href="#pg-console"/></svg></span>
+      <svg class="area-pg" aria-hidden="true"><use id="area-icon" href="#pg-console"/></svg>
       <h1 id="area-name">Console</h1>
-      <span class="conn" id="conn" data-state="pending"><span class="conn-dot"></span><span id="status">Connecting…</span></span>
     </div>
+    <span class="conn" id="conn" data-state="pending"><span class="conn-dot"></span><span id="status">Connecting…</span></span>
     <dl class="health" aria-label="Server health">
       <div class="readout"><dt>TPS</dt><dd id="s-tps">–</dd></div>
       <div class="readout"><dt>Players</dt><dd id="s-players">–</dd></div>
@@ -136,7 +136,7 @@
                 <option value="300" selected>In 5 minutes</option>
                 <option value="600">In 10 minutes</option>
               </select>
-              <button class="btn btn-warn" id="restart-start"><svg><use href="#pg-restart"/></svg>Restart</button>
+              <button class="btn btn-primary" id="restart-start"><svg><use href="#pg-restart"/></svg>Restart</button>
             </div>
             <p class="note">Players get countdown warnings in chat. The server comes back on its own.</p>
           </div>
