@@ -1,3 +1,6 @@
 node_modules/
 .env
 data/
+.impeccable/review/
+.impeccable/mocks/
+.impeccable/*.local.json

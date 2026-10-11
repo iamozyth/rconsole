@@ -42,10 +42,23 @@ const COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
 // Static files (loaded once, served from memory)
 // ---------------------------------------------------------------------------
 
-const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
-const load = (file) => [fs.readFileSync(path.join(__dirname, 'public', file)), types[path.extname(file)]];
+const types = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
+};
+const IMMUTABLE = { 'Cache-Control': 'public, max-age=604800' };
+const load = (file, headers) => [fs.readFileSync(path.join(__dirname, 'public', file)), types[path.extname(file)], headers];
 
-const PUBLIC_FILES = { '/login': load('login.html'), '/login.js': load('login.js'), '/style.css': load('style.css') };
+const PUBLIC_FILES = {
+  '/login': load('login.html'),
+  '/login.js': load('login.js'),
+  '/style.css': load('style.css'),
+  '/favicon.svg': load('favicon.svg', IMMUTABLE),
+  '/fonts/archivo.woff2': load('fonts/archivo.woff2', IMMUTABLE),
+};
 const APP_FILES = { '/': load('index.html'), '/app.js': load('app.js') };
 
 // ---------------------------------------------------------------------------

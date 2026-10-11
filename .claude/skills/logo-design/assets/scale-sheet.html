@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- Logo scale-test sheet. Copy to the scratchpad, fill CONCEPTS with
+     { name, svg } (full <svg> markup, viewBox 0 0 100 100), open in the
+     browser pane and screenshot. Monochrome rows force every fill to one color. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logo scale sheet</title>
+<style>
+  body { margin: 0; padding: 24px; background: #e9e9e9; font: 13px/1.4 -apple-system, sans-serif; color: #111; }
+  h2 { margin: 28px 0 10px; font-size: 15px; }
+  .row { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .cell small { color: #666; }
+  .cell svg { display: block; }
+  .dark { background: #111; padding: 8px; border-radius: 6px; }
+  .light { background: #fff; padding: 8px; border-radius: 6px; }
+  /* Monochrome: recolor painted fills/strokes, keep fill="none" empty, drop the tile (first rect) */
+  .mono-black svg [fill]:not([fill=none]) { fill: #000 !important; }
+  .mono-black svg [stroke]:not([stroke=none]) { stroke: #000 !important; }
+  .mono-white svg [fill]:not([fill=none]) { fill: #fff !important; }
+  .mono-white svg [stroke]:not([stroke=none]) { stroke: #fff !important; }
+  .mono-black svg > rect[fill]:first-child, .mono-white svg > rect[fill]:first-child { fill: transparent !important; stroke: none !important; }
+  .circle svg { clip-path: circle(50%); }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script>
+const CONCEPTS = [
+  // { name: "A — current", svg: `<svg ...>...</svg>` },
+];
+
+const sizes = [512, 128, 64, 32, 16];
+const out = document.getElementById("out");
+for (const c of CONCEPTS) {
+  const h = document.createElement("h2"); h.textContent = c.name; out.append(h);
+  const row = document.createElement("div"); row.className = "row"; out.append(row);
+  const cell = (size, cls, label) => {
+    const d = document.createElement("div"); d.className = "cell";
+    const w = document.createElement("div"); w.className = cls; w.innerHTML = c.svg;
+    const s = w.querySelector("svg"); s.setAttribute("width", size); s.setAttribute("height", size);
+    const l = document.createElement("small"); l.textContent = label;
+    d.append(w, l); row.append(d);
+  };
+  for (const s of sizes) cell(s === 512 ? 160 : s, "light", s === 512 ? "master (160 shown)" : s + "px");
+  cell(32, "dark", "32 on dark");
+  cell(64, "light mono-black", "mono black");
+  cell(64, "dark mono-white", "mono white");
+  cell(64, "light circle", "circle crop");
+  // True-pixel favicon test: rasterize at 16/32 device px, show 6x/3x enlarged without smoothing
+  for (const px of [16, 32]) {
+    const d = document.createElement("div"); d.className = "cell";
+    const cv = document.createElement("canvas"); cv.width = cv.height = px;
+    cv.style.cssText = "width:96px;height:96px;image-rendering:pixelated;background:#fff";
+    const img = new Image();
+    img.onload = () => cv.getContext("2d").drawImage(img, 0, 0, px, px);
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(c.svg);
+    const l = document.createElement("small"); l.textContent = px + "px actual, enlarged";
+    d.append(cv, l); row.append(d);
+  }
+}
+</script>
+</body>
+</html>

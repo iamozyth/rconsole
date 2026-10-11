@@ -2,238 +2,312 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>rconsole</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
 <script src="/app.js" defer></script>
 </head>
-<body>
-<header class="top">
-  <div class="brand">
-    <span class="dot" id="dot"></span>
-    <h1>rconsole</h1>
-    <span class="muted" id="status">connecting…</span>
-  </div>
-  <div class="top-right">
-  <div class="stats" id="stats">
-    <div class="stat"><span>TPS</span><b id="s-tps">–</b></div>
-    <div class="stat"><span>Players</span><b id="s-players">–</b></div>
-    <div class="stat"><span>Game time</span><b id="s-time">–</b></div>
-    <div class="stat"><span>CPU</span><b id="s-cpu">–</b></div>
-    <div class="stat"><span>RAM</span><b id="s-mem">–</b></div>
-    <div class="stat"><span>Disk</span><b id="s-disk">–</b></div>
-    <div class="stat"><span>Host up</span><b id="s-uptime">–</b></div>
-  </div>
-  <div class="user"><span id="me"></span><button class="link" id="logout">Sign out</button></div>
-  </div>
-</header>
+<body class="app" data-area="console">
 
-<div class="banner" id="restart-banner" hidden>
-  <span>Server restarting in <b id="restart-left"></b></span>
-  <button id="restart-cancel">Cancel restart</button>
+<!-- Pictograms: filled geometry on a 24-unit grid, 45° and 90° only. -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="pg-mark" viewBox="0 0 32 32">
+    <rect class="mark-bg" width="32" height="32" rx="3"/>
+    <path d="M16 6 25 11 16 16 7 11Z" fill="#fff"/>
+    <path d="M7 12.6 15.2 17.2V26.6L7 22Z" fill="#fff" fill-opacity=".72"/>
+    <path d="M25 12.6 16.8 17.2V26.6L25 22Z" fill="#fff" fill-opacity=".45"/>
+  </symbol>
+  <symbol id="pg-console" viewBox="0 0 24 24"><path d="M3 4h18v16H3zm2.5 4.2L9.3 12l-3.8 3.8 1.5 1.5L12.3 12 7 6.7zM12 15.5v2h6.5v-2z" fill-rule="evenodd"/></symbol>
+  <symbol id="pg-players" viewBox="0 0 24 24"><circle cx="12" cy="4.2" r="2.6"/><path d="M7.6 8h8.8l2.6 6.2-2 .8-1.9-4.3V22h-2.4v-7.4h-1.4V22H8.9V10.7L7 15l-2-.8z"/></symbol>
+  <symbol id="pg-backups" viewBox="0 0 24 24"><path d="M2.5 3.5h19v5h-19zM4 10h16v10.5H4zm5.5 2.6v2.2h5v-2.2z" fill-rule="evenodd"/></symbol>
+  <symbol id="pg-schedule" viewBox="0 0 24 24"><path d="M12 2.5a9.5 9.5 0 1 1 0 19 9.5 9.5 0 0 1 0-19zm0 2.4a7.1 7.1 0 1 0 0 14.2 7.1 7.1 0 0 0 0-14.2z" fill-rule="evenodd"/><path d="M10.8 6.5h2.4v4.8h4.3v2.4h-6.7z"/></symbol>
+  <symbol id="pg-updates" viewBox="0 0 24 24"><path d="M12 2.5l8 8h-5v6.2H9v-6.2H4zM4 18.5h16V21H4z"/></symbol>
+  <symbol id="pg-restart" viewBox="0 0 24 24"><path d="M12 4.5V1.8l5 4-5 4V7a5.6 5.6 0 1 0 5.6 5.6H20A8 8 0 1 1 12 4.5z"/></symbol>
+  <symbol id="pg-save" viewBox="0 0 24 24"><path d="M3.5 3h13.3l3.7 3.7V21h-17zM7 5.5v4.5h8V5.5zM12 13a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z" fill-rule="evenodd"/></symbol>
+  <symbol id="pg-day" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.4"/><path d="M10.8 1.5h2.4v3.4h-2.4zm0 17.6h2.4v3.4h-2.4zM1.5 10.8h3.4v2.4H1.5zm17.6 0h3.4v2.4h-3.4zM4.2 5.9l1.7-1.7 2.4 2.4-1.7 1.7zm11.5 11.5 1.7-1.7 2.4 2.4-1.7 1.7zM4.2 18.1l2.4-2.4 1.7 1.7-2.4 2.4zM15.7 6.6l2.4-2.4 1.7 1.7-2.4 2.4z"/></symbol>
+  <symbol id="pg-night" viewBox="0 0 24 24"><path d="M14.5 2.6A9.5 9.5 0 1 0 21.4 15 7.6 7.6 0 0 1 14.5 2.6z"/></symbol>
+  <symbol id="pg-clear" viewBox="0 0 24 24"><path d="M7 19.5a4.5 4.5 0 0 1-.6-9 6.2 6.2 0 0 1 11.9 1.4A3.8 3.8 0 0 1 17.8 19.5z"/></symbol>
+  <symbol id="pg-add" viewBox="0 0 24 24"><path d="M10.8 4h2.4v6.8H20v2.4h-6.8V20h-2.4v-6.8H4v-2.4h6.8z"/></symbol>
+  <symbol id="pg-remove" viewBox="0 0 24 24"><path d="M5.6 4 12 10.3 18.4 4 20 5.6 13.7 12l6.3 6.4-1.6 1.6-6.4-6.3L5.6 20 4 18.4l6.3-6.4L4 5.6z"/></symbol>
+  <symbol id="pg-ban" viewBox="0 0 24 24"><path d="M12 2.5a9.5 9.5 0 1 1 0 19 9.5 9.5 0 0 1 0-19zM6.3 7.9a7.1 7.1 0 0 0 9.8 9.8zm1.6-1.6 9.8 9.8a7.1 7.1 0 0 0-9.8-9.8z" fill-rule="evenodd"/></symbol>
+  <symbol id="pg-op" viewBox="0 0 24 24"><path d="M3 7l4.6 3.4L12 3.5l4.4 6.9L21 7l-1.6 11H4.6zM4.6 19.3h14.8v2.2H4.6z"/></symbol>
+  <symbol id="pg-check" viewBox="0 0 24 24"><path d="M9.4 15.6 19.2 5.8l1.8 1.8L9.4 19.2 3 12.8l1.8-1.8z"/></symbol>
+  <symbol id="pg-download" viewBox="0 0 24 24"><path d="M10.8 3h2.4v9.4l3.4-3.4 1.7 1.7-6.3 6.3-6.3-6.3L7.4 9l3.4 3.4zM4 18.5h16V21H4z"/></symbol>
+  <symbol id="pg-delete" viewBox="0 0 24 24"><path d="M9 2.5h6v2h5.5v2.4h-17V4.5H9zM5 8.5h14L17.8 21.5H6.2zm4 2.5v8h2v-8zm4 0v8h2v-8z" fill-rule="evenodd"/></symbol>
+  <symbol id="pg-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+  <symbol id="pg-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></symbol>
+  <symbol id="pg-signout" viewBox="0 0 24 24"><path d="M3.5 3h10v4.5h-2.4V5.4H5.9v13.2h5.2v-2.1h2.4V21h-10zm12.7 4.7 4.3 4.3-4.3 4.3-1.7-1.7 1.4-1.4H9v-2.4h6.9l-1.4-1.4z"/></symbol>
+  <symbol id="pg-alert" viewBox="0 0 24 24"><path d="M12 2.5 22.5 21h-21zm-1.2 6.2v6.1h2.4V8.7zm0 7.6v2.4h2.4v-2.4z" fill-rule="evenodd"/></symbol>
+  <symbol id="pg-search" viewBox="0 0 24 24"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.7 1.7-5.1-5.1A7 7 0 1 1 10 3zm0 2.4a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2z" fill-rule="evenodd"/></symbol>
+  <symbol id="pg-send" viewBox="0 0 24 24"><path d="M3 3.5 21.5 12 3 20.5l1.6-7.3L13 12l-8.4-1.2z"/></symbol>
+  <symbol id="pg-refresh" viewBox="0 0 24 24"><path d="M12 4.5V1.8l5 4-5 4V7a5.6 5.6 0 1 0 5.6 5.6H20A8 8 0 1 1 12 4.5z"/></symbol>
+  <symbol id="pg-rollback" viewBox="0 0 24 24"><path d="M10 3.5 3.5 10l6.5 6.5 1.7-1.7-3.6-3.6h6.4a4.2 4.2 0 0 1 0 8.4H9V22h5.5a6.6 6.6 0 0 0 0-13.2H8.1l3.6-3.6z"/></symbol>
+</svg>
+
+<!-- Navigation: side rail on desktop, bottom tab bar on phones -->
+<aside class="rail">
+  <div class="wordmark"><svg class="mark" aria-hidden="true"><use href="#pg-mark"/></svg><span>rconsole</span></div>
+  <nav class="nav" role="tablist" aria-label="Areas">
+    <button role="tab" data-tab="console" aria-selected="true" aria-controls="tab-console"><span class="tile"><svg><use href="#pg-console"/></svg></span><span class="label">Console</span></button>
+    <button role="tab" data-tab="players" aria-selected="false" aria-controls="tab-players"><span class="tile"><svg><use href="#pg-players"/></svg></span><span class="label">Players</span></button>
+    <button role="tab" data-tab="backups" aria-selected="false" aria-controls="tab-backups"><span class="tile"><svg><use href="#pg-backups"/></svg></span><span class="label">Backups</span></button>
+    <button role="tab" data-tab="schedule" aria-selected="false" aria-controls="tab-schedule"><span class="tile"><svg><use href="#pg-schedule"/></svg></span><span class="label">Schedule</span></button>
+    <button role="tab" data-tab="updates" aria-selected="false" aria-controls="tab-updates"><span class="tile"><svg><use href="#pg-updates"/></svg></span><span class="label">Updates</span></button>
+  </nav>
+  <div class="rail-foot">
+    <span class="who" id="me"></span>
+    <button class="btn btn-quiet btn-sm" id="logout"><svg><use href="#pg-signout"/></svg>Sign out</button>
+  </div>
+</aside>
+
+<div class="column">
+  <header class="topbar">
+    <div class="area-title">
+      <span class="area-tile"><svg><use id="area-icon" href="#pg-console"/></svg></span>
+      <h1 id="area-name">Console</h1>
+      <span class="conn" id="conn" data-state="pending"><span class="conn-dot"></span><span id="status">Connecting…</span></span>
+    </div>
+    <dl class="health" aria-label="Server health">
+      <div class="readout"><dt>TPS</dt><dd id="s-tps">–</dd></div>
+      <div class="readout"><dt>Players</dt><dd id="s-players">–</dd></div>
+      <div class="readout"><dt>Game time</dt><dd id="s-time">–</dd></div>
+      <div class="readout"><dt>CPU</dt><dd id="s-cpu">–</dd></div>
+      <div class="readout"><dt>Memory</dt><dd id="s-mem">–</dd></div>
+      <div class="readout"><dt>Disk free</dt><dd id="s-disk">–</dd></div>
+      <div class="readout"><dt>Host up</dt><dd id="s-uptime">–</dd></div>
+    </dl>
+    <button class="btn btn-quiet btn-icon mobile-only" id="logout-m" aria-label="Sign out"><svg><use href="#pg-signout"/></svg></button>
+  </header>
+  <div class="band" aria-hidden="true"></div>
+
+  <div class="countdown" id="restart-banner" role="status" hidden>
+    <svg><use href="#pg-schedule"/></svg>
+    <span>Server restarts in <b id="restart-left"></b></span>
+    <button class="btn btn-sm" id="restart-cancel">Cancel restart</button>
+  </div>
+
+  <main id="main">
+    <!-- Console -->
+    <section class="area" id="tab-console" role="tabpanel">
+      <div class="panel console">
+        <div class="toolbar">
+          <div class="segmented" role="radiogroup" aria-label="Show">
+            <button role="radio" aria-checked="true" data-view="all">All output</button>
+            <button role="radio" aria-checked="false" data-view="chat">Chat &amp; joins</button>
+          </div>
+          <label class="search"><svg><use href="#pg-search"/></svg><input id="filter" type="search" placeholder="Filter log" autocomplete="off" aria-label="Filter log"></label>
+          <button class="btn btn-quiet btn-sm" id="follow" aria-pressed="true" aria-label="Pause scrolling"><svg><use id="follow-icon" href="#pg-pause"/></svg><span id="follow-label">Pause scroll</span></button>
+          <button class="btn btn-quiet btn-sm" id="clear-log">Clear</button>
+        </div>
+        <div class="log-status" id="log-status" role="status" hidden><svg><use href="#pg-alert"/></svg><span id="log-status-text"></span></div>
+        <div class="log" id="log" aria-live="off" tabindex="0" aria-label="Server log"></div>
+        <form class="prompt" id="form" autocomplete="off">
+          <span class="slash" aria-hidden="true">/</span>
+          <input id="cmd" spellcheck="false" autocapitalize="none" placeholder="Run a command, e.g. say Hello" aria-label="Command" enterkeyhint="send">
+          <kbd class="hint-key" aria-hidden="true">/</kbd>
+          <button class="btn btn-primary btn-sm" aria-label="Run command"><svg><use href="#pg-send"/></svg><span class="desktop-only">Run</span></button>
+        </form>
+      </div>
+
+      <div class="side">
+        <section class="panel">
+          <header class="panel-head"><h2>Online</h2><span class="count" id="count"></span></header>
+          <ul class="people" id="online"></ul>
+        </section>
+        <section class="panel">
+          <header class="panel-head"><h2>Quick actions</h2></header>
+          <div class="quick">
+            <button class="btn" data-c="save-all"><svg><use href="#pg-save"/></svg>Save world</button>
+            <button class="btn" data-c="weather clear"><svg><use href="#pg-clear"/></svg>Clear weather</button>
+            <button class="btn" data-c="time set day"><svg><use href="#pg-day"/></svg>Set day</button>
+            <button class="btn" data-c="time set night"><svg><use href="#pg-night"/></svg>Set night</button>
+          </div>
+        </section>
+        <section class="panel">
+          <header class="panel-head"><h2>Restart</h2></header>
+          <div class="panel-body stack">
+            <div class="row">
+              <select class="field" id="restart-delay" aria-label="Restart delay">
+                <option value="10">In 10 seconds</option>
+                <option value="60">In 1 minute</option>
+                <option value="300" selected>In 5 minutes</option>
+                <option value="600">In 10 minutes</option>
+              </select>
+              <button class="btn btn-warn" id="restart-start"><svg><use href="#pg-restart"/></svg>Restart</button>
+            </div>
+            <p class="note">Players get countdown warnings in chat. The server comes back on its own.</p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Players -->
+    <section class="area" id="tab-players" role="tabpanel" hidden>
+      <div class="area-error" id="access-error" role="alert" hidden></div>
+      <div class="grid-2">
+        <section class="panel">
+          <header class="panel-head">
+            <h2>Whitelist</h2><span class="count" id="n-whitelist"></span>
+            <label class="switch"><input type="checkbox" role="switch" id="wl-toggle"><span id="wl-state">Off</span></label>
+          </header>
+          <form class="add" data-cmd="whitelist add {v}" data-kind="player" data-label="Add to whitelist">
+            <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
+            <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Add</button>
+          </form>
+          <ul class="people" id="list-whitelist"></ul>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><h2>Operators</h2><span class="count" id="n-ops"></span></header>
+          <form class="add" data-cmd="op {v}" data-kind="player" data-confirm="op" data-label="Make operator">
+            <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
+            <button class="btn btn-primary"><svg><use href="#pg-op"/></svg>Make op</button>
+          </form>
+          <ul class="people" id="list-ops"></ul>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><h2>Banned players</h2><span class="count" id="n-bans"></span></header>
+          <form class="add" data-cmd="ban {v}" data-kind="player" data-confirm="ban" data-label="Ban player">
+            <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
+            <input class="field" placeholder="Reason (optional)" aria-label="Reason" data-reason>
+            <button class="btn btn-danger"><svg><use href="#pg-ban"/></svg>Ban</button>
+          </form>
+          <ul class="people" id="list-bans"></ul>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><h2>Banned IPs</h2><span class="count" id="n-ipbans"></span></header>
+          <form class="add" data-cmd="ban-ip {v}" data-kind="ip" data-confirm="ban" data-label="Ban IP address">
+            <input class="field" placeholder="IP or online player" aria-label="IP address or online player" required>
+            <input class="field" placeholder="Reason (optional)" aria-label="Reason" data-reason>
+            <button class="btn btn-danger"><svg><use href="#pg-ban"/></svg>Ban IP</button>
+          </form>
+          <ul class="people" id="list-ipbans"></ul>
+        </section>
+      </div>
+    </section>
+
+    <!-- Backups -->
+    <section class="area" id="tab-backups" role="tabpanel" hidden>
+      <section class="panel">
+        <header class="panel-head">
+          <div class="head-text"><h2>World backups</h2><p class="note" id="backup-info"></p></div>
+          <button class="btn btn-primary" id="backup-now"><svg><use href="#pg-backups"/></svg><span>Back up now</span></button>
+        </header>
+        <div class="job" id="backup-state" hidden></div>
+        <table class="table">
+          <thead><tr><th>Backup</th><th class="num">Size</th><th>Created</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="backup-list"></tbody>
+        </table>
+      </section>
+    </section>
+
+    <!-- Schedule -->
+    <section class="area" id="tab-schedule" role="tabpanel" hidden>
+      <section class="panel">
+        <header class="panel-head"><h2>New task</h2></header>
+        <form id="task-form" class="task-form panel-body">
+          <label class="fld"><span>Type</span>
+            <select class="field" name="type">
+              <option value="restart">Restart with countdown</option>
+              <option value="backup">Backup</option>
+              <option value="command">Command</option>
+            </select>
+          </label>
+          <label class="fld"><span>Time</span><input class="field" type="time" name="time" value="04:00" required></label>
+          <label class="fld" data-for="restart"><span>Warning (min)</span><input class="field" type="number" name="warnMinutes" value="5" min="0" max="60"></label>
+          <label class="fld wide" data-for="command" hidden><span>Command</span><input class="field mono" name="command" placeholder="say Hello" spellcheck="false"></label>
+          <label class="fld"><span>Name</span><input class="field" name="name" placeholder="Optional"></label>
+          <fieldset class="fld days">
+            <legend>Days <span class="note">— none selected runs daily</span></legend>
+            <div class="day-row">
+              <label><input type="checkbox" value="1"><span>Mon</span></label>
+              <label><input type="checkbox" value="2"><span>Tue</span></label>
+              <label><input type="checkbox" value="3"><span>Wed</span></label>
+              <label><input type="checkbox" value="4"><span>Thu</span></label>
+              <label><input type="checkbox" value="5"><span>Fri</span></label>
+              <label><input type="checkbox" value="6"><span>Sat</span></label>
+              <label><input type="checkbox" value="0"><span>Sun</span></label>
+            </div>
+          </fieldset>
+          <div class="form-actions">
+            <p class="form-error" id="task-error" role="alert"></p>
+            <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Add task</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head"><h2>Scheduled tasks</h2><span class="count" id="n-tasks"></span></header>
+        <table class="table">
+          <thead><tr><th>Task</th><th>When</th><th>Next run</th><th>Last result</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="task-list"></tbody>
+        </table>
+      </section>
+    </section>
+
+    <!-- Updates -->
+    <section class="area" id="tab-updates" role="tabpanel" hidden>
+      <section class="panel">
+        <header class="panel-head">
+          <div class="head-text"><h2>Installed</h2></div>
+          <button class="btn" id="upd-refresh"><svg><use href="#pg-refresh"/></svg>Check for updates</button>
+        </header>
+        <div class="panel-body installed">
+          <div class="version"><span id="upd-current">–</span><span class="pill" id="upd-channel" hidden></span></div>
+          <p class="note" id="upd-source"></p>
+          <div class="job" id="upd-status" hidden></div>
+          <div class="update-options">
+            <label class="check"><input type="checkbox" id="upd-backup" checked><span>Back up the world first</span></label>
+            <label class="inline-fld"><span>Restart</span>
+              <select class="field" id="upd-delay">
+                <option value="10">In 10 seconds</option>
+                <option value="60" selected>In 1 minute</option>
+                <option value="300">In 5 minutes</option>
+              </select>
+            </label>
+            <button class="btn btn-quiet" id="upd-rollback" hidden><svg><use href="#pg-rollback"/></svg>Roll back to previous jar</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head"><h2>New builds for this version</h2></header>
+        <table class="table">
+          <thead><tr><th>Build</th><th>Channel</th><th>Released</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="upd-builds"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head"><div class="head-text"><h2>Newer Minecraft versions</h2><p class="note">Upgrading converts the world. Rolling back the jar does not undo that; only the backup does. Check your plugins first.</p></div></header>
+        <table class="table">
+          <thead><tr><th>Version</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="upd-versions"></tbody>
+        </table>
+      </section>
+    </section>
+  </main>
 </div>
 
-<nav class="tabs" role="tablist">
-  <button role="tab" data-tab="console" aria-selected="true">Console</button>
-  <button role="tab" data-tab="players">Players</button>
-  <button role="tab" data-tab="backups">Backups</button>
-  <button role="tab" data-tab="schedule">Schedule</button>
-  <button role="tab" data-tab="updates">Updates</button>
-</nav>
-
-<main>
-  <!-- Console ---------------------------------------------------------- -->
-  <section class="tab" id="tab-console">
-    <div class="console panel">
-      <div class="toolbar">
-        <label class="check"><input type="checkbox" id="follow" checked> Follow</label>
-        <label class="check"><input type="checkbox" id="chat-only"> Chat &amp; joins only</label>
-        <input class="field small" id="filter" placeholder="Filter…" autocomplete="off">
-        <button id="clear-log">Clear</button>
-      </div>
-      <div id="log-status" class="log-status" hidden></div>
-      <div id="log" class="log"></div>
-      <form class="prompt" id="form">
-        <span>/</span>
-        <input id="cmd" autocomplete="off" spellcheck="false" placeholder="type a command, e.g. say hello">
-      </form>
+<dialog class="dialog" id="dialog" aria-labelledby="dialog-title">
+  <form method="dialog">
+    <div class="dialog-head">
+      <span class="dialog-tile" id="dialog-tile"><svg><use id="dialog-icon" href="#pg-alert"/></svg></span>
+      <h2 id="dialog-title"></h2>
     </div>
-    <aside class="side">
-      <section class="panel pad">
-        <h2>Online <span id="count" class="muted"></span></h2>
-        <ul id="online" class="people"></ul>
-      </section>
-      <section class="panel pad">
-        <h2>Quick actions</h2>
-        <div class="grid">
-          <button data-c="save-all">Save all</button>
-          <button data-c="weather clear">Clear sky</button>
-          <button data-c="time set day">Day</button>
-          <button data-c="time set night">Night</button>
-        </div>
-      </section>
-      <section class="panel pad">
-        <h2>Restart</h2>
-        <div class="row">
-          <select class="field" id="restart-delay">
-            <option value="60">in 1 minute</option>
-            <option value="300" selected>in 5 minutes</option>
-            <option value="600">in 10 minutes</option>
-            <option value="10">in 10 seconds</option>
-          </select>
-          <button class="danger" id="restart-start">Restart</button>
-        </div>
-        <p class="hint">Players get countdown warnings in chat. Minecraft must auto-restart after <code>stop</code>.</p>
-      </section>
-    </aside>
-  </section>
-
-  <!-- Players ---------------------------------------------------------- -->
-  <section class="tab" id="tab-players" hidden>
-    <div class="cards">
-      <section class="panel pad">
-        <div class="head">
-          <h2>Whitelist</h2>
-          <label class="switch"><input type="checkbox" id="wl-toggle"> <span id="wl-state">off</span></label>
-        </div>
-        <form class="row add" data-cmd="whitelist add {v}" data-kind="player">
-          <input class="field" placeholder="player name" autocomplete="off" required>
-          <button>Add</button>
-        </form>
-        <ul class="people" id="list-whitelist"></ul>
-      </section>
-
-      <section class="panel pad">
-        <h2>Operators</h2>
-        <form class="row add" data-cmd="op {v}" data-kind="player">
-          <input class="field" placeholder="player name" autocomplete="off" required>
-          <button>Op</button>
-        </form>
-        <ul class="people" id="list-ops"></ul>
-      </section>
-
-      <section class="panel pad">
-        <h2>Banned players</h2>
-        <form class="row add" data-cmd="ban {v}" data-kind="player" data-confirm>
-          <input class="field" placeholder="player name" autocomplete="off" required>
-          <input class="field" placeholder="reason (optional)" autocomplete="off" data-reason>
-          <button class="danger">Ban</button>
-        </form>
-        <ul class="people" id="list-bans"></ul>
-      </section>
-
-      <section class="panel pad">
-        <h2>Banned IPs</h2>
-        <form class="row add" data-cmd="ban-ip {v}" data-kind="ip" data-confirm>
-          <input class="field" placeholder="IP or online player" autocomplete="off" required>
-          <input class="field" placeholder="reason (optional)" autocomplete="off" data-reason>
-          <button class="danger">Ban IP</button>
-        </form>
-        <ul class="people" id="list-ipbans"></ul>
-      </section>
+    <p class="dialog-body" id="dialog-body"></p>
+    <div class="dialog-actions">
+      <button class="btn btn-quiet" value="cancel">Cancel</button>
+      <button class="btn" id="dialog-confirm" value="confirm"></button>
     </div>
-    <p class="hint" id="access-error"></p>
-  </section>
+  </form>
+</dialog>
 
-  <!-- Backups ---------------------------------------------------------- -->
-  <section class="tab" id="tab-backups" hidden>
-    <section class="panel pad">
-      <div class="head">
-        <div>
-          <h2>World backups</h2>
-          <p class="hint" id="backup-info"></p>
-        </div>
-        <button class="primary" id="backup-now">Back up now</button>
-      </div>
-      <p id="backup-state" class="hint"></p>
-      <table class="table">
-        <thead><tr><th>Backup</th><th>Size</th><th>Created</th><th></th></tr></thead>
-        <tbody id="backup-list"></tbody>
-      </table>
-    </section>
-  </section>
-
-  <!-- Schedule --------------------------------------------------------- -->
-  <section class="tab" id="tab-schedule" hidden>
-    <section class="panel pad">
-      <h2>New task</h2>
-      <form id="task-form" class="task-form">
-        <label>Type
-          <select class="field" name="type">
-            <option value="restart">Restart (with countdown)</option>
-            <option value="backup">Backup</option>
-            <option value="command">Command</option>
-          </select>
-        </label>
-        <label>Time <input class="field" type="time" name="time" value="04:00" required></label>
-        <label data-for="restart">Warn (minutes) <input class="field" type="number" name="warnMinutes" value="5" min="0" max="60"></label>
-        <label data-for="command" hidden>Command <input class="field" name="command" placeholder="say Hello"></label>
-        <label>Name <input class="field" name="name" placeholder="optional"></label>
-        <fieldset class="days">
-          <legend>Days <span class="muted">(none = every day)</span></legend>
-          <label><input type="checkbox" value="1">Mon</label>
-          <label><input type="checkbox" value="2">Tue</label>
-          <label><input type="checkbox" value="3">Wed</label>
-          <label><input type="checkbox" value="4">Thu</label>
-          <label><input type="checkbox" value="5">Fri</label>
-          <label><input type="checkbox" value="6">Sat</label>
-          <label><input type="checkbox" value="0">Sun</label>
-        </fieldset>
-        <button class="primary">Add task</button>
-      </form>
-      <p class="hint" id="task-error"></p>
-    </section>
-
-    <section class="panel pad">
-      <h2>Scheduled tasks</h2>
-      <table class="table">
-        <thead><tr><th>Task</th><th>When</th><th>Next run</th><th>Last result</th><th></th></tr></thead>
-        <tbody id="task-list"></tbody>
-      </table>
-    </section>
-  </section>
-  <!-- Updates ------------------------------------------------------- -->
-  <section class="tab" id="tab-updates" hidden>
-    <section class="panel pad">
-      <div class="head">
-        <div>
-          <h2>Installed</h2>
-          <div class="version" id="upd-current">–</div>
-          <p class="hint" id="upd-source"></p>
-        </div>
-        <button id="upd-refresh">Check for updates</button>
-      </div>
-      <div class="update-status" id="upd-status" hidden></div>
-      <div class="update-options">
-        <label class="check"><input type="checkbox" id="upd-backup" checked> Back up the world first</label>
-        <label class="check">Restart
-          <select class="field small" id="upd-delay">
-            <option value="10">in 10 seconds</option>
-            <option value="60" selected>in 1 minute</option>
-            <option value="300">in 5 minutes</option>
-          </select>
-        </label>
-        <button class="link" id="upd-rollback" hidden>Roll back to previous jar</button>
-      </div>
-    </section>
-
-    <section class="panel pad">
-      <h2>New builds for this version</h2>
-      <table class="table">
-        <thead><tr><th>Build</th><th>Channel</th><th>Released</th><th></th></tr></thead>
-        <tbody id="upd-builds"></tbody>
-      </table>
-    </section>
-
-    <section class="panel pad">
-      <h2>Newer Minecraft versions</h2>
-      <p class="hint">Upgrading Minecraft converts the world and can't be undone by rolling back the jar. Keep the backup, and check that your plugins support the new version first.</p>
-      <table class="table">
-        <thead><tr><th>Version</th><th></th></tr></thead>
-        <tbody id="upd-versions"></tbody>
-      </table>
-    </section>
-  </section>
-</main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 </body>
 </html>

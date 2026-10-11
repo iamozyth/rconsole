@@ -2,30 +2,45 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>Sign in · rconsole</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
 <script src="/login.js" defer></script>
 </head>
-<body class="login-page">
+<body class="login-page" data-area="console">
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="pg-mark" viewBox="0 0 32 32">
+    <rect class="mark-bg" width="32" height="32" rx="3"/>
+    <path d="M16 6 25 11 16 16 7 11Z" fill="#fff"/>
+    <path d="M7 12.6 15.2 17.2V26.6L7 22Z" fill="#fff" fill-opacity=".72"/>
+    <path d="M25 12.6 16.8 17.2V26.6L25 22Z" fill="#fff" fill-opacity=".45"/>
+  </symbol>
+</svg>
 <main class="login">
-  <div class="brand">
-    <span class="dot on"></span>
-    <h1>rconsole</h1>
-  </div>
-  <form id="login" class="panel pad" autocomplete="on">
-    <label>Username
-      <input class="field" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
-    </label>
-    <label>Password
-      <input class="field" name="password" type="password" autocomplete="current-password" required>
-    </label>
-    <label id="code-row" hidden>Authenticator code
-      <input class="field mono" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" placeholder="123456">
-    </label>
-    <p class="error" id="error" role="alert"></p>
-    <button class="primary" id="submit">Sign in</button>
-  </form>
+  <div class="wordmark"><svg class="mark" aria-hidden="true"><use href="#pg-mark"/></svg><span>rconsole</span></div>
+  <section class="panel">
+    <form id="login" autocomplete="on" novalidate>
+      <div class="stack">
+        <h1>Sign in</h1>
+        <p class="lede" id="lede">Server console for this Minecraft server.</p>
+      </div>
+      <label class="fld"><span>Username</span>
+        <input class="field" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+      </label>
+      <label class="fld" id="password-row"><span>Password</span>
+        <input class="field" name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <label class="fld" id="code-row" hidden><span>Authenticator code</span>
+        <input class="field mono" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" placeholder="123 456">
+      </label>
+      <p class="form-error" id="error" role="alert"></p>
+      <button class="btn btn-primary" id="submit">Sign in</button>
+    </form>
+  </section>
+  <p class="foot">Accounts are managed on the server with <code>cli.js</code>.</p>
 </main>
 </body>
 </html>

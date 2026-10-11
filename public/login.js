@@ -4,12 +4,19 @@ const form = document.getElementById('login');
 const error = document.getElementById('error');
 const codeRow = document.getElementById('code-row');
 const submit = document.getElementById('submit');
+const lede = document.getElementById('lede');
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   error.textContent = '';
-  submit.disabled = true;
   const f = form.elements;
+  const missing = [f.username, f.password].find((i) => !i.value.trim());
+  if (missing) {
+    error.textContent = `Enter your ${missing.name}.`;
+    return missing.focus();
+  }
+  submit.disabled = true;
+  submit.textContent = 'Signing in…';
   try {
     const res = await fetch('/api/login', {
       method: 'POST',
@@ -22,6 +29,7 @@ form.addEventListener('submit', async (e) => {
       const first = codeRow.hidden;
       codeRow.hidden = false;
       f.code.required = true;
+      lede.textContent = 'Enter the 6-digit code from your authenticator app.';
       f.code.focus();
       if (first) return;
       f.code.value = '';
@@ -31,5 +39,6 @@ form.addEventListener('submit', async (e) => {
     error.textContent = err.message;
   } finally {
     submit.disabled = false;
+    submit.textContent = 'Sign in';
   }
 });
