@@ -92,11 +92,11 @@ sudo chown minecraft:minecraft /srv/minecraft-backups
 sudo chmod 2770 /srv/minecraft-backups
 ```
 
-### 5. Allow helper jobs and server control
+### 5. Allow helper jobs, server control and self-update
 
 ```sh
 sudo apt install -y polkitd
-sudo cp /opt/rconsole/rconsole-job@.service /opt/rconsole/rconsole-net@.service /etc/systemd/system/
+sudo cp /opt/rconsole/rconsole-job@.service /opt/rconsole/rconsole-net@.service /opt/rconsole/rconsole-selfupdate.service /etc/systemd/system/
 sudo cp /opt/rconsole/50-rconsole.rules /etc/polkit-1/rules.d/
 sudo systemctl daemon-reload
 ```
@@ -170,11 +170,30 @@ Set `TRUST_PROXY` to the IP Traefik connects from.
 
 ## Updating
 
+rconsole checks GitHub every 6 hours for new commits on `main` (Server → Updates shows the changelog, the rail shows a notice) and can update itself with one click. The update runs in `rconsole-selfupdate.service` as root, a fixed script (`bin/self-update.sh`) that takes no input from rconsole:
+
+1. fetches and fast-forwards `/opt/rconsole` (refuses if the checkout has local changes or has diverged),
+2. checks the new code parses, otherwise stays on the old version,
+3. installs changed unit files and the polkit rule, unless your installed copy was customized (then it tells you what to merge),
+4. restarts rconsole, and rolls back if it doesn't come up.
+
+One-time setup (rconsole must be a `git clone` in `/opt/rconsole`):
+
 ```sh
-cd /opt/rconsole && git pull && sudo systemctl restart rconsole
+cd /opt/rconsole && sudo git pull
+sudo cp rconsole-selfupdate.service /etc/systemd/system/
+sudo cp 50-rconsole.rules /etc/polkit-1/rules.d/
+sudo systemctl daemon-reload && sudo systemctl restart rconsole
 ```
 
-If `rconsole.service` changed, copy it again and run `sudo systemctl daemon-reload` first.
+From then on, use **Update rconsole** in the UI, or by hand:
+
+```sh
+sudo systemctl start rconsole-selfupdate.service   # same as the button
+journalctl -u rconsole-selfupdate                  # what it did
+```
+
+Set `SELF_UPDATE_CHECK=0` in `/etc/rconsole.env` to turn off the background check.
 
 ## Updates
 

@@ -26,6 +26,7 @@ const { Metrics } = require('./lib/metrics');
 const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
 const { CommandCatalog } = require('./lib/commands');
+const { SelfUpdate } = require('./lib/selfupdate');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp } = require('./lib/auth');
 
 if (!config.rconPassword) {
@@ -51,6 +52,7 @@ const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJ
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion });
 const commandCatalog = new CommandCatalog({ rcon, log });
+const selfUpdate = new SelfUpdate({ dir: __dirname, stateDir: config.stateDir, runner: config.jobRunner, log });
 const audit = new Audit({ stateDir: config.stateDir, log });
 // Operations run in the background after the request returned 202; record how they ended.
 ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target: st.label, ok: !st.error, ...(st.error ? { error: st.error } : {}) });
@@ -299,6 +301,7 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/backups\/([^/]+)$/, ([n]) => ['backup delete', dec(n)]],
   ['POST', /^\/api\/restart$/, (p, b) => ['server restart', `in ${b.seconds}s`]],
   ['DELETE', /^\/api\/restart$/, () => ['countdown cancel', '']],
+  ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
   ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task edit', id]],
@@ -321,6 +324,8 @@ function auditRequest(req, pathname, status, error) {
   audit.record({ user: req.user, ip: clientIp(req), action, target: String(target || '').slice(0, 300) || undefined, detail: action === 'command' ? undefined : summarize(req.body), ok: !error, status, error });
 }
 
+route('GET', /^\/api\/self-update$/, (req) => selfUpdate.overview({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
+route('POST', /^\/api\/self-update$/, async (req) => [202, await selfUpdate.start()]);
 route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 route('GET', /^\/api\/metrics$/, (req) => metrics.series(new URL(req.url, 'http://x').searchParams.get('range') || '24h'));
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
@@ -351,6 +356,7 @@ route('GET', /^\/api\/status$/, async () => ({
   update: updates.state,
   op: ops.state,
   pending: await pending.list(),
+  self: selfUpdate.summary(),
 }));
 
 // --- server power & maintenance ---------------------------------------------
@@ -606,6 +612,7 @@ const server = http.createServer(async (req, res) => {
 scheduler.load().then(() => {
   logTail.start();
   metrics.start();
+  selfUpdate.startTimer();
   playerHistory.history().catch((err) => log(`players: ${err.message}`)); // backfill from old logs
   server.listen(config.webPort, config.webHost, () => {
     log(`rconsole listening on http://${config.webHost}:${config.webPort}`);

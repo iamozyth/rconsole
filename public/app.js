@@ -713,6 +713,7 @@ function renderStatus(s) {
 
   renderBackupState(s.backup);
   renderUpdateState(s.update);
+  renderSelfSummary(s.self);
 }
 
 function insertName(name) {
@@ -1620,7 +1621,99 @@ async function loadUpdates(refresh) {
     refreshBtn.removeAttribute('aria-busy');
   }
 }
-viewLoaders['server/updates'] = () => loadUpdates();
+viewLoaders['server/updates'] = () => { loadUpdates(); loadSelfUpdate(); };
+// ---------------------------------------------------------------------------
+// rconsole's own updates
+// ---------------------------------------------------------------------------
+
+let selfWasRunning = false;
+let selfVersion = null;
+
+function renderSelfSummary(self) {
+  if (!self) return;
+  if (selfVersion && self.current && self.current !== selfVersion && !self.running) {
+    // A new version is serving; reload to get its frontend.
+    toast(`rconsole updated to ${self.current}. Reloading…`);
+    setTimeout(() => location.reload(), 1200);
+  }
+  selfVersion = self.current || selfVersion;
+  $('rail-ver').textContent = self.current ? self.current : '';
+  $('rail-update').hidden = !self.available && !self.running;
+  document.querySelector('.nav [data-tab=server]').classList.toggle('has-update', Boolean(self.available));
+  $('rail-update-text').textContent = self.running ? 'Updating rconsole…' : `${self.available} update${self.available === 1 ? '' : 's'} for rconsole`;
+  if (selfWasRunning && !self.running && document.body.dataset.area === 'server') loadSelfUpdate();
+  selfWasRunning = self.running;
+}
+
+async function loadSelfUpdate(refresh) {
+  const btn = $('self-refresh');
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    const o = await api('GET', `/api/self-update${refresh ? '?refresh' : ''}`);
+    const c = o.check || {};
+    $('self-current').textContent = o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Unknown version';
+    const behind = c.status === 'ahead' ? c.behind : 0;
+    $('self-pill').hidden = !o.current || Boolean(c.error && !c.status);
+    $('self-pill').className = `pill ${behind ? 'own' : ''}`;
+    $('self-pill').replaceChildren(icon(behind ? 'updates' : 'check'), behind ? `${behind} new commit${behind === 1 ? '' : 's'}` : c.status === 'diverged' ? 'Diverged from GitHub' : 'Up to date');
+    $('self-info').textContent = c.error
+      ? c.error
+      : `From github.com/${o.repo} (${o.branch}). Checked ${fmt.relative(c.at)}; rconsole checks every 6 hours.`;
+    const u = o.update;
+    if (u?.state === 'running') setJob($('self-status'), 'running', 'updates', `${u.message}…`);
+    else if (u?.state === 'failed' && Date.now() - Date.parse(u.at) < 7 * 86400000) setJob($('self-status'), 'failed', 'alert', `Last update failed: ${u.message}`);
+    else if (u?.state === 'done' && u.from !== u.to && Date.now() - Date.parse(u.at) < 86400000) {
+      setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}.${u.manual?.length ? ` Manual step: ${u.manual.join('; ')}` : ''}${u.installed?.length ? ` Installed: ${u.installed.join(', ')}.` : ''}`);
+    } else setJob($('self-status'), null);
+    $('self-changes').hidden = !behind;
+    $('self-changes').replaceChildren(...(c.commits || []).map((x) => el('li', {},
+      el('a', { class: 'mono', href: `https://github.com/${o.repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener' }, x.sha),
+      el('span', {}, x.message),
+      x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : null)));
+    $('self-actions').hidden = !behind;
+    $('self-update').disabled = !o.canUpdate || u?.state === 'running';
+    $('self-update').title = o.canUpdate ? '' : 'Needs the systemd install (see README)';
+    if (refresh) toast(c.error ? `Couldn't check: ${c.error}` : behind ? `${behind} new commit${behind === 1 ? '' : 's'} for rconsole.` : 'rconsole is up to date.', c.error ? 'bad' : 'ok');
+  } catch (e) {
+    $('self-info').textContent = e.message;
+  } finally {
+    btn.removeAttribute('aria-busy');
+  }
+}
+
+$('self-refresh').addEventListener('click', () => loadSelfUpdate(true));
+$('self-update').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  if (!(await confirmAction({
+    title: 'Update rconsole?',
+    body: 'rconsole restarts and everyone is signed out. This page reloads by itself when the new version is up. Minecraft is not affected.',
+    confirm: 'Update rconsole', icon: 'updates',
+  }))) return;
+  await busy(btn, async () => {
+    try {
+      await api('POST', '/api/self-update');
+      setJob($('self-status'), 'running', 'updates', 'Updating rconsole. This page reloads when it is back…');
+      btn.disabled = true;
+      waitForComeback();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
+
+// While rconsole restarts, requests fail; poll /healthz, then sign back in.
+function waitForComeback() {
+  let sawDown = false;
+  const started = Date.now();
+  const poll = async () => {
+    const ok = await fetch('/healthz', { cache: 'no-store' }).then((r) => r.ok).catch(() => false);
+    if (!ok) sawDown = true;
+    if ((ok && sawDown) || Date.now() - started > 5 * 60 * 1000) return location.reload();
+    setTimeout(poll, 1500);
+  };
+  setTimeout(poll, 1500);
+}
+
 
 async function upgradeVersion(version, btn) {
   try {
@@ -2091,6 +2184,7 @@ function paletteActions() {
   act('Back up the active world', 'backups', 'backup save snapshot', () => { showTab('worlds'); $('backup-now').click(); });
   act('Create a new world…', 'worlds', 'new world create generate', () => { showTab('worlds'); toggleWorldForm(true); });
   act('Check for Paper updates', 'updates', 'paper update upgrade version', () => { showTab('server/updates'); loadUpdates(true); });
+  act('Check for rconsole updates', 'updates', 'rconsole self update version upgrade', () => { showTab('server/updates'); loadSelfUpdate(true); });
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
   act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });

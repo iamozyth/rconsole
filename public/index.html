@@ -72,7 +72,11 @@
   </nav>
   <button class="palette-btn" id="palette-open" aria-keyshortcuts="Control+K Meta+K"><svg><use href="#pg-search"/></svg><span>Search &amp; run</span><kbd id="palette-key">Ctrl K</kbd></button>
   <div class="rail-foot">
-    <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Early preview</a>
+    <div class="rail-version">
+      <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Early preview</a>
+      <span class="ver" id="rail-ver"></span>
+    </div>
+    <a class="update-note" id="rail-update" href="#server/updates" hidden><svg><use href="#pg-updates"/></svg><span id="rail-update-text">Update available</span></a>
     <span class="who" id="me"></span>
     <button class="btn btn-quiet btn-sm" id="logout"><svg><use href="#pg-signout"/></svg>Sign out</button>
   </div>
@@ -431,6 +435,22 @@
       </div>
 
       <div class="view" data-view="updates" hidden>
+        <section class="panel self-panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>rconsole</h2><p class="note" id="self-info">Checking…</p></div>
+            <button class="btn" id="self-refresh"><svg><use href="#pg-refresh"/></svg>Check</button>
+          </header>
+          <div class="panel-body stack">
+            <div class="version"><span id="self-current">–</span><span class="pill" id="self-pill" hidden></span></div>
+            <div class="job" id="self-status" hidden></div>
+            <ol class="changelog" id="self-changes" hidden></ol>
+            <div class="row self-actions" id="self-actions" hidden>
+              <button class="btn btn-primary" id="self-update"><svg><use href="#pg-updates"/></svg>Update rconsole</button>
+              <p class="note">Fast-forwards the git checkout and restarts rconsole, which signs everyone out. If the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p>
+            </div>
+          </div>
+        </section>
+
       <section class="panel">
           <header class="panel-head">
             <div class="head-text"><h2>Installed</h2></div>

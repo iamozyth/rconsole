@@ -1017,6 +1017,22 @@ kbd {
   .palette-list [role='option'][aria-selected='true'] { background: color-mix(in srgb, var(--area) 18%, #112a4d); }
 }
 
+/* rconsole self-update -------------------------------------------------- */
+
+.nav [data-tab='server'].has-update .tile { position: relative; }
+.nav [data-tab='server'].has-update .tile::after { content: ''; position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--c-server); box-shadow: 0 0 0 2px var(--rail); }
+.rail-version { display: flex; align-items: center; gap: 8px; }
+.rail-version .ver { color: var(--text-3); font: 11.5px var(--mono); }
+.update-note { display: flex; align-items: center; gap: 6px; color: var(--c-server); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.update-note:hover { text-decoration: underline; }
+.update-note svg { width: 14px; height: 14px; }
+.changelog { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r); max-height: 260px; overflow: auto; background: var(--bg); }
+.changelog li { display: grid; grid-template-columns: 7ch minmax(0, 1fr) auto; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 13px; align-items: baseline; }
+.changelog li:last-child { border-bottom: 0; }
+.changelog a { font-size: 12px; }
+.self-actions { align-items: center; flex-wrap: wrap; gap: 12px; }
+.self-actions .note { flex: 1; min-width: 240px; margin: 0; }
+
 /* Schedule ------------------------------------------------------------ */
 
 .task-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
