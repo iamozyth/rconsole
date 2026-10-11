@@ -19,6 +19,10 @@ async function api(method, url, body) {
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401) {
+    location.replace('/login');
+    throw new Error('Signed out');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -129,19 +133,23 @@ log.addEventListener('scroll', () => {
   if ($('follow').checked !== atBottom) $('follow').checked = atBottom;
 });
 
+function setLogStatus(error) {
+  $('log-status').hidden = !error;
+  $('log-status').textContent = error ? `Server log unavailable: ${error}` : '';
+}
+
 function connectLogs() {
   const source = new EventSource('/api/logs');
   source.addEventListener('backlog', (e) => {
     const { lines, error } = JSON.parse(e.data);
     log.replaceChildren();
-    if (error) addLine(`Server log unavailable: ${error}`, 'sys');
+    setLogStatus(error);
     lines.forEach((l) => addLine(l));
   });
   source.addEventListener('line', (e) => addLine(JSON.parse(e.data)));
-  source.addEventListener('status', (e) => {
-    const { error } = JSON.parse(e.data);
-    if (error) addLine(`Server log unavailable: ${error}`, 'sys');
-  });
+  source.addEventListener('status', (e) => setLogStatus(JSON.parse(e.data).error));
+  // EventSource retries on its own; check whether we were signed out.
+  source.addEventListener('error', () => api('GET', '/api/me').catch(() => {}));
 }
 
 async function run(command) {
@@ -476,6 +484,12 @@ taskForm.addEventListener('submit', async (e) => {
 });
 
 // ---------------------------------------------------------------------------
+
+$('logout').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  location.replace('/login');
+});
+api('GET', '/api/me').then(({ user }) => ($('me').textContent = user)).catch(() => {});
 
 connectLogs();
 refreshStatus();

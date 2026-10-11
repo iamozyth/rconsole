@@ -1,10 +1,11 @@
 {
   "name": "rconsole",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "A lightweight web console for managing a Minecraft server over RCON",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "user": "node cli.js user"
   },
   "engines": {
     "node": ">=18"

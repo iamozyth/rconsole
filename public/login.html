@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · rconsole</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/login.js" defer></script>
+</head>
+<body class="login-page">
+<main class="login">
+  <div class="brand">
+    <span class="dot on"></span>
+    <h1>rconsole</h1>
+  </div>
+  <form id="login" class="panel pad" autocomplete="on">
+    <label>Username
+      <input class="field" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    </label>
+    <label>Password
+      <input class="field" name="password" type="password" autocomplete="current-password" required>
+    </label>
+    <label id="code-row" hidden>Authenticator code
+      <input class="field mono" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" placeholder="123456">
+    </label>
+    <p class="error" id="error" role="alert"></p>
+    <button class="primary" id="submit">Sign in</button>
+  </form>
+</main>
+</body>
+</html>

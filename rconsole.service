@@ -1,25 +1,48 @@
 [Unit]
 Description=rconsole (Minecraft RCON web console)
-After=network-online.target
+After=network-online.target minecraft.service
 Wants=network-online.target
 
 [Service]
-User=debian
+User=rconsole
+Group=rconsole
+# Read access to the Minecraft server directory (logs, lists, worlds).
+SupplementaryGroups=minecraft
 WorkingDirectory=/opt/rconsole
 EnvironmentFile=/etc/rconsole.env
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=5
 
-# Scheduled tasks are stored in /var/lib/rconsole.
+# Users and scheduled tasks live in /var/lib/rconsole.
 StateDirectory=rconsole
+StateDirectoryMode=0700
+UMask=0077
 
+# Bind port 80 without running as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Sandbox: the filesystem is read-only except the state and backup directories.
 NoNewPrivileges=true
 ProtectSystem=strict
+ReadWritePaths=/srv/minecraft-backups
 ProtectHome=true
 PrivateTmp=true
-# The only place rconsole writes to besides its state directory.
-ReadWritePaths=/srv/minecraft-backups
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
 
 [Install]
 WantedBy=multi-user.target

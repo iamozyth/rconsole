@@ -182,3 +182,18 @@ button.link:hover { color: var(--danger); }
   .toolbar .field { margin-left: 0; width: 100%; }
   .table th:nth-child(3), .table td:nth-child(3) { display: none; }
 }
+
+/* Login & user menu --------------------------------------------------- */
+
+.login-page { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+.login { width: 100%; max-width: 360px; display: grid; gap: 20px; }
+.login .brand { justify-content: center; }
+.login form { display: grid; gap: 14px; padding: 24px; }
+.login label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+.login .primary { padding: 10px; font-size: 14px; }
+.error { color: var(--danger); font-size: 13px; margin: 0; }
+.error:empty { display: none; }
+
+.user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.top-right { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.log-status { padding: 8px 14px; border-bottom: 1px solid var(--line); background: #2a1515; color: var(--danger); font-size: 12px; }
