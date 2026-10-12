@@ -325,6 +325,11 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 
 ## License
 
-rconsole is source-available, not open source. You may install, run, configure and update it to manage your own Minecraft servers, for private or business use. You may not modify it, build on it, redistribute it, sell it or offer it as a (hosted) service. See [LICENSE](LICENSE) for the full terms. For anything beyond that, get in touch via [winterstetter.io](https://winterstetter.io).
+rconsole is licensed under the [PolyForm Strict License 1.0.0](LICENSE) ([polyformproject.org](https://polyformproject.org/licenses/strict/1.0.0)). It is source-available, not open source:
 
-Versions up to commit `7f7683a` were published under the MIT License.
+- **Allowed:** using it for personal and other noncommercial purposes, and use by noncommercial organisations (charities, schools, public institutions), as the license defines them.
+- **Not allowed:** changing it or building on it, redistributing it, or any commercial use, such as running it for a business or offering it as a (hosted) service.
+
+For commercial use or anything else beyond these terms, ask for a separate license via [winterstetter.io](https://winterstetter.io).
+
+Versions up to commit `7f7683a` were published under the MIT License. The fonts in `public/fonts` (Inter, JetBrains Mono) remain under the SIL Open Font License 1.1; see the license files next to them.
