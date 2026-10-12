@@ -1,816 +1,689 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-11T21:03:31+00:00",
+  "generatedAt": "2026-10-12T11:34:30+00:00",
   "title": "Design System: rconsole",
   "extensions": {
     "colorMeta": {
-      "console-sky": {
+      "accent-violet": {
         "role": "primary",
-        "displayName": "Console Sky",
-        "purpose": "Console area program colour; login and mark tile.",
-        "canonical": "#0a70b5",
-        "oklch": "oklch(53.0% 0.136 246.9)",
-        "cssVar": "--c-console",
+        "displayName": "Signal Violet",
+        "purpose": "Focus rings, links, switches, charts, unsaved and pending state, wordmark tile.",
+        "canonical": "#7c3aed",
+        "oklch": "oklch(54.1% 0.247 293.0)",
+        "cssVar": "--accent",
         "tonalRamp": [
-          "#000c1c",
-          "#022641",
-          "#0c426c",
-          "#09619e",
-          "#2882c9",
-          "#4fa5ee",
-          "#95cafb",
-          "#e2f1ff"
+          "#0f002a",
+          "#2c0660",
+          "#4e02a3",
+          "#6f25dc",
+          "#8d5afa",
+          "#a991f9",
+          "#cbc0fb",
+          "#efecff"
         ],
         "theme": "light"
       },
-      "players-green": {
-        "role": "primary",
-        "displayName": "Players Green",
-        "purpose": "Players area program colour; connection dot; log joins.",
-        "canonical": "#0a7a3f",
-        "oklch": "oklch(50.9% 0.129 152.5)",
-        "cssVar": "--c-players",
+      "ok-green": {
+        "role": "status",
+        "displayName": "Ok Green",
+        "purpose": "Connected, active, joins, inserted diff values, ok pills and toasts.",
+        "canonical": "#15803d",
+        "oklch": "oklch(52.7% 0.137 150.1)",
+        "cssVar": "--ok",
         "tonalRamp": [
-          "#001003",
-          "#002d12",
-          "#034d26",
-          "#14703b",
-          "#319356",
-          "#57b576",
-          "#7edc9b",
-          "#c9fed6"
+          "#011003",
+          "#022e11",
+          "#095024",
+          "#167438",
+          "#379954",
+          "#5ebd76",
+          "#83e299",
+          "#c7ffd1"
         ],
         "theme": "light"
       },
-      "backups-deep-blue": {
-        "role": "primary",
-        "displayName": "Backups Deep Blue",
-        "purpose": "Backups area program colour.",
-        "canonical": "#2a4596",
-        "oklch": "oklch(41.8% 0.137 266.5)",
-        "cssVar": "--c-backups",
+      "warn-amber": {
+        "role": "status",
+        "displayName": "Warn Amber",
+        "purpose": "Maintenance badge, warning log lines, needs-attention icons.",
+        "canonical": "#b45309",
+        "oklch": "oklch(55.5% 0.146 49.0)",
+        "cssVar": "--warn",
         "tonalRamp": [
-          "#010034",
-          "#081565",
-          "#1e3787",
-          "#3a57aa",
-          "#5878ce",
-          "#779af4",
-          "#acc3fa",
-          "#e7effe"
-        ],
-        "theme": "light"
-      },
-      "schedule-orange": {
-        "role": "primary",
-        "displayName": "Schedule Orange",
-        "purpose": "Schedule area program colour; log WARN lines.",
-        "canonical": "#b35000",
-        "oklch": "oklch(54.9% 0.148 48.6)",
-        "cssVar": "--c-schedule",
-        "tonalRamp": [
-          "#1a0400",
-          "#3e1700",
-          "#672c03",
-          "#924511",
-          "#c15d1a",
-          "#e77f42",
-          "#feaf85",
+          "#180500",
+          "#3e1801",
+          "#692f07",
+          "#974711",
+          "#c56323",
+          "#ed864b",
+          "#fdb792",
           "#ffeadf"
         ],
         "theme": "light"
       },
-      "updates-violet": {
-        "role": "primary",
-        "displayName": "Updates Violet",
-        "purpose": "Updates area program colour.",
-        "canonical": "#6a3d9e",
-        "oklch": "oklch(46.3% 0.153 302.2)",
-        "cssVar": "--c-updates",
-        "tonalRamp": [
-          "#120026",
-          "#320059",
-          "#502081",
-          "#6f42a3",
-          "#8f63c7",
-          "#b185ec",
-          "#d0b5fa",
-          "#f2eaff"
-        ],
-        "theme": "light"
-      },
       "danger-red": {
-        "role": "secondary",
+        "role": "status",
         "displayName": "Danger Red",
-        "purpose": "Destructive actions, failures, RCON down, critical readouts.",
-        "canonical": "#c0262d",
-        "oklch": "oklch(52.7% 0.189 24.7)",
+        "purpose": "Destructive buttons, failures, errors, disconnected state.",
+        "canonical": "#dc2626",
+        "oklch": "oklch(57.7% 0.215 27.3)",
         "cssVar": "--c-danger",
         "tonalRamp": [
-          "#200001",
-          "#490308",
-          "#780f16",
-          "#af0c1f",
-          "#d73f40",
-          "#fe6460",
-          "#ffaba4",
-          "#fee9e7"
+          "#1f0000",
+          "#4b0405",
+          "#810008",
+          "#b70713",
+          "#e73430",
+          "#fc7569",
+          "#fcb4ab",
+          "#ffe9e6"
         ],
         "theme": "light"
       },
-      "on-area": {
+      "page": {
         "role": "neutral",
-        "displayName": "On-Area White",
-        "purpose": "Text and pictograms on solid program fields (light).",
-        "canonical": "#ffffff",
-        "oklch": "oklch(100.0% 0.000 89.9)",
-        "cssVar": "--on-area",
-        "tonalRamp": [
-          "#0b0b0b",
-          "#242424",
-          "#404040",
-          "#5d5d5d",
-          "#7d7d7d",
-          "#9e9e9e",
-          "#c4c4c4",
-          "#eeeeee"
-        ],
-        "theme": "light"
-      },
-      "ground-white": {
-        "role": "neutral",
-        "displayName": "Ground White",
-        "purpose": "Page ground (light).",
-        "canonical": "#ffffff",
-        "oklch": "oklch(100.0% 0.000 89.9)",
+        "displayName": "Page",
+        "purpose": "App background, rail, topbar.",
+        "canonical": "#fafafa",
+        "oklch": "oklch(98.5% 0.000 89.9)",
         "cssVar": "--bg",
         "tonalRamp": [
           "#0b0b0b",
-          "#242424",
-          "#404040",
-          "#5d5d5d",
-          "#7d7d7d",
-          "#9e9e9e",
-          "#c4c4c4",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
           "#eeeeee"
         ],
         "theme": "light"
       },
-      "surface-silver": {
+      "surface": {
         "role": "neutral",
-        "displayName": "Surface Silver",
-        "purpose": "Panels, dialogs, toasts (light).",
-        "canonical": "#f4f6f8",
-        "oklch": "oklch(97.2% 0.003 247.9)",
-        "cssVar": "--surface",
-        "tonalRamp": [
-          "#0a0b0d",
-          "#232426",
-          "#3e4041",
-          "#5c5e5f",
-          "#7c7d7f",
-          "#9d9fa0",
-          "#c2c4c6",
-          "#edeff1"
-        ],
-        "theme": "light"
-      },
-      "field-white": {
-        "role": "neutral",
-        "displayName": "Field White",
-        "purpose": "Inputs, default buttons, prompt (light).",
+        "displayName": "Surface",
+        "purpose": "Panels, buttons, fields, overlays.",
         "canonical": "#ffffff",
         "oklch": "oklch(100.0% 0.000 89.9)",
-        "cssVar": "--field",
+        "cssVar": "--surface",
         "tonalRamp": [
           "#0b0b0b",
-          "#242424",
-          "#404040",
-          "#5d5d5d",
-          "#7d7d7d",
-          "#9e9e9e",
-          "#c4c4c4",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
           "#eeeeee"
         ],
         "theme": "light"
       },
-      "sunken-grey": {
+      "sunken": {
         "role": "neutral",
-        "displayName": "Sunken Grey",
-        "purpose": "Table headers, neutral pills, skeletons, dialog action bar (light).",
-        "canonical": "#e9ecf0",
-        "oklch": "oklch(94.2% 0.006 255.5)",
+        "displayName": "Sunken",
+        "purpose": "Segmented tracks, selected nav, pills, jobs, footers; also light hover.",
+        "canonical": "#f4f4f5",
+        "oklch": "oklch(96.7% 0.001 286.4)",
         "cssVar": "--sunken",
         "tonalRamp": [
-          "#090b0e",
-          "#222427",
-          "#3e4043",
-          "#5b5e61",
-          "#7b7d81",
-          "#9c9fa2",
-          "#c1c4c8",
-          "#eceff3"
-        ],
-        "theme": "light"
-      },
-      "rail-grey": {
-        "role": "neutral",
-        "displayName": "Rail Grey",
-        "purpose": "Rail, phone tab bar, login ground (light).",
-        "canonical": "#eceff3",
-        "oklch": "oklch(95.1% 0.006 255.5)",
-        "cssVar": "--rail",
-        "tonalRamp": [
-          "#090b0e",
-          "#222427",
-          "#3e4043",
-          "#5b5e61",
-          "#7b7d81",
-          "#9c9fa2",
-          "#c1c4c8",
-          "#eceff3"
+          "#0b0b0c",
+          "#252526",
+          "#424243",
+          "#616162",
+          "#828283",
+          "#a5a5a6",
+          "#c9c9ca",
+          "#eeeeef"
         ],
         "theme": "light"
       },
       "line": {
         "role": "neutral",
         "displayName": "Hairline",
-        "purpose": "Rules between rows and panels (light).",
-        "canonical": "#d9dee4",
-        "oklch": "oklch(89.9% 0.010 252.8)",
+        "purpose": "Dividers and container borders.",
+        "canonical": "#e5e5e5",
+        "oklch": "oklch(92.2% 0.000 89.9)",
         "cssVar": "--line",
         "tonalRamp": [
-          "#080b0f",
-          "#212429",
-          "#3c4045",
-          "#5a5e63",
-          "#797e83",
-          "#9a9fa4",
-          "#c0c5ca",
-          "#eaeff5"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "light"
       },
       "line-strong": {
         "role": "neutral",
-        "displayName": "Control Stroke",
-        "purpose": "Control borders (light).",
-        "canonical": "#b8c0ca",
-        "oklch": "oklch(80.5% 0.017 253.9)",
+        "displayName": "Strong Hairline",
+        "purpose": "Control borders, scrollbar thumb, switch track.",
+        "canonical": "#d4d4d4",
+        "oklch": "oklch(87.0% 0.000 89.9)",
         "cssVar": "--line-strong",
         "tonalRamp": [
-          "#070c12",
-          "#1f252c",
-          "#3a4049",
-          "#575e67",
-          "#777e87",
-          "#979fa9",
-          "#bdc5cf",
-          "#e7effa"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "light"
       },
-      "ink": {
+      "text": {
         "role": "neutral",
-        "displayName": "Ink",
-        "purpose": "Primary text; countdown banner field (light).",
-        "canonical": "#12171e",
-        "oklch": "oklch(20.3% 0.016 256.8)",
+        "displayName": "Text",
+        "purpose": "Primary copy; inverted primary button fill.",
+        "canonical": "#171717",
+        "oklch": "oklch(20.5% 0.000 89.9)",
         "cssVar": "--text",
         "tonalRamp": [
-          "#070b12",
-          "#1f242c",
-          "#3a4048",
-          "#585e67",
-          "#777e87",
-          "#989fa9",
-          "#bec5cf",
-          "#e8eff9"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "light"
       },
-      "ink-2": {
+      "text-2": {
         "role": "neutral",
-        "displayName": "Ink 2",
-        "purpose": "Secondary text, nav labels (light).",
-        "canonical": "#444e5b",
-        "oklch": "oklch(42.0% 0.025 255.1)",
+        "displayName": "Text 2",
+        "purpose": "Secondary copy, idle controls.",
+        "canonical": "#525252",
+        "oklch": "oklch(43.9% 0.000 89.9)",
         "cssVar": "--text-2",
         "tonalRamp": [
-          "#050b16",
-          "#1c2530",
-          "#37414d",
-          "#545f6c",
-          "#737e8c",
-          "#94a0ae",
-          "#b9c5d5",
-          "#e5f0fe"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "light"
       },
-      "ink-3": {
+      "text-3": {
         "role": "neutral",
-        "displayName": "Ink 3",
-        "purpose": "Labels, meta, placeholders (light).",
-        "canonical": "#636d79",
-        "oklch": "oklch(53.1% 0.022 253.0)",
+        "displayName": "Text 3",
+        "purpose": "Labels, placeholders, meta, axis text.",
+        "canonical": "#6b6b6b",
+        "oklch": "oklch(52.8% 0.000 89.9)",
         "cssVar": "--text-3",
         "tonalRamp": [
-          "#050c14",
-          "#1c252f",
-          "#37414c",
-          "#555f6a",
-          "#747e8b",
-          "#95a0ac",
-          "#bac5d3",
-          "#e4f0fe"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "light"
       },
-      "console-sky-dark": {
+      "accent-violet-dark": {
         "role": "primary",
-        "displayName": "Console Sky, lifted",
-        "purpose": "Console program colour on navy.",
-        "canonical": "#5ab8f2",
-        "oklch": "oklch(74.9% 0.122 238.5)",
-        "cssVar": "--c-console",
+        "displayName": "Signal Violet (dark)",
+        "purpose": "Focus rings, links, switches, charts, unsaved and pending state, wordmark tile.",
+        "canonical": "#a78bfa",
+        "oklch": "oklch(70.9% 0.159 293.5)",
+        "cssVar": "--accent",
         "tonalRamp": [
-          "#000d19",
-          "#00273d",
-          "#044565",
-          "#15648f",
-          "#1e86bd",
-          "#49a8e1",
-          "#85cefd",
-          "#e0f1fe"
+          "#0f0029",
+          "#2d0063",
+          "#4a258c",
+          "#6849b1",
+          "#896bd7",
+          "#ab8ffe",
+          "#cbbffe",
+          "#efecff"
         ],
         "theme": "dark"
       },
-      "players-green-dark": {
-        "role": "primary",
-        "displayName": "Players Green, lifted",
-        "purpose": "Players program colour on navy.",
-        "canonical": "#4fcb87",
-        "oklch": "oklch(75.5% 0.148 156.0)",
-        "cssVar": "--c-players",
+      "ok-green-dark": {
+        "role": "status",
+        "displayName": "Ok Green (dark)",
+        "purpose": "Connected, active, joins, inserted diff values, ok pills and toasts.",
+        "canonical": "#22c55e",
+        "oklch": "oklch(72.3% 0.192 149.6)",
+        "cssVar": "--ok",
         "tonalRamp": [
-          "#001004",
-          "#002d16",
-          "#044d2b",
-          "#156f43",
-          "#1e945a",
-          "#39b976",
-          "#66e09b",
-          "#c9fddb"
+          "#001003",
+          "#022e11",
+          "#0b5023",
+          "#177437",
+          "#169c48",
+          "#21c55e",
+          "#57eb81",
+          "#c8ffd1"
         ],
         "theme": "dark"
       },
-      "backups-deep-blue-dark": {
-        "role": "primary",
-        "displayName": "Backups Blue, lifted",
-        "purpose": "Backups program colour on navy.",
-        "canonical": "#98aeff",
-        "oklch": "oklch(76.6% 0.119 271.8)",
-        "cssVar": "--c-backups",
+      "warn-amber-dark": {
+        "role": "status",
+        "displayName": "Warn Amber (dark)",
+        "purpose": "Maintenance badge, warning log lines, needs-attention icons.",
+        "canonical": "#f5a524",
+        "oklch": "oklch(78.2% 0.158 72.3)",
+        "cssVar": "--warn",
         "tonalRamp": [
-          "#040033",
-          "#13185c",
-          "#2b377e",
-          "#4657a0",
-          "#6477c4",
-          "#8499e9",
-          "#b0c1fd",
-          "#e9eefe"
-        ],
-        "theme": "dark"
-      },
-      "schedule-orange-dark": {
-        "role": "primary",
-        "displayName": "Schedule Orange, lifted",
-        "purpose": "Schedule program colour on navy.",
-        "canonical": "#ffa452",
-        "oklch": "oklch(79.5% 0.145 60.2)",
-        "cssVar": "--c-schedule",
-        "tonalRamp": [
-          "#170600",
-          "#391b00",
-          "#603302",
-          "#884d0f",
-          "#b46817",
-          "#de8630",
-          "#fcb273",
-          "#feeadb"
-        ],
-        "theme": "dark"
-      },
-      "updates-violet-dark": {
-        "role": "primary",
-        "displayName": "Updates Violet, lifted",
-        "purpose": "Updates program colour on navy.",
-        "canonical": "#bf9af4",
-        "oklch": "oklch(75.4% 0.131 302.3)",
-        "cssVar": "--c-updates",
-        "tonalRamp": [
-          "#130028",
-          "#320357",
-          "#4e2878",
-          "#6c489a",
-          "#8c68bd",
-          "#ae89e2",
-          "#d1b4fe",
-          "#f2ebfe"
+          "#130900",
+          "#352002",
+          "#5a3b0a",
+          "#855602",
+          "#af7416",
+          "#dc9420",
+          "#ffba5e",
+          "#feebd5"
         ],
         "theme": "dark"
       },
       "danger-red-dark": {
-        "role": "secondary",
-        "displayName": "Danger Red, lifted",
-        "purpose": "Danger signal on navy.",
-        "canonical": "#ff7b7b",
-        "oklch": "oklch(73.6% 0.161 21.8)",
+        "role": "status",
+        "displayName": "Danger Red (dark)",
+        "purpose": "Destructive buttons, failures, errors, disconnected state.",
+        "canonical": "#f87171",
+        "oklch": "oklch(71.1% 0.166 22.2)",
         "cssVar": "--c-danger",
         "tonalRamp": [
           "#1f0002",
-          "#4b000a",
-          "#7b0519",
-          "#a52832",
-          "#cb4c50",
-          "#f26f70",
-          "#fcaca9",
+          "#4b040c",
+          "#7c0f1c",
+          "#ac2933",
+          "#d35053",
+          "#fc7474",
+          "#fcb4b0",
           "#ffe9e7"
         ],
         "theme": "dark"
       },
-      "on-area-dark": {
+      "page-dark": {
         "role": "neutral",
-        "displayName": "On-Area Navy",
-        "purpose": "Text and pictograms on lifted program fields (dark).",
-        "canonical": "#061226",
-        "oklch": "oklch(18.4% 0.045 259.3)",
-        "cssVar": "--on-area",
-        "tonalRamp": [
-          "#020a1e",
-          "#17243a",
-          "#314058",
-          "#4f5e77",
-          "#6d7e98",
-          "#8ea0bb",
-          "#b3c5e2",
-          "#e5efff"
-        ],
-        "theme": "dark"
-      },
-      "navy-ground": {
-        "role": "neutral",
-        "displayName": "Lufthansa Navy",
-        "purpose": "Page ground (dark).",
-        "canonical": "#08172e",
-        "oklch": "oklch(20.6% 0.050 258.6)",
+        "displayName": "Page (dark)",
+        "purpose": "App background, rail, topbar.",
+        "canonical": "#0a0a0a",
+        "oklch": "oklch(14.5% 0.000 89.9)",
         "cssVar": "--bg",
         "tonalRamp": [
-          "#010a20",
-          "#14243c",
-          "#2f405a",
-          "#4c5f7a",
-          "#6b7e9c",
-          "#8ca0be",
-          "#b1c6e5",
-          "#e6effe"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       },
-      "navy-surface": {
+      "surface-dark": {
         "role": "neutral",
-        "displayName": "Navy Surface",
-        "purpose": "Panels and toasts (dark).",
-        "canonical": "#0d203d",
-        "oklch": "oklch(24.5% 0.061 258.7)",
+        "displayName": "Surface (dark)",
+        "purpose": "Panels and buttons in dark; dark fields use page-dark.",
+        "canonical": "#111111",
+        "oklch": "oklch(17.8% 0.000 89.9)",
         "cssVar": "--surface",
         "tonalRamp": [
-          "#000924",
-          "#102441",
-          "#2b4060",
-          "#485e80",
-          "#677ea2",
-          "#88a0c5",
-          "#adc6ec",
-          "#e5efff"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       },
-      "navy-field": {
+      "surface-raised-dark": {
         "role": "neutral",
-        "displayName": "Navy Field",
-        "purpose": "Inputs, buttons, sunken areas (dark).",
-        "canonical": "#0a1a33",
-        "oklch": "oklch(21.9% 0.054 259.0)",
-        "cssVar": "--field",
+        "displayName": "Raised Surface",
+        "purpose": "Dialogs, palette, popovers, toasts, save bar.",
+        "canonical": "#171717",
+        "oklch": "oklch(20.5% 0.000 89.9)",
+        "cssVar": "--surface-2",
         "tonalRamp": [
-          "#010a21",
-          "#13243e",
-          "#2e405c",
-          "#4b5e7c",
-          "#6a7e9e",
-          "#8ba0c0",
-          "#b0c6e8",
-          "#e5efff"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       },
-      "navy-rail": {
+      "sunken-dark": {
         "role": "neutral",
-        "displayName": "Navy Rail",
-        "purpose": "Rail and tab bar (dark).",
-        "canonical": "#061226",
-        "oklch": "oklch(18.4% 0.045 259.3)",
-        "cssVar": "--rail",
+        "displayName": "Sunken (dark)",
+        "purpose": "Segmented tracks, selected nav, pills, jobs, footers; also light hover.",
+        "canonical": "#1a1a1a",
+        "oklch": "oklch(21.8% 0.000 89.9)",
+        "cssVar": "--sunken",
         "tonalRamp": [
-          "#020a1e",
-          "#17243a",
-          "#314058",
-          "#4f5e77",
-          "#6d7e98",
-          "#8ea0bb",
-          "#b3c5e2",
-          "#e5efff"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       },
-      "navy-raised": {
+      "hover-dark": {
         "role": "neutral",
-        "displayName": "Navy Raised",
-        "purpose": "Dark dialog surface (with line-strong border, no shadow).",
-        "canonical": "#112a4d",
-        "oklch": "oklch(28.6% 0.071 257.3)",
+        "displayName": "Hover",
+        "purpose": "Hover tint on nav, rows, quiet buttons.",
+        "canonical": "#1c1c1c",
+        "oklch": "oklch(22.6% 0.000 89.9)",
+        "cssVar": "--hover",
         "tonalRamp": [
-          "#000925",
-          "#0a2346",
-          "#264065",
-          "#435f86",
-          "#627fa8",
-          "#82a0cb",
-          "#a7c6f3",
-          "#e5effe"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
-        "theme": "dark",
-        "note": "Hard-coded literal in the dark .dialog rule, not a custom property."
+        "theme": "dark"
       },
-      "navy-line": {
+      "line-dark": {
         "role": "neutral",
-        "displayName": "Navy Hairline",
-        "purpose": "Rules (dark).",
-        "canonical": "#1c3659",
-        "oklch": "oklch(33.1% 0.070 256.4)",
+        "displayName": "Hairline (dark)",
+        "purpose": "Dividers and container borders.",
+        "canonical": "#262626",
+        "oklch": "oklch(26.9% 0.000 89.9)",
         "cssVar": "--line",
         "tonalRamp": [
-          "#000925",
-          "#0a2445",
-          "#264064",
-          "#435f85",
-          "#627fa7",
-          "#82a1ca",
-          "#a7c7f2",
-          "#e5effe"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       },
-      "navy-line-strong": {
+      "line-strong-dark": {
         "role": "neutral",
-        "displayName": "Navy Control Stroke",
-        "purpose": "Control borders; dark dialog border (dark).",
-        "canonical": "#2d4d7a",
-        "oklch": "oklch(41.8% 0.085 257.1)",
+        "displayName": "Strong Hairline (dark)",
+        "purpose": "Control borders, scrollbar thumb, switch track.",
+        "canonical": "#383838",
+        "oklch": "oklch(34.1% 0.000 89.9)",
         "cssVar": "--line-strong",
         "tonalRamp": [
-          "#000924",
-          "#04224c",
-          "#20406c",
-          "#3e5e8d",
-          "#5c7faf",
-          "#7da0d3",
-          "#a1c6fb",
-          "#e5efff"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       },
-      "navy-ink": {
+      "text-dark": {
         "role": "neutral",
-        "displayName": "Navy Ink",
-        "purpose": "Primary text (dark).",
-        "canonical": "#e9eff8",
-        "oklch": "oklch(95.0% 0.014 258.3)",
+        "displayName": "Text (dark)",
+        "purpose": "Primary copy; inverted primary button fill.",
+        "canonical": "#ededed",
+        "oklch": "oklch(94.6% 0.000 89.9)",
         "cssVar": "--text",
         "tonalRamp": [
-          "#080b11",
-          "#20242b",
-          "#3b4047",
-          "#595e66",
-          "#787e86",
-          "#999fa7",
-          "#bfc5cd",
-          "#e9eff8"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       },
-      "navy-ink-2": {
+      "text-2-dark": {
         "role": "neutral",
-        "displayName": "Navy Ink 2",
-        "purpose": "Secondary text (dark).",
-        "canonical": "#b6c4d8",
-        "oklch": "oklch(81.6% 0.032 257.2)",
+        "displayName": "Text 2 (dark)",
+        "purpose": "Secondary copy, idle controls.",
+        "canonical": "#a3a3a3",
+        "oklch": "oklch(71.5% 0.000 89.9)",
         "cssVar": "--text-2",
         "tonalRamp": [
-          "#040b18",
-          "#1a2534",
-          "#354051",
-          "#525f70",
-          "#717e91",
-          "#92a0b3",
-          "#b7c5d9",
-          "#e5efff"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       },
-      "navy-ink-3": {
+      "text-3-dark": {
         "role": "neutral",
-        "displayName": "Navy Ink 3",
-        "purpose": "Tertiary text (dark).",
-        "canonical": "#8fa2be",
-        "oklch": "oklch(70.7% 0.046 258.0)",
+        "displayName": "Text 3 (dark)",
+        "purpose": "Labels, placeholders, meta, axis text.",
+        "canonical": "#8f8f8f",
+        "oklch": "oklch(65.0% 0.000 89.9)",
         "cssVar": "--text-3",
         "tonalRamp": [
-          "#010a1e",
-          "#15243a",
-          "#304058",
-          "#4d5f78",
-          "#6c7e99",
-          "#8da0bc",
-          "#b2c6e3",
-          "#e6effe"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ],
         "theme": "dark"
       }
     },
     "typographyMeta": {
-      "display": {
-        "displayName": "Area Signage",
-        "purpose": "Area name on its solid program field; 20px on phones."
+      "page-title": {
+        "displayName": "Page Title",
+        "purpose": "Area name in the topbar (17px phones); login h1 at 20px."
       },
-      "headline": {
-        "displayName": "Headline",
-        "purpose": "Standalone page headings (login)."
-      },
-      "numeral": {
-        "displayName": "Version Numeral",
-        "purpose": "Installed version on Updates; 20px on phones."
+      "metric": {
+        "displayName": "Metric",
+        "purpose": "KPI values (21px phones); installed version at 24px."
       },
       "title": {
         "displayName": "Panel Title",
-        "purpose": "Panel headings; dialog titles at 17px."
+        "purpose": "Panel heads; dialog titles at 16px."
       },
       "body": {
         "displayName": "Body",
-        "purpose": "Running text and table cells."
+        "purpose": "Default copy; notes and meta at 12.5-13px text-3."
       },
       "control": {
         "displayName": "Control",
-        "purpose": "Buttons, tabs, segmented controls; 13px small."
+        "purpose": "Buttons; nav items at 14px, segmented options at 13px."
       },
       "readout": {
         "displayName": "Readout",
-        "purpose": "Health values, tabular."
+        "purpose": "Health strip values; chart stats at 15px."
       },
       "label": {
-        "displayName": "Data Label",
-        "purpose": "Uppercase condensed readout terms and table headers only."
+        "displayName": "Label",
+        "purpose": "Sentence-case terms: readouts, table heads, palette groups."
       },
       "log": {
-        "displayName": "Log Mono",
-        "purpose": "Live log and command prompt only."
+        "displayName": "Log",
+        "purpose": "Console log, log search, diff values."
+      },
+      "prompt": {
+        "displayName": "Prompt",
+        "purpose": "Command input; 16px on phones."
       }
     },
     "fonts": [
       {
-        "family": "Archivo",
-        "source": "/fonts/archivo.woff2",
+        "family": "Inter",
+        "source": "/fonts/inter.woff2",
         "license": "OFL",
         "weight": "100 900",
-        "stretch": "62% 125%",
+        "features": "'cv11', 'ss01'",
+        "selfHosted": true,
+        "preloaded": true
+      },
+      {
+        "family": "JetBrains Mono",
+        "source": "/fonts/jetbrains-mono.woff2",
+        "license": "OFL",
+        "weight": "100 800",
         "selfHosted": true
       }
     ],
     "themes": {
-      "light": "Munich program on white: white ground, silver surface panels, white fields.",
-      "dark": "Lufthansa navy via prefers-color-scheme: navy ground, lighter navy panels, program hues lifted, on-area becomes deep navy."
+      "light": "Near-white page (#fafafa), white surfaces and fields, #e5e5e5 hairlines, violet #7c3aed.",
+      "dark": "Via prefers-color-scheme: near-black page (#0a0a0a), #111111 surfaces, #171717 overlays, #262626 hairlines, violet #a78bfa, status hues lifted; --shadow-sm is none."
     },
     "shadows": [
       {
+        "name": "hairline",
+        "value": "0 1px 2px rgba(0, 0, 0, 0.04)",
+        "purpose": "--shadow-sm, light only: panels, KPI rows, advice items, default buttons. none in dark."
+      },
+      {
         "name": "overlay",
-        "value": "0 12px 32px rgba(14, 24, 40, 0.18), 0 2px 6px rgba(14, 24, 40, 0.08)",
-        "purpose": "Confirmation dialog, light theme."
+        "value": "0 12px 32px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.05)",
+        "purpose": "--shadow, light: dialogs, palette, suggestions, chart tooltip, toasts, save bar, map open button, login card."
       },
       {
         "name": "overlay-dark",
-        "value": "0 16px 40px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3)",
-        "purpose": "Defined as --shadow in dark; the dark dialog overrides it with box-shadow: none and a 1px line-strong border."
+        "value": "0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--line)",
+        "purpose": "--shadow, dark: same roles with a hairline ring."
       },
       {
-        "name": "toast",
-        "value": "0 6px 16px rgba(14, 24, 40, 0.14)",
-        "purpose": "Toasts, both themes."
+        "name": "raised-option",
+        "value": "0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.06)",
+        "purpose": "Selected segment/sub-nav option, light only."
       },
       {
-        "name": "focus-halo",
-        "value": "0 0 0 3px color-mix(in srgb, var(--area) 22%, transparent)",
-        "purpose": "Focus indicator on fields and search (not elevation)."
-      },
-      {
-        "name": "prompt-focus",
-        "value": "inset 0 2px 0 var(--area)",
-        "purpose": "Command prompt focus-within rule (not elevation)."
+        "name": "backdrop",
+        "value": "rgba(10, 10, 10, 0.35) / rgba(0, 0, 0, 0.6)",
+        "purpose": "--overlay behind dialogs, palette and More sheet (light / dark)."
       }
     ],
     "focus": {
-      "outline": "2px solid var(--area)",
-      "offset": "2px"
+      "outline": "2px solid var(--accent)",
+      "offset": "2px",
+      "fieldRing": "0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent)"
     },
     "motion": [
       {
         "name": "state-tint",
-        "value": "150ms ease-out",
-        "purpose": "Hover/selection tints on buttons, tabs, fields, rows, day chips."
+        "value": "120ms ease-out",
+        "purpose": "Hover/selection colour on buttons, nav, segments, fields."
       },
       {
-        "name": "area-change",
-        "value": "200ms ease-out",
-        "purpose": "Area-title field and band colour change on tab switch."
+        "name": "list-tint",
+        "value": "150ms ease-out",
+        "purpose": "Switch track, day chips, online-player rows."
       },
       {
         "name": "ease-spring",
         "value": "cubic-bezier(0.2, 0.8, 0.2, 1)",
-        "purpose": "Dialog entrance (180ms), toast entrance (220ms), switch knob (180ms)."
-      },
-      {
-        "name": "toast-leave",
-        "value": "200ms ease-in",
-        "purpose": "Toast exit fade/drop."
+        "purpose": "Palette 140ms, dialog and More sheet 180ms, switch knob 180ms, toast 220ms."
       },
       {
         "name": "indeterminate",
         "value": "1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite",
-        "purpose": "Running job bar."
+        "purpose": "2px accent progress bar on running op bar and jobs."
       },
       {
-        "name": "skeleton-pulse",
+        "name": "pulse",
         "value": "1.2s ease-in-out infinite alternate",
-        "purpose": "Skeleton loading rows."
+        "purpose": "Skeleton opacity; power light at 0.8s while changing state."
+      },
+      {
+        "name": "toast-leave",
+        "value": "200ms ease-in",
+        "purpose": "Toast fade and drop on dismiss."
       },
       {
         "name": "reduced-motion",
         "value": "0.01ms",
-        "purpose": "All animation and transition durations collapse under prefers-reduced-motion."
+        "purpose": "prefers-reduced-motion collapses all animation and transition durations."
       }
     ],
     "breakpoints": [
       {
         "name": "compact",
         "value": "1180px",
-        "purpose": "Health strip wraps under title; 20px gutters; schedule form two-up."
+        "purpose": "Health strip wraps under the title; 20px gutters; forms two-up; console side column 260px."
       },
       {
         "name": "stack",
         "value": "900px",
-        "purpose": "Panels stack to one column; console log 62dvh."
+        "purpose": "Paired panels stack; console log 62dvh; KPIs two-up."
       },
       {
         "name": "phone",
         "value": "760px",
-        "purpose": "Bottom tab bar, 4x2 health grid, stacked tables with positioned labels, 16px inputs."
+        "purpose": "Bottom tab bar with More sheet, 4-column health grid, stacked tables, 16px inputs."
       },
       {
         "name": "touch",
         "value": "(hover: none)",
-        "purpose": "Hover tints disabled."
+        "purpose": "Hover tints removed."
       }
     ],
     "pictograms": {
       "grid": "24-unit viewBox",
-      "style": "filled geometry, 45/90 degree angles, round heads, evenodd cut-outs",
+      "style": "filled geometry, evenodd cut-outs, currentColor",
       "sizes": {
         "default": "18px",
-        "button": "16px",
-        "readout": "14px",
-        "pill": "12px",
-        "areaTitle": "30px (24px phone)",
-        "dialogTile": "20px in 36px tile"
+        "button": "15px",
+        "buttonSmall": "14px",
+        "nav": "16px",
+        "readout": "13px",
+        "pill": "11px",
+        "dialogTile": "18px in 36px tile"
       },
       "source": "public/index.html sprite (#pg-*)"
     },
     "layout": {
-      "railWidth": "224px",
+      "railWidth": "232px",
+      "topbarMinHeight": "64px",
+      "pageGutter": "28px",
+      "areaGap": "20px",
       "areaMaxWidth": "1400px",
       "consoleSideColumn": "300px (260px at 1180px)",
-      "bandHeight": "4px"
+      "panelPadding": "20px",
+      "dialogWidth": "460px",
+      "paletteWidth": "640px"
+    },
+    "legacyAliases": {
+      "--area": "--accent",
+      "--c-console": "--accent",
+      "--c-worlds": "--accent",
+      "--c-server": "--accent",
+      "--c-insights": "--accent",
+      "--c-map": "--accent",
+      "--c-players": "--ok",
+      "--c-schedule": "--warn"
     }
   },
   "components": [
@@ -818,151 +691,158 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Solid fill in the active area colour; the main action of a panel.",
-      "html": "<button class=\"ds-btn ds-btn-primary\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M10.8 4h2.4v6.8H20v2.4h-6.8V20h-2.4v-6.8H4v-2.4h6.8z\"/></svg>Add</button>",
-      "css": ".ds-btn{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--field);color:var(--text);font-size:14px;font-weight:550;cursor:pointer;transition:background-color 150ms ease-out,border-color 150ms ease-out,color 150ms ease-out}.ds-btn:hover{background:var(--sunken);border-color:var(--text-3)}.ds-btn:focus-visible{outline:2px solid var(--area);outline-offset:2px}.ds-btn-primary{background:var(--area);border-color:var(--area);color:var(--on-area)}.ds-btn-primary:hover{background:color-mix(in srgb,var(--area) 86%,var(--text));border-color:transparent}"
+      "description": "Inverted neutral fill; the one main action of a panel.",
+      "html": "<button class=\"ds-btn ds-btn-primary\"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M10.8 4h2.4v6.8H20v2.4h-6.8V20h-2.4v-6.8H4v-2.4h6.8z\"/></svg>Add task</button>",
+      "css": ".ds-btn{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;cursor:pointer;box-shadow:var(--shadow-sm);transition:background-color 120ms ease-out,border-color 120ms ease-out,color 120ms ease-out}.ds-btn:hover{background:var(--hover)}.ds-btn:active{background:var(--sunken)}.ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-btn-primary{background:var(--text);border-color:var(--text);color:var(--bg)}.ds-btn-primary:hover{background:color-mix(in srgb,var(--text) 86%,var(--bg));border-color:transparent}"
     },
     {
       "name": "Default Button",
       "kind": "button",
       "refersTo": "button",
-      "description": "Field-white bordered button for secondary actions.",
-      "html": "<button class=\"ds-btn\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M2.5 3.5h19v5h-19zM4 10h16v10.5H4zm5.5 2.6v2.2h5v-2.2z\"/></svg>Save world</button>",
-      "css": ".ds-btn{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--field);color:var(--text);font-size:14px;font-weight:550;cursor:pointer;transition:background-color 150ms ease-out,border-color 150ms ease-out,color 150ms ease-out}.ds-btn:hover{background:var(--sunken);border-color:var(--text-3)}.ds-btn:focus-visible{outline:2px solid var(--area);outline-offset:2px}.ds-btn:active{background:color-mix(in srgb,var(--text) 10%,var(--field))}"
+      "description": "Bordered surface button with a hairline shadow; every secondary action.",
+      "html": "<button class=\"ds-btn\">Cancel</button>",
+      "css": ".ds-btn{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;cursor:pointer;box-shadow:var(--shadow-sm);transition:background-color 120ms ease-out,border-color 120ms ease-out,color 120ms ease-out}.ds-btn:hover{background:var(--hover)}.ds-btn:active{background:var(--sunken)}.ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
     },
     {
       "name": "Danger Button",
       "kind": "button",
       "refersTo": "button-danger",
-      "description": "Solid red; confirms destructive actions only.",
-      "html": "<button class=\"ds-btn ds-btn-danger\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M9 2.5h6v2h5.5v2.4h-17V4.5H9zM5 8.5h14L17.8 21.5H6.2zm4 2.5v8h2v-8zm4 0v8h2v-8z\"/></svg>Delete backup</button>",
-      "css": ".ds-btn{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--field);color:var(--text);font-size:14px;font-weight:550;cursor:pointer;transition:background-color 150ms ease-out,border-color 150ms ease-out,color 150ms ease-out}.ds-btn:hover{background:var(--sunken);border-color:var(--text-3)}.ds-btn:focus-visible{outline:2px solid var(--area);outline-offset:2px}.ds-btn-danger{background:var(--c-danger);border-color:var(--c-danger);color:var(--on-area)}.ds-btn-danger:hover{background:color-mix(in srgb,var(--c-danger) 86%,var(--text));border-color:transparent}"
+      "description": "Solid red; confirms a destructive action.",
+      "html": "<button class=\"ds-btn ds-btn-danger\">Delete world</button>",
+      "css": ".ds-btn{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;cursor:pointer;box-shadow:var(--shadow-sm);transition:background-color 120ms ease-out,border-color 120ms ease-out,color 120ms ease-out}.ds-btn:hover{background:var(--hover)}.ds-btn:active{background:var(--sunken)}.ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-btn-danger{background:var(--c-danger);border-color:var(--c-danger);color:#fff}.ds-btn-danger:hover{background:color-mix(in srgb,var(--c-danger) 88%,#000);border-color:transparent}"
     },
     {
-      "name": "Quiet Row Action",
+      "name": "Quiet Button",
       "kind": "button",
       "refersTo": "button-quiet",
-      "description": "Transparent row action; turns red on hover when destructive.",
-      "html": "<button class=\"ds-btn ds-btn-quiet\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M5.6 4 12 10.3 18.4 4 20 5.6 13.7 12l6.3 6.4-1.6 1.6-6.4-6.3L5.6 20 4 18.4l6.3-6.4L4 5.6z\"/></svg>Remove</button>",
-      "css": ".ds-btn{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--field);color:var(--text);font-size:14px;font-weight:550;cursor:pointer;transition:background-color 150ms ease-out,border-color 150ms ease-out,color 150ms ease-out}.ds-btn:hover{background:var(--sunken);border-color:var(--text-3)}.ds-btn:focus-visible{outline:2px solid var(--area);outline-offset:2px}.ds-btn-quiet{border-color:transparent;background:transparent;color:var(--text-2)}.ds-btn-quiet:hover{color:var(--c-danger);background:color-mix(in srgb,var(--c-danger) 9%,transparent);border-color:transparent}"
+      "description": "Borderless row and toolbar action; tints on hover.",
+      "html": "<button class=\"ds-btn ds-btn-quiet ds-btn-sm\">Sign out</button>",
+      "css": ".ds-btn{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;cursor:pointer;box-shadow:var(--shadow-sm);transition:background-color 120ms ease-out,border-color 120ms ease-out,color 120ms ease-out}.ds-btn:hover{background:var(--hover)}.ds-btn:active{background:var(--sunken)}.ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-btn-quiet{border-color:transparent;background:transparent;color:var(--text-2);box-shadow:none}.ds-btn-quiet:hover{background:var(--hover);color:var(--text)}.ds-btn-sm{height:30px;padding:0 10px;font-size:13px;gap:6px}"
     },
     {
       "name": "Text Field",
       "kind": "input",
       "refersTo": "field",
-      "description": "34px bordered field; area-coloured border and halo on focus.",
+      "description": "34px bordered field; accent border and 3px ring on focus.",
       "html": "<input class=\"ds-field\" placeholder=\"Player name\">",
-      "css": ".ds-field{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;height:34px;padding:0 10px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--field);color:var(--text);font-size:14px;transition:border-color 150ms ease-out,box-shadow 150ms ease-out}.ds-field::placeholder{color:var(--text-3)}.ds-field:hover{border-color:var(--text-3)}.ds-field:focus{outline:none;border-color:var(--area);box-shadow:0 0 0 3px color-mix(in srgb,var(--area) 22%,transparent)}"
+      "css": ".ds-field{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;height:34px;padding:0 11px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--field);color:var(--text);font-size:14px;transition:border-color 120ms ease-out,box-shadow 120ms ease-out}.ds-field::placeholder{color:var(--text-3)}.ds-field:hover{border-color:color-mix(in srgb,var(--text-3) 60%,var(--line-strong))}.ds-field:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "refersTo": "segmented-track",
+      "description": "Sunken track with the selected option raised; also the sub-navigation.",
+      "html": "<div class=\"ds-seg\" role=\"radiogroup\"><button role=\"radio\" aria-checked=\"true\">All</button><button role=\"radio\" aria-checked=\"false\">Chat</button><button role=\"radio\" aria-checked=\"false\">Errors</button></div>",
+      "css": ".ds-seg{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:9px;background:var(--sunken)}.ds-seg button{height:28px;padding:0 12px;border:0;border-radius:var(--r);background:transparent;color:var(--text-2);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}.ds-seg button:hover{color:var(--text)}.ds-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-seg button[aria-checked=true]{background:var(--surface);color:var(--text);box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.06)}"
     },
     {
       "name": "Rail Navigation",
       "kind": "nav",
-      "refersTo": "rail-tab",
-      "description": "Area tabs with tinted pictogram tiles; active tab is a solid field in its own colour.",
-      "html": "<nav class=\"ds-nav\"><button class=\"ds-tab on\" style=\"--tab:#0a70b5\"><span class=\"ds-tile\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M3 4h18v16H3zm2.5 4.2L9.3 12l-3.8 3.8 1.5 1.5L12.3 12 7 6.7zM12 15.5v2h6.5v-2z\"/></svg></span>Console</button><button class=\"ds-tab\" style=\"--tab:#2a4596\"><span class=\"ds-tile\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M2.5 3.5h19v5h-19zM4 10h16v10.5H4zm5.5 2.6v2.2h5v-2.2z\"/></svg></span>Backups</button><button class=\"ds-tab\" style=\"--tab:#6a3d9e\"><span class=\"ds-tile\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M12 2.5l8 8h-5v6.2H9v-6.2H4zM4 18.5h16V21H4z\"/></svg></span>Updates</button></nav>",
-      "css": ".ds-nav{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;display:flex;flex-direction:column;gap:2px;width:200px;padding:12px;background:var(--rail)}.ds-tab{display:flex;align-items:center;gap:12px;padding:7px 8px;border:0;border-radius:var(--r);background:none;color:var(--text-2);font:550 14px inherit;font-family:inherit;text-align:left;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out}.ds-tile{display:grid;place-items:center;width:30px;height:30px;border-radius:var(--r);background:color-mix(in srgb,var(--tab) 14%,transparent);color:var(--tab)}.ds-tab:hover{background:color-mix(in srgb,var(--tab) 8%,transparent);color:var(--text)}.ds-tab.on{background:var(--tab);color:var(--on-area)}.ds-tab.on .ds-tile{background:color-mix(in srgb,var(--on-area) 18%,transparent);color:var(--on-area)}.ds-tab:focus-visible{outline:2px solid var(--tab);outline-offset:2px}"
-    },
-    {
-      "name": "Area Title and Band",
-      "kind": "custom",
-      "refersTo": "area-title",
-      "description": "Signature signage: pictogram and area name on a solid program field over a 4px band.",
-      "html": "<div class=\"ds-top\"><div class=\"ds-area\"><svg viewBox=\"0 0 24 24\" width=\"30\" height=\"30\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M3 4h18v16H3zm2.5 4.2L9.3 12l-3.8 3.8 1.5 1.5L12.3 12 7 6.7zM12 15.5v2h6.5v-2z\"/></svg><h1>Console</h1></div></div><div class=\"ds-band\"></div>",
-      "css": ".ds-top{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;display:flex;background:#fff}.ds-area{display:flex;align-items:center;gap:14px;min-width:232px;padding:16px 28px;background:var(--area);color:var(--on-area);transition:background-color 200ms ease-out}.ds-area h1{margin:0;font-size:24px;font-weight:750;font-stretch:112%;letter-spacing:-0.025em}.ds-band{height:4px;background:#0a70b5}"
-    },
-    {
-      "name": "Health Readouts",
-      "kind": "custom",
-      "description": "Neutral readout strip; off-nominal values gain the alert pictogram, critical turns red.",
-      "html": "<dl class=\"ds-health\"><div><dt>TPS</dt><dd>20.0 <small>3.4 ms</small></dd></div><div><dt>Memory</dt><dd>749 MB <small>/ 16 GB</small></dd></div><div><dt>Disk free</dt><dd class=\"meh\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M12 2.5 22.5 21h-21zm-1.2 6.2v6.1h2.4V8.7zm0 7.6v2.4h2.4v-2.4z\"/></svg>30 GB</dd></div><div><dt>CPU</dt><dd class=\"bad\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"currentColor\" aria-hidden=\"true\"><path fill-rule=\"evenodd\" d=\"M12 2.5 22.5 21h-21zm-1.2 6.2v6.1h2.4V8.7zm0 7.6v2.4h2.4v-2.4z\"/></svg>97%</dd></div></dl>",
-      "css": ".ds-health{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;display:flex;margin:0;color:var(--text)}.ds-health div{padding:0 16px;border-left:1px solid var(--line)}.ds-health div:first-child{border-left:0;padding-left:0}.ds-health dt{font-size:11px;font-weight:600;font-stretch:92%;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}.ds-health dd{margin:1px 0 0;font-size:15px;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}.ds-health small{font-size:12px;font-weight:500;color:var(--text-3)}.ds-health svg{margin:0 4px -1px 0}.ds-health .meh svg{color:var(--text-2)}.ds-health .bad{color:var(--c-danger)}"
+      "refersTo": "nav-item",
+      "description": "Neutral rail items; selected sits on sunken with an inset hairline.",
+      "html": "<nav class=\"ds-nav\"><a href=\"#\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\"><path d=\"M3 4h18v16H3zm2.5 4.2L9.3 12l-3.8 3.8 1.5 1.5L12.3 12 7 6.7zM12 15.5v2h6.5v-2z\" fill-rule=\"evenodd\"/></svg>Console</a><a href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\"><circle cx=\"12\" cy=\"4.2\" r=\"2.6\"/><path d=\"M7.6 8h8.8l2.6 6.2-2 .8-1.9-4.3V22h-2.4v-7.4h-1.4V22H8.9V10.7L7 15l-2-.8z\"/></svg>Players</a></nav>",
+      "css": ".ds-nav{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;display:flex;flex-direction:column;gap:2px;width:208px;padding:12px;background:var(--bg)}.ds-nav a{display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;border-radius:var(--r);color:var(--text-2);font-size:14px;font-weight:500;text-decoration:none;transition:background-color 120ms ease-out,color 120ms ease-out}.ds-nav a svg{color:var(--text-3)}.ds-nav a:hover{background:var(--hover);color:var(--text)}.ds-nav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-nav a[aria-current=page]{background:var(--sunken);color:var(--text);box-shadow:inset 0 0 0 1px var(--line)}.ds-nav a[aria-current=page] svg{color:var(--text)}"
     },
     {
       "name": "Pills",
       "kind": "chip",
       "refersTo": "pill",
-      "description": "Neutral status pill, or .own in the area colour.",
-      "html": "<span class=\"ds-pill\">paused</span> <span class=\"ds-pill own\">stable</span>",
-      "css": ".ds-pill{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:var(--r);background:var(--sunken);color:var(--text-2);font-size:12px;font-weight:600}.ds-pill.own{background:color-mix(in srgb,var(--area) 14%,transparent);color:var(--area)}"
+      "description": "Round neutral tags; accent, ok and danger tints carry state.",
+      "html": "<span class=\"ds-pills\"><span class=\"ds-pill\">Paper</span><span class=\"ds-pill ds-own\">Active</span><span class=\"ds-pill ds-ok\">Online</span><span class=\"ds-pill ds-bad\">Banned</span></span>",
+      "css": ".ds-pills{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;display:inline-flex;gap:6px}.ds-pill{display:inline-flex;align-items:center;height:20px;padding:0 8px;border:1px solid var(--line);border-radius:999px;background:var(--sunken);color:var(--text-2);font-size:11.5px;font-weight:500;letter-spacing:0}.ds-own{border-color:color-mix(in srgb,var(--accent) 30%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}.ds-ok{border-color:color-mix(in srgb,var(--ok) 30%,transparent);background:color-mix(in srgb,var(--ok) 10%,transparent);color:var(--ok)}.ds-bad{border-color:color-mix(in srgb,var(--c-danger) 30%,transparent);background:color-mix(in srgb,var(--c-danger) 10%,transparent);color:var(--c-danger)}"
+    },
+    {
+      "name": "Switch",
+      "kind": "input",
+      "refersTo": "switch",
+      "description": "Round track; accent when on, knob slides on a spring curve.",
+      "html": "<label class=\"ds-switch\"><input type=\"checkbox\" checked>Follow</label>",
+      "css": ".ds-switch{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--text-2);cursor:pointer}.ds-switch input{appearance:none;position:relative;width:32px;height:18px;margin:0;border-radius:999px;background:var(--line-strong);cursor:pointer;transition:background-color 150ms ease-out}.ds-switch input::before{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform 180ms cubic-bezier(.2,.8,.2,1)}.ds-switch input:checked{background:var(--accent)}.ds-switch input:checked::before{transform:translateX(14px)}.ds-switch input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
     },
     {
       "name": "Panel",
       "kind": "card",
       "refersTo": "panel",
-      "description": "Flat silver panel with hairline border, 52px head and count badge.",
-      "html": "<section class=\"ds-panel\"><header><h2>Online</h2><span class=\"ds-count\">2 / 20</span></header><div class=\"ds-body\">Alex, Steve</div></section>",
-      "css": ".ds-panel{--c-console:#0a70b5;--c-danger:#c0262d;--on-area:#fff;--surface:#f4f6f8;--field:#fff;--sunken:#e9ecf0;--rail:#eceff3;--line:#d9dee4;--line-strong:#b8c0ca;--text:#12171e;--text-2:#444e5b;--text-3:#636d79;--area:var(--c-console);--r:2px;font-family:'Archivo','Helvetica Neue',Helvetica,'Segoe UI',system-ui,sans-serif;width:300px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);color:var(--text);font-size:14px}.ds-panel header{display:flex;align-items:center;gap:10px;min-height:52px;padding:12px 16px;border-bottom:1px solid var(--line)}.ds-panel h2{margin:0;font-size:15px;font-weight:650;letter-spacing:-.005em}.ds-count{padding:1px 7px;border-radius:999px;background:var(--sunken);color:var(--text-2);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}.ds-body{padding:16px}"
+      "description": "10px hairline container with a head row and 20px body.",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-head\"><h2>Online now</h2><span class=\"ds-count\">3</span></div><div class=\"ds-panel-body\">Steve, Alex and Notch are connected.</div></section>",
+      "css": ".ds-panel{--accent:#7c3aed;--ok:#15803d;--warn:#b45309;--c-danger:#dc2626;--bg:#fafafa;--surface:#fff;--field:#fff;--sunken:#f4f4f5;--hover:#f4f4f5;--line:#e5e5e5;--line-strong:#d4d4d4;--text:#171717;--text-2:#525252;--text-3:#6b6b6b;--shadow-sm:0 1px 2px rgba(0,0,0,.04);--ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);--r:6px;--r-lg:10px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;letter-spacing:-0.006em;width:340px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);color:var(--text);font-size:14px;line-height:1.5}.ds-panel-head{display:flex;align-items:center;gap:10px;min-height:56px;padding:12px 20px;border-bottom:1px solid var(--line)}.ds-panel-head h2{margin:0;font-size:14px;font-weight:600;letter-spacing:-0.01em}.ds-count{min-width:22px;padding:1px 7px;border:1px solid var(--line);border-radius:999px;background:var(--sunken);color:var(--text-2);font-size:11.5px;font-weight:500;text-align:center;font-variant-numeric:tabular-nums}.ds-panel-body{padding:20px;color:var(--text-2)}"
     }
   ],
   "narrative": {
-    "northStar": "The Identity Program",
-    "overview": "rconsole is run the way Otl Aicher ran the Munich '72 Games: a strict program of colours and geometric pictograms in which every place owns one hue and one sign, so the operator knows where they are and what state the server is in before reading a word. The five work areas (Console, Players, Backups, Schedule, Updates) are venues; each venue's colour lands on its signage (the solid area-title field), its rail tile, a 4px band under the top bar, and its primary actions. Everything else stays neutral so that colour keeps its meaning.\n\nThe density is an operator's: 14px body, 34px controls, hairline rules, tabular numerals in every readout and table. Surfaces are flat solid fills on 2px corners; depth exists only where something genuinely floats above the work (dialogs, toasts). Two themes share one program: the light theme is the Munich program on white with silver panels, the dark theme is Lufthansa navy with the same hues lifted for a dark ground.\n\nThe system rejects the category default of a grey-black dashboard with one neon accent and monospace everywhere. Monospace belongs to the log and the command prompt only; the UI speaks in Archivo, a Univers-like variable grotesk whose width axis carries hierarchy.",
+    "northStar": "The Quiet Control Room",
+    "overview": "rconsole is the room an operator walks into to check on one server and leave again. Everything resident on screen is neutral: near-white or near-black surfaces, hairline borders, grey text in three steps. Colour is spent only where it says something, either the single violet accent (focus, links, switches, charts, unsaved state) or a status hue (ok, warning, danger). The result reads like a Vercel-class enterprise console and sits beside winterstetter.io as the same family: Inter, JetBrains Mono, the same violet, the same hairline neutrals.\n\nDensity is moderate: 34px controls, 14px body, 20px panel padding, 28px page gutters. Hierarchy comes from weight (500/600) and the three text greys, not from size jumps or colour fields. Light and dark follow `prefers-color-scheme`; dark is not an inversion but its own neutral ramp with the accent and status hues lifted for contrast.\n\nThe previous \"identity program\" world (per-area colours, coloured title fields, 4px bands, 2px corners, uppercase condensed labels) is retired. Its variable names survive only as aliases (see Colors).",
     "keyCharacteristics": [
-      "One program colour per work area, applied as solid fields, never as gradients or glows.",
-      "Filled geometric pictograms on a 24-unit grid, 45/90 degree angles, round heads, for every area and action.",
-      "Flat 2px-cornered panels, hairline borders, shadows only on overlays.",
-      "Archivo variable for all UI, width axis used for signage (112%) and labels (92%); tabular numerals for every number.",
-      "Neutral health strip; colour appears only when something is off-nominal."
+      "Neutral surfaces with 1px hairlines; no colour fields.",
+      "One violet accent, used sparingly; primary actions are the inverted neutral.",
+      "Status colour keeps meaning: green ok, amber warning, red danger.",
+      "Inter for UI, JetBrains Mono for machine text; sentence-case labels; tabular numerals.",
+      "Radii 6 / 10 / 12px; sunken-track segmented controls.",
+      "Flat at rest; shadows only on things that float."
     ],
     "rules": [
       {
-        "name": "The One Venue, One Colour Rule",
-        "body": "Each work area owns exactly one program colour and shows it in four places only: the solid area-title field, the active rail tile, the 4px band, and primary actions (plus in-area accents such as switches, selected segments, selected days, running/done jobs, `.own` pills, focus rings). No area borrows another's hue.",
+        "name": "The One Violet Rule",
+        "body": "Violet marks focus, links, live data and unsaved or pending state. It never fills a button or a panel; if a screen shows more than a few violet marks at rest, one is wrong.",
         "section": "colors"
       },
       {
-        "name": "The Red Means Danger Rule",
-        "body": "Red is reserved for destructive actions and failure or critical states. A red element is always a warning; nothing red is merely decorative.",
+        "name": "The Inverted Primary Rule",
+        "body": "The primary action is the text colour as fill with the page colour as text (near-black on light, near-white on dark). Emphasis comes from contrast, not hue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Status Keeps Meaning Rule",
+        "body": "Green, amber and red appear only for ok, warning and danger. Red is never decorative; tinted status surfaces mix 5-14% of the hue into the surface with a 30-45% hue border.",
         "section": "colors"
       },
       {
         "name": "The Quiet Health Rule",
-        "body": "Health readouts are neutral ink when nominal. Off-nominal values gain the alert pictogram; \"needs attention\" stays ink with an ink-2 pictogram, \"critical\" turns the value red. The strip never borrows an area colour.",
+        "body": "Health readouts are neutral text when nominal; \"needs attention\" adds an amber pictogram, \"critical\" turns the value red.",
         "section": "colors"
       },
       {
-        "name": "The Hue-Free Countdown Rule",
-        "body": "The restart countdown banner is a solid ink field with ground-coloured text, deliberately outside the program so it reads as a server-wide event, not as any area.",
-        "section": "colors"
-      },
-      {
-        "name": "The Universal Signals Exception",
-        "body": "Two hues appear outside their area by design: log WARN lines stay schedule-orange (and joins players-green, commands console-sky) because they are log data, and the connection dot stays players-green as a universal state light.",
-        "section": "colors"
-      },
-      {
-        "name": "The Width Axis Rule",
-        "body": "Hierarchy is carried by Archivo's width axis as much as by size: wide (105-112%) for signage and identity, normal for reading, condensed (92%) for data labels.",
+        "name": "The Sentence Case Rule",
+        "body": "Labels are 12px, weight 500, text-3, sentence case, no letter-spacing. The stylesheet carries no `text-transform`.",
         "section": "typography"
       },
       {
         "name": "The Tabular Rule",
-        "body": "Every number that can change (readouts, counts, tables, versions, countdown) uses tabular numerals.",
+        "body": "Every number that can change (readouts, counts, tables, charts, versions, countdown) uses tabular numerals.",
+        "section": "typography"
+      },
+      {
+        "name": "The Machine Text Rule",
+        "body": "Anything typed to or emitted by the server is JetBrains Mono; anything written for a person is Inter.",
         "section": "typography"
       },
       {
         "name": "The Only Overlays Float Rule",
-        "body": "A shadow means \"this is above the page and will go away\": dialogs and toasts. Anything resident in the layout is flat.",
+        "body": "Shadows belong to dialogs, the palette, popovers, tooltips, toasts and the sticky save bar. Anything resident in the layout is flat, with at most the light hairline.",
         "section": "elevation"
+      },
+      {
+        "name": "The Three Radii Rule",
+        "body": "6px for things you operate, 10px for things that contain, 12px for things that float above. Round shapes only for pills, dots and switches.",
+        "section": "shapes"
       }
     ],
     "dos": [
-      "Do route every area accent through `--area`, so the active venue's program colour drives fields, primary buttons, focus, switches and selected states automatically.",
-      "Do give every new area or action a filled geometric pictogram on the 24-unit grid (45/90 degree angles, round heads) and add it to the sprite.",
-      "Do keep panels flat: surface fill, 1px line border, 2px corners.",
-      "Do use tabular numerals for every changing number.",
-      "Do mark off-nominal states with the alert pictogram and, when critical or failed, danger red; leave nominal states neutral.",
-      "Do confirm destructive actions in the dialog with a red tile and a danger confirm button.",
-      "Do keep the light theme white ground / silver panels / white fields, and the dark theme Lufthansa navy with lifted program hues.",
-      "Do disable hover tints under `(hover: none)`; on phones use the bottom tab bar, the 2-row health grid and stacked tables with positioned labels."
+      "Do build every resident surface from page, surface and sunken with 1px line borders.",
+      "Do use the inverted neutral for the one primary action in a panel, and the default bordered button for the rest.",
+      "Do reserve violet for focus, links, live data and unsaved or pending state (The One Violet Rule).",
+      "Do keep status hues to their meaning and tint status surfaces lightly (5-14% fill, 30-45% border).",
+      "Do write labels in sentence case at 12px weight 500 in text-3, and use tabular numerals for changing numbers.",
+      "Do set machine text (log, prompt, keys, versions) in JetBrains Mono.",
+      "Do use 6px for controls, 10px for containers, 12px for overlays.",
+      "Do design both themes; check dark values against the dark ramp, not by inverting light."
     ],
     "donts": [
-      "Don't use a second area's colour inside an area, or put a program colour on the health strip or countdown banner.",
-      "Don't use red for anything that is not destructive or failing.",
-      "Don't add glass, backdrop-filter, gradients, glows, or shadows on resident surfaces; only dialogs and toasts float, and the dark dialog uses a border instead.",
-      "Don't set UI text in monospace; mono is for the log, the prompt and codes.",
-      "Don't use stroked or outline icon sets or emoji; pictograms are filled geometry.",
-      "Don't round beyond 2px except for things that are round by nature (chips, counts, switches, dots)."
+      "Don't fill buttons, panels or headers with the accent or any status hue except a confirming danger button.",
+      "Don't reintroduce per-area colours, coloured title fields, bands or 2px corners from the retired identity program.",
+      "Don't use uppercase, letter-spaced labels or kickers above headings.",
+      "Don't put shadows on resident layout beyond the light hairline.",
+      "Don't use red for anything that is not a danger or failure.",
+      "Don't reference the legacy `--c-*` or `--area` aliases in new code; use `--accent`, `--ok`, `--warn`, `--c-danger`."
     ]
   }
 }

@@ -1,96 +1,88 @@
 ---
 name: rconsole
-description: A single-server Minecraft operator console run as an identity program, Munich '72 discipline applied to server operations.
+description: A quiet, neutral operations console for a single Minecraft server; one violet accent, status colour only where it carries meaning.
 colors:
-  console-sky: "#0a70b5"
-  players-green: "#0a7a3f"
-  backups-deep-blue: "#2a4596"
-  schedule-orange: "#b35000"
-  updates-violet: "#6a3d9e"
-  danger-red: "#c0262d"
-  on-area: "#ffffff"
-  ground-white: "#ffffff"
-  surface-silver: "#f4f6f8"
-  field-white: "#ffffff"
-  sunken-grey: "#e9ecf0"
-  rail-grey: "#eceff3"
-  line: "#d9dee4"
-  line-strong: "#b8c0ca"
-  ink: "#12171e"
-  ink-2: "#444e5b"
-  ink-3: "#636d79"
-  console-sky-dark: "#5ab8f2"
-  players-green-dark: "#4fcb87"
-  backups-deep-blue-dark: "#98aeff"
-  schedule-orange-dark: "#ffa452"
-  updates-violet-dark: "#bf9af4"
-  danger-red-dark: "#ff7b7b"
-  on-area-dark: "#061226"
-  navy-ground: "#08172e"
-  navy-surface: "#0d203d"
-  navy-field: "#0a1a33"
-  navy-rail: "#061226"
-  navy-raised: "#112a4d"
-  navy-line: "#1c3659"
-  navy-line-strong: "#2d4d7a"
-  navy-ink: "#e9eff8"
-  navy-ink-2: "#b6c4d8"
-  navy-ink-3: "#8fa2be"
+  accent-violet: "#7c3aed"
+  ok-green: "#15803d"
+  warn-amber: "#b45309"
+  danger-red: "#dc2626"
+  page: "#fafafa"
+  surface: "#ffffff"
+  sunken: "#f4f4f5"
+  line: "#e5e5e5"
+  line-strong: "#d4d4d4"
+  text: "#171717"
+  text-2: "#525252"
+  text-3: "#6b6b6b"
+  accent-violet-dark: "#a78bfa"
+  ok-green-dark: "#22c55e"
+  warn-amber-dark: "#f5a524"
+  danger-red-dark: "#f87171"
+  page-dark: "#0a0a0a"
+  surface-dark: "#111111"
+  surface-raised-dark: "#171717"
+  sunken-dark: "#1a1a1a"
+  hover-dark: "#1c1c1c"
+  line-dark: "#262626"
+  line-strong-dark: "#383838"
+  text-dark: "#ededed"
+  text-2-dark: "#a3a3a3"
+  text-3-dark: "#8f8f8f"
 typography:
-  display:
-    fontFamily: "Archivo, 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui, sans-serif"
-    fontSize: "24px"
-    fontWeight: 750
-    lineHeight: 1.45
-    letterSpacing: "-0.025em"
-    fontVariation: "'wdth' 112"
-  headline:
-    fontFamily: "Archivo, 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui, sans-serif"
-    fontSize: "22px"
-    fontWeight: 650
-    lineHeight: 1.45
-    letterSpacing: "-0.015em"
-  numeral:
-    fontFamily: "Archivo, 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui, sans-serif"
-    fontSize: "26px"
-    fontWeight: 700
+  page-title:
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "18px"
+    fontWeight: 600
+    lineHeight: 1
     letterSpacing: "-0.02em"
+  metric:
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "26px"
+    fontWeight: 600
+    letterSpacing: "-0.03em"
     fontFeature: "'tnum'"
-    fontVariation: "'wdth' 105"
   title:
-    fontFamily: "Archivo, 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui, sans-serif"
-    fontSize: "15px"
-    fontWeight: 650
-    lineHeight: 1.45
-    letterSpacing: "-0.005em"
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 600
+    letterSpacing: "-0.01em"
   body:
-    fontFamily: "Archivo, 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui, sans-serif"
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
     fontSize: "14px"
     fontWeight: 400
-    lineHeight: 1.45
+    lineHeight: 1.5
+    letterSpacing: "-0.006em"
+    fontFeature: "'cv11', 'ss01'"
   control:
-    fontFamily: "Archivo, 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui, sans-serif"
-    fontSize: "14px"
-    fontWeight: 550
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "13.5px"
+    fontWeight: 500
+    letterSpacing: "-0.006em"
   readout:
-    fontFamily: "Archivo, 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui, sans-serif"
-    fontSize: "15px"
-    fontWeight: 650
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 600
+    letterSpacing: "-0.01em"
     fontFeature: "'tnum'"
   label:
-    fontFamily: "Archivo, 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui, sans-serif"
-    fontSize: "11px"
-    fontWeight: 600
-    letterSpacing: "0.06em"
-    fontVariation: "'wdth' 92"
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 500
   log:
-    fontFamily: "ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace"
+    fontFamily: "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
     fontSize: "12.5px"
     fontWeight: 400
-    lineHeight: 1.6
+    lineHeight: 1.65
+  prompt:
+    fontFamily: "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
+    fontSize: "14px"
+    fontWeight: 400
 rounded:
-  none: "0px"
-  r: "2px"
+  r: "6px"
+  track: "9px"
+  r-lg: "10px"
+  overlay: "12px"
+  sheet: "14px"
   full: "999px"
 spacing:
   xs: "4px"
@@ -102,31 +94,31 @@ spacing:
   gutter: "28px"
 components:
   button:
-    backgroundColor: "{colors.field-white}"
-    textColor: "{colors.ink}"
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
     typography: "{typography.control}"
     rounded: "{rounded.r}"
     padding: "0 14px"
     height: "34px"
   button-hover:
-    backgroundColor: "{colors.sunken-grey}"
+    backgroundColor: "{colors.sunken}"
   button-primary:
-    backgroundColor: "{colors.console-sky}"
-    textColor: "{colors.on-area}"
+    backgroundColor: "{colors.text}"
+    textColor: "{colors.page}"
     typography: "{typography.control}"
     rounded: "{rounded.r}"
     padding: "0 14px"
     height: "34px"
   button-danger:
     backgroundColor: "{colors.danger-red}"
-    textColor: "{colors.on-area}"
+    textColor: "#ffffff"
     typography: "{typography.control}"
     rounded: "{rounded.r}"
     padding: "0 14px"
     height: "34px"
   button-quiet:
     backgroundColor: "transparent"
-    textColor: "{colors.ink-2}"
+    textColor: "{colors.text-2}"
     typography: "{typography.control}"
     rounded: "{rounded.r}"
     padding: "0 14px"
@@ -135,241 +127,233 @@ components:
     padding: "0 10px"
     height: "30px"
   field:
-    backgroundColor: "{colors.field-white}"
-    textColor: "{colors.ink}"
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
     typography: "{typography.body}"
     rounded: "{rounded.r}"
-    padding: "0 10px"
+    padding: "0 11px"
     height: "34px"
-  panel:
-    backgroundColor: "{colors.surface-silver}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.r}"
-  panel-head:
-    padding: "12px 16px"
-    height: "52px"
-  area-title:
-    backgroundColor: "{colors.console-sky}"
-    textColor: "{colors.on-area}"
-    typography: "{typography.display}"
-    padding: "16px 28px"
-    width: "232px"
-  rail-tab:
+  segmented-track:
+    backgroundColor: "{colors.sunken}"
+    rounded: "{rounded.track}"
+    padding: "3px"
+  segmented-option:
     backgroundColor: "transparent"
-    textColor: "{colors.ink-2}"
-    typography: "{typography.control}"
+    textColor: "{colors.text-2}"
     rounded: "{rounded.r}"
-    padding: "7px 8px"
-  rail-tab-active:
-    backgroundColor: "{colors.console-sky}"
-    textColor: "{colors.on-area}"
+    padding: "0 12px"
+    height: "28px"
+  segmented-option-selected:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+  nav-item:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-2}"
+    rounded: "{rounded.r}"
+    padding: "0 8px"
+    height: "34px"
+  nav-item-selected:
+    backgroundColor: "{colors.sunken}"
+    textColor: "{colors.text}"
   pill:
-    backgroundColor: "{colors.sunken-grey}"
-    textColor: "{colors.ink-2}"
-    rounded: "{rounded.r}"
-    padding: "2px 8px"
-  count:
-    backgroundColor: "{colors.sunken-grey}"
-    textColor: "{colors.ink-2}"
+    backgroundColor: "{colors.sunken}"
+    textColor: "{colors.text-2}"
     rounded: "{rounded.full}"
-    padding: "1px 7px"
-  countdown-banner:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.ground-white}"
-    padding: "10px 28px"
+    padding: "0 8px"
+    height: "20px"
+  panel:
+    backgroundColor: "{colors.surface}"
+    rounded: "{rounded.r-lg}"
+    padding: "20px"
   dialog:
-    backgroundColor: "{colors.surface-silver}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.r}"
+    backgroundColor: "{colors.surface}"
+    rounded: "{rounded.overlay}"
     width: "460px"
-  toast:
-    backgroundColor: "{colors.surface-silver}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.r}"
-    padding: "12px 14px"
 ---
 
 # Design System: rconsole
 
 ## Overview
 
-**Creative North Star: "The Identity Program"**
+**Creative North Star: "The Quiet Control Room"**
 
-rconsole is run the way Otl Aicher ran the Munich '72 Games: a strict program of colours and geometric pictograms in which every place owns one hue and one sign, so the operator knows where they are and what state the server is in before reading a word. The five work areas (Console, Players, Backups, Schedule, Updates) are venues; each venue's colour lands on its signage (the solid area-title field), its rail tile, a 4px band under the top bar, and its primary actions. Everything else stays neutral so that colour keeps its meaning.
+rconsole is the room an operator walks into to check on one server and leave again. Everything resident on screen is neutral: near-white or near-black surfaces, hairline borders, grey text in three steps. Colour is spent only where it says something, either the single violet accent (focus, links, switches, charts, unsaved state) or a status hue (ok, warning, danger). The result reads like a Vercel-class enterprise console and sits beside winterstetter.io as the same family: Inter, JetBrains Mono, the same violet, the same hairline neutrals.
 
-The density is an operator's: 14px body, 34px controls, hairline rules, tabular numerals in every readout and table. Surfaces are flat solid fills on 2px corners; depth exists only where something genuinely floats above the work (dialogs, toasts). Two themes share one program: the light theme is the Munich program on white with silver panels, the dark theme is Lufthansa navy with the same hues lifted for a dark ground.
+Density is moderate: 34px controls, 14px body, 20px panel padding, 28px page gutters. Hierarchy comes from weight (500/600) and the three text greys, not from size jumps or colour fields. Light and dark follow `prefers-color-scheme`; dark is not an inversion but its own neutral ramp with the accent and status hues lifted for contrast.
 
-The system rejects the category default of a grey-black dashboard with one neon accent and monospace everywhere. Monospace belongs to the log and the command prompt only; the UI speaks in Archivo, a Univers-like variable grotesk whose width axis carries hierarchy.
+The previous "identity program" world (per-area colours, coloured title fields, 4px bands, 2px corners, uppercase condensed labels) is retired. Its variable names survive only as aliases (see Colors).
 
 **Key Characteristics:**
-- One program colour per work area, applied as solid fields, never as gradients or glows.
-- Filled geometric pictograms on a 24-unit grid, 45/90 degree angles, round heads, for every area and action.
-- Flat 2px-cornered panels, hairline borders, shadows only on overlays.
-- Archivo variable for all UI, width axis used for signage (112%) and labels (92%); tabular numerals for every number.
-- Neutral health strip; colour appears only when something is off-nominal.
+- Neutral surfaces with 1px hairlines; no colour fields.
+- One violet accent, used sparingly; primary actions are the inverted neutral.
+- Status colour keeps meaning: green ok, amber warning, red danger.
+- Inter for UI, JetBrains Mono for machine text; sentence-case labels; tabular numerals.
+- Radii 6 / 10 / 12px; sunken-track segmented controls.
+- Flat at rest; shadows only on things that float.
 
 ## Colors
 
-A strict five-hue program plus one danger red, on cool white/silver (light) or Lufthansa navy (dark) neutrals; the active area's hue is exposed to every component as the `--area` variable.
+A neutral grey ramp carries the whole interface; violet and three status hues are the only chroma.
 
 ### Primary
-The primary is not one colour but the program: whichever area is active supplies `--area`. Each hue is defined for both themes (light value, then lifted dark value with `-dark` suffix).
-- **Console Sky** (console-sky / console-sky-dark): Console area; also the login page and the rconsole mark tile, since Console is the home venue.
-- **Players Green** (players-green / players-green-dark): Players area.
-- **Backups Deep Blue** (backups-deep-blue / backups-deep-blue-dark): Backups area.
-- **Schedule Orange** (schedule-orange / schedule-orange-dark): Schedule area.
-- **Updates Violet** (updates-violet / updates-violet-dark): Updates area.
-- **On-Area** (on-area / on-area-dark): text and pictograms placed on a solid program field: white in light, deep navy in dark.
+- **Signal Violet** (accent-violet, dark: accent-violet-dark): focus rings (`--ring`, 3px at 22%) and focus outlines, links, caret and native `accent-color`, checked switches, chart lines/bars/dots, the dirty-setting edge and pending-restart bar, the running op-bar progress, command echoes in the log, the active parameter in the command hint, `.own` pills, the update dot on the Server tab, selected radio rows, search-hit `mark`, and the wordmark tile.
 
-### Secondary
-- **Danger Red** (danger-red / danger-red-dark): the one non-program hue. Destructive actions (delete, ban, deop, rollback confirmations), failures (job failed, toast error, log ERROR lines, area errors, invalid fields), RCON down, and critical health readouts. Never decoration, never an area.
+### Status
+- **Ok Green** (ok-green / ok-green-dark): connected dot, active power light, player joins in the log, inserted values in diffs, ok pills and toasts.
+- **Warn Amber** (warn-amber / warn-amber-dark): maintenance badge, warning log lines, "needs attention" readout icons, warn advice icons.
+- **Danger Red** (danger-red / danger-red-dark): failure states, error text, disconnected chip, alert dot on Players, failed audit rows.
+- **Danger Solid** (`--danger-solid`, #dc2626 in both themes): the fill of destructive buttons, so their white label keeps 4.8:1 contrast in dark mode too.
 
 ### Neutral
-- **Ground White / Navy Ground** (ground-white / navy-ground): page ground behind the work area and top bar.
-- **Surface Silver / Navy Surface** (surface-silver / navy-surface): panels, dialogs, toasts.
-- **Field White / Navy Field** (field-white / navy-field): inputs, default buttons, the command prompt; in light theme fields sit white inside silver panels.
-- **Sunken Grey** (sunken-grey; navy-field in dark): table header rows, neutral pills and counts, skeletons, idle job strips, dialog action bar, quiet-button hover.
-- **Rail Grey / Navy Rail** (rail-grey / navy-rail): the side rail, phone tab bar and login ground.
-- **Line / Line Strong** (line, line-strong / navy-line, navy-line-strong): hairline rules between rows and panels; stronger stroke for control borders.
-- **Ink 1-3** (ink, ink-2, ink-3 / navy-ink, navy-ink-2, navy-ink-3): primary text, secondary text and nav labels, tertiary text (labels, meta, placeholders).
-- **Navy Raised** (navy-raised): dark-theme dialog surface, one step lighter than navy-surface, paired with a line-strong border instead of a shadow.
+- **Page** (page / page-dark): app background, rail, topbar.
+- **Surface** (surface / surface-dark): panels, buttons, fields in light. Dark fields sit on page-dark; dark overlays use surface-raised-dark.
+- **Sunken** (sunken / sunken-dark): segmented tracks, selected nav item, pills, counts, jobs, log replies, palette and hint footers, skeletons. Light hover equals sunken; dark hover is hover-dark.
+- **Line / Line Strong**: every divider and container border is line; control borders (buttons, fields, day chips) and the scrollbar thumb are line-strong.
+- **Text / Text 2 / Text 3**: primary copy; secondary copy and idle controls; labels, placeholders, meta and axis text.
+
+### Aliases
+`--area`, `--c-console`, `--c-worlds`, `--c-server`, `--c-insights` and `--c-map` all resolve to the accent; `--c-players` resolves to ok and `--c-schedule` to warn. They exist for compatibility with older markup and scripts; new code uses `--accent`, `--ok`, `--warn`, `--c-danger` directly.
 
 ### Named Rules
-**The One Venue, One Colour Rule.** Each work area owns exactly one program colour and shows it in four places only: the solid area-title field, the active rail tile, the 4px band, and primary actions (plus in-area accents such as switches, selected segments, selected days, running/done jobs, `.own` pills, focus rings). No area borrows another's hue.
+**The One Violet Rule.** Violet marks focus, links, live data and unsaved or pending state. It never fills a button or a panel; if a screen shows more than a few violet marks at rest, one is wrong.
 
-**The Red Means Danger Rule.** Red is reserved for destructive actions and failure or critical states. A red element is always a warning; nothing red is merely decorative.
+**The Inverted Primary Rule.** The primary action is the text colour as fill with the page colour as text (near-black on light, near-white on dark). Emphasis comes from contrast, not hue.
 
-**The Quiet Health Rule.** Health readouts are neutral ink when nominal. Off-nominal values gain the alert pictogram; "needs attention" stays ink with an ink-2 pictogram, "critical" turns the value red. The strip never borrows an area colour.
+**The Status Keeps Meaning Rule.** Green, amber and red appear only for ok, warning and danger. Red is never decorative; tinted status surfaces mix 5-14% of the hue into the surface with a 30-45% hue border.
 
-**The Hue-Free Countdown Rule.** The restart countdown banner is a solid ink field with ground-coloured text, deliberately outside the program so it reads as a server-wide event, not as any area.
-
-**The Universal Signals Exception.** Two hues appear outside their area by design: log WARN lines stay schedule-orange (and joins players-green, commands console-sky) because they are log data, and the connection dot stays players-green as a universal state light.
+**The Quiet Health Rule.** Health readouts are neutral text when nominal; "needs attention" adds an amber pictogram, "critical" turns the value red.
 
 ## Typography
 
-**Display Font:** Archivo variable, self-hosted (weight 100-900, width 62-125%), with 'Helvetica Neue', Helvetica, 'Segoe UI', system-ui fallback
-**Body Font:** Archivo (same family)
-**Label/Mono Font:** system monospace stack (ui-monospace, SF Mono, Cascadia Mono, Menlo, Consolas) for the log, command prompt, codes and kbd only
+**Body Font:** Inter (with -apple-system, Segoe UI, system-ui), self-hosted variable 100-900 from `/fonts/inter.woff2`, features `cv11` and `ss01`, tracking -0.006em.
+**Mono Font:** JetBrains Mono (with ui-monospace, SF Mono, Menlo), self-hosted from `/fonts/jetbrains-mono.woff2`.
 
-**Character:** One grotesk doing all the work, signage-wide at the top and condensed for labels, like a stadium sign system set in Univers; the mono face is confined to machine output.
+**Character:** A neutral, slightly tightened grotesque for every word the operator reads, and a crisp mono for every string the server reads: log lines, the prompt, setting keys, versions, command suggestions.
 
 ### Hierarchy
-- **Display** (750, 24px, width 112%, -0.025em): the area name on its solid colour field; 20px on phones.
-- **Headline** (650, 22px, -0.015em): standalone page headings (login "Sign in").
-- **Numeral** (700, 26px, width 105%, -0.02em, tabular): the installed version on Updates; 20px on phones. The wordmark uses the same width (700, 18px, 105%).
-- **Title** (650, 15px, -0.005em): panel headings; dialog titles step up to 17px.
-- **Body** (400, 14px/1.45): all running text and table cells; secondary meta at 12.5-13px in ink-3.
-- **Control** (550, 14px): buttons, rail tabs, segmented controls; 13px in small buttons.
-- **Readout** (650, 15px, tabular): health values, units in 12px/500 ink-3.
-- **Label** (600, 11px, width 92%, 0.06em, uppercase): health readout terms and table column headers only.
-- **Log** (mono 12.5px/1.6): the live log; command input in mono 14px.
+- **Page title** (600, 18px, line-height 1, -0.02em): area name in the topbar; 17px on phones. Login and `h1` at 20px.
+- **Metric** (600, 26px, -0.03em, tabular): KPI tiles (21px on phones); installed version uses 24px.
+- **Title** (600, 14px, -0.01em): panel heads; dialog titles at 16px.
+- **Body** (400, 14px/1.5): default copy. Notes and meta are 12.5-13px in text-3.
+- **Control** (500, 13.5px): buttons, nav items at 14px, segmented options at 13px.
+- **Readout** (600, 14px, tabular): health strip values; chart stats at 15px.
+- **Label** (500, 12px, text-3, sentence case): readout terms, table headers, palette groups, form legends (13px text-2 for field labels).
+- **Log** (mono 400, 12.5px/1.65): console log, log search results, diff values.
+- **Prompt** (mono 400, 14px): command input; 16px on phones to prevent zoom.
 
 ### Named Rules
-**The Width Axis Rule.** Hierarchy is carried by Archivo's width axis as much as by size: wide (105-112%) for signage and identity, normal for reading, condensed (92%) for data labels.
+**The Sentence Case Rule.** Labels are 12px, weight 500, text-3, sentence case, no letter-spacing. The stylesheet carries no `text-transform`.
 
-**The Tabular Rule.** Every number that can change (readouts, counts, tables, versions, countdown) uses tabular numerals.
+**The Tabular Rule.** Every number that can change (readouts, counts, tables, charts, versions, countdown) uses tabular numerals.
+
+**The Machine Text Rule.** Anything typed to or emitted by the server is JetBrains Mono; anything written for a person is Inter.
 
 ## Layout
 
-Desktop is a two-column grid: a 224px rail and a fluid work column (full viewport height, the work area scrolls on its own). The top bar holds the area-title field flush left (min 232px), the connection chip, and the health strip pushed right as a row of readouts divided by hairlines; a 4px band in the area colour runs under it. The restart countdown, when active, sits as a full-width banner below the band. Work areas are capped at 1400px with 20px gaps between panels and 24px/28px main padding. Console fills the area: log panel plus a 300px side column (Online, Quick actions, Restart). Other areas use a two-up panel grid or full-width tables; the schedule form is a four-column field grid.
+A two-column app shell: a 232px rail (`--rail-w`) beside a scrolling column of topbar plus main. The topbar is 64px minimum with 28px side padding and holds area title, connection chip, maintenance badge and the health strip (pushed right). Main has 28px padding (48px bottom); areas are a vertical stack with 20px gaps, capped at 1400px and centred. The Console area is a grid of log (fluid) plus a 300px side column (260px under 1180px).
 
-Spacing runs on 4px steps, mostly 8/12/16/20/24 with 28px as the outer gutter. Panel heads are 52px tall with 12/16 padding; panel bodies 16px.
+Panels: 56px min head with 12px 20px padding and a hairline under it; 20px body. Paired panels sit in a two-up grid with 20px gaps and share row height. Forms are 4-column grids with 16px gaps and a form-actions footer that bleeds to the panel edge. Spacing rhythm is 4 / 8 / 12 / 16 / 20 / 24 / 28px.
 
-Responsive steps: at 1180px the health strip wraps under the title onto its own scrolling row, gutters drop to 20px, the console side column narrows to 260px and the schedule form goes two-up. At 900px panels stack to one column and the console log takes 62dvh. At 760px (phone) the rail becomes a fixed bottom tab bar of five pictogram tiles with labels; the health strip becomes a 4-column, 2-row grid with every readout visible (units hidden); the band is dropped; tables become stacked cards with each cell's label absolutely positioned in a 100px left column; form actions go full width; inputs use 16px text; main reserves bottom padding for the tab bar; toasts span the width above it.
+Breakpoints:
+- **1180px**: health strip wraps under the title in a scrollable row; gutters 20px; forms two-up.
+- **900px**: paired panels stack; console log becomes 62dvh; KPIs two-up.
+- **760px**: rail becomes a fixed bottom tab bar (first four areas plus More sheet); health becomes a 4-column grid; tables restack as label/value rows; inputs go to 16px; toasts span the width above the tab bar.
+- **hover: none**: hover tints are dropped so taps don't leave stuck states.
 
 ## Elevation & Depth
 
-Flat by default. Panels, rail and top bar separate by tone (ground, silver/navy surface, sunken) and 1px hairlines, never by shadow. No glass, no backdrop-filter, no gradients. Shadows exist only for things that float over the work.
+Flat at rest. Depth is tonal: page, surface and sunken steps plus hairlines. Light surfaces get a 1px hairline-level shadow (`--shadow-sm`) on panels, KPI rows, advice items and default buttons; in dark `--shadow-sm` is `none`. A real shadow means the element floats above the page and will go away.
 
 ### Shadow Vocabulary
-- **Overlay (light)** (`box-shadow: 0 12px 32px rgba(14, 24, 40, 0.18), 0 2px 6px rgba(14, 24, 40, 0.08)`): the confirmation dialog in light theme.
-- **Toast** (`box-shadow: 0 6px 16px rgba(14, 24, 40, 0.14)`): toasts, both themes.
-- **Dark dialog**: no shadow; navy-raised surface with a 1px line-strong border.
-- **Focus halo** (`box-shadow: 0 0 0 3px` area at 22%): focused fields and search; the prompt shows an inset 2px area-coloured top rule on focus. These are focus indicators, not elevation.
+- **Hairline** (`0 1px 2px rgba(0, 0, 0, 0.04)`, light only): resident panels and default buttons.
+- **Overlay, light** (`0 12px 32px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.05)`): dialogs, command palette, suggestions, chart tooltip, toasts, sticky save bar, the map's open button, the login card.
+- **Overlay, dark** (`0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--line)`): same roles; the 1px ring keeps edges visible on black.
+- **Raised option** (`0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.06)`): the selected segment in light; dark uses a lighter fill and no shadow.
+- **Backdrop**: `rgba(10, 10, 10, 0.35)` light, `rgba(0, 0, 0, 0.6)` dark.
 
 ### Named Rules
-**The Only Overlays Float Rule.** A shadow means "this is above the page and will go away": dialogs and toasts. Anything resident in the layout is flat.
+**The Only Overlays Float Rule.** Shadows belong to dialogs, the palette, popovers, tooltips, toasts and the sticky save bar. Anything resident in the layout is flat, with at most the light hairline.
 
 ## Shapes
 
-Square-ish and engineered: a single 2px radius on panels, buttons, fields, pills, tiles, kbd and skeletons. Fully round shapes are reserved for things that are round by nature: the connection chip and count badge (999px), the switch, the connection dot. The login panel drops to 0px corners under a 4px console-sky top rule, echoing the band. The rconsole mark is a 32-unit square tile with 3-unit corners carrying a three-face isometric block in white at 100/72/45% opacity.
+Gently rounded and consistent. Controls, nav items, inner rows, jobs and log replies use 6px; panels, cards, KPI rows, toasts, popovers, banners and selectable radio rows use 10px; dialogs, the command palette and the login card use 12px; the phone More sheet is 14px on its top corners. Segmented tracks are 9px (control radius plus their 3px padding) so the inner option nests concentrically. Pills, counts, the connection chip, switches and status dots are fully round. Small fixed tiles keep their own corners: kbd 4px, avatars 5px, plugin tiles 7px. Every border is 1px.
 
-Pictograms are filled, never stroked: geometry on a 24-unit grid, 45 and 90 degree angles, round heads and circles, evenodd cut-outs for interior detail. Sizes: 18px default, 16px in buttons and jobs, 14px in readouts, 12px in pills, 30px in the area title (24px phone).
+### Named Rules
+**The Three Radii Rule.** 6px for things you operate, 10px for things that contain, 12px for things that float above. Round shapes only for pills, dots and switches.
 
 ## Components
 
+Refined and restrained: neutral by default, colour only on state.
+
 ### Buttons
-Calm, standard, unmistakable.
-- **Shape:** 2px corners, 34px tall (30px small, 40px on login), 14px side padding, pictogram plus label with 8px gap.
-- **Default:** field fill, line-strong border, ink text; hover to sunken fill with ink-3 border; active darkens slightly.
-- **Primary:** solid area colour with on-area text; hover mixes 14% ink into the area colour. It always takes the active area's hue.
-- **Danger:** solid danger red with on-area text; used for the confirming button of destructive dialogs and destructive actions.
-- **Quiet:** transparent, ink-2 text; hover to sunken fill. Quiet-danger (row Remove/Deop/Delete) turns red only on hover.
-- **Busy/Disabled:** 55% opacity, progress or not-allowed cursor.
-- **Touch:** under `(hover: none)` hover tints are disabled so taps do not leave buttons or rows stuck in a hover state.
+- **Shape:** 6px corners, 34px tall (30px small, 40px on login), 14px side padding, 15px pictogram with a 7px gap.
+- **Default:** surface fill, line-strong border, text colour, light hairline shadow; hover sunken/hover, active sunken.
+- **Primary:** inverted neutral (text fill, page-colour text); hover mixes 14% of the page colour in.
+- **Danger:** solid danger red with white text; reserved for confirming destructive actions.
+- **Quiet:** borderless, transparent, text-2; hover tints to hover and lifts text to full contrast; `.danger` quiet buttons tint red on hover.
+- **Focus / Disabled:** 2px accent outline at 2px offset; disabled and busy at 50% opacity.
+- **Motion:** colour transitions at 120ms ease-out.
 
 ### Pills and Counts
-- **Pill:** 2px corners, 12px/600, neutral sunken fill with ink-2 text by default; `.own` variant tints 14% of the area colour with area-coloured text (Active task, stable channel).
-- **Count:** fully round sunken badge with tabular 12px/600 numerals beside panel titles; hidden when empty.
+- **Style:** 20px fully round, sunken fill, line border, 11.5px weight 500 text-2.
+- **State:** `.own` in accent tint, `.ok` green tint, `.bad` red tint (10-12% fill, 30% border). Counts are the same shape with tabular numerals and hide when empty.
 
 ### Cards / Containers
-- **Corner Style:** 2px.
-- **Background:** surface-silver / navy-surface with a 1px line border.
-- **Shadow Strategy:** none (see Elevation).
-- **Internal Padding:** 52px head (12px 16px) with a hairline under it, 16px body.
+- **Corner Style:** 10px (12px for login card).
+- **Background:** surface; form footers and table heads use a light sunken mix.
+- **Shadow Strategy:** hairline in light, none in dark (see Elevation).
+- **Border:** 1px line; head and rows divided by line hairlines.
+- **Internal Padding:** 20px; heads 12px 20px at 56px minimum.
 
 ### Inputs / Fields
-- **Style:** 34px, field fill, 1px line-strong border, 2px corners, 14px text (16px on phones); hover to ink-3 border.
-- **Focus:** border turns area colour plus a 3px area halo at 22%.
-- **Error:** border turns danger red (`aria-invalid`); form errors in red 13px text.
-- **Switch:** 34x20 round track in line-strong, white knob, area colour when on.
-- **Segmented control:** bordered 2px group, selected segment solid area colour.
-- **Day picker:** bordered 2px chips, checked chips solid area colour.
+- **Style:** 34px, 6px corners, line-strong border, field background, 11px side padding, 14px Inter (13px mono variant).
+- **Focus:** border turns accent with a 3px accent ring at 22%.
+- **Error / Disabled:** `aria-invalid` turns the border danger red.
+- **Switch:** 32 x 18px round track in line-strong, white 14px knob; checked track is accent, knob slides on a spring curve.
+- **Day chips:** 32px bordered chips; checked uses the inverted primary treatment.
 
 ### Navigation
-- **Desktop rail:** wordmark, then five tabs (30px pictogram tile + 14px/550 label). Each tile is tinted 14% of its own area colour with the pictogram in that colour, so every venue is identifiable at rest. Hover tints 8%. The active tab is a solid field in its area colour with on-area text and pictogram. Signed-in user and Sign out sit in the rail foot.
-- **Phone:** fixed bottom tab bar on rail ground; tabs stack a 40x28 tile over an 11px label. Active tab: solid area-colour tile, label in area colour.
-
-### Area Title and Band (signature)
-The area's name in Display type with its 30px pictogram, white (on-area) on a solid field of the area colour, flush to the top-left of the work column, with a 4px band of the same colour running the full width beneath the top bar. Colour changes animate over 200ms ease-out when switching areas.
+- **Rail:** 34px items, 6px corners, 500 14px text-2 with a 16px text-3 pictogram. Hover tints to hover; selected sits on sunken with a 1px inset line ring and full-contrast text. Wordmark (15px, 600) with the violet mark tile on top; palette launcher (with kbd hint) and footer (version, user, sign out) below.
+- **Segmented / Sub-nav:** a sunken 3px-padded track with a hairline border; options 28px, 13px weight 500, text-2; the selected option is raised on surface with the raised-option shadow (dark: `#262626` fill, no shadow).
+- **Phone:** bottom tab bar of 54px items with 11px labels; the selected item's pictogram sits in a 40 x 26px round sunken capsule.
 
 ### Health Strip
-A definition list of readouts (TPS, Players, Game time, CPU, Memory, Disk free, Host up): uppercase condensed labels over 15px tabular values, divided by hairlines. Follows The Quiet Health Rule.
-
-### Connection Chip
-Fully round 1px-bordered chip with an 8px dot: grey while connecting, green when connected, red text, border and dot when RCON is down.
+A definition list of readouts divided by hairlines: 12px sentence-case term over a 14px 600 tabular value, unit in 12px text-3. Follows The Quiet Health Rule.
 
 ### Log and Prompt
-Mono log on its own ground (white / deep navy) in ink-2; chat lines bold ink, joins green, leaves ink-3, WARN orange, ERROR red, sent commands console-sky bold with replies in a lightly tinted 2px block. A red-tinted status strip appears above the log when it cannot be read. The prompt is docked under the log: a mono "/" in area colour, a borderless mono input, a kbd hint, and a small primary Run button.
+The log is JetBrains Mono 12.5px/1.65 in text-2 on the log background. Warnings amber, errors red, chat full-contrast 600, joins green, leaves text-3, command echoes accent 600; replies sit in 6px sunken boxes. The prompt row has a hairline top border, a violet 1px top edge when focused, a mono `/` marker in accent, and an autocomplete popover (10px, overlay shadow) with a sunken signature hint.
 
-### Jobs
-A sunken strip with pictogram and message for backup/update jobs. Running: area-tinted fill and border with a 2px area-coloured indeterminate bar sliding along the bottom (1.4s). Done: area tint with area pictogram. Failed: red tint and red text.
+### Status Bars and Jobs
+Running work (op bar, jobs) shows a 2px accent indeterminate bar along the bottom edge (1.4s). Jobs are 6px sunken rows that tint with the accent while running or done, red on failure. The pending-restart bar is a 10px accent-tinted strip; the restart countdown is an inverted neutral band across the column.
 
-### Dialog
-Confirmation dialog, 460px max: a 36px solid tile with the action's pictogram (area colour for primary tone, red for danger tone), 17px title, ink-2 body, and a sunken action bar with Cancel plus a primary or danger confirm button. Enters with 180ms fade/rise. Overlay scrim on the backdrop.
+### Dialog and Palette
+Dialogs are 460px, 12px corners, raised surface, overlay shadow, with a 36px 10px-corner icon tile tinted by tone (danger red or neutral), body indented under the title, and a sunken-mixed action footer. The command palette is 640px with a 52px search input at 16px, grouped options (12px labels) with hover-tinted 6px selection, and a sunken kbd footer. Both enter with a short fade-and-rise on `cubic-bezier(0.2, 0.8, 0.2, 1)`.
 
 ### Toasts
-Bottom-right stack (full width above the tab bar on phones): surface panel, check pictogram in area colour for success, alert pictogram and red-tinted border for errors (errors persist 8s, successes 4s).
+Bottom-right, 10px corners, raised surface, overlay shadow, 13.5px 500; ok and bad toasts colour only their pictogram (bad also its border).
+
+### Charts
+Accent line at 2px with a 10% accent area fill; comparison series is a dashed text-2 line; dotted line-coloured gridlines, 11px tabular text-3 axis labels, tooltips as 10px overlays.
 
 ### Loading and Empty States
-Skeleton bars (12px, 2px corners, sunken, 1.2s pulse) in the shape of the rows that will load. Empty lists and tables show a plain ink-3 sentence with any key term in bold ink, no illustration.
+Skeleton bars are 12px sunken strips pulsing in opacity; empty states are plain text-3 sentences with the key term in full-contrast text.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** route every area accent through `--area`, so the active venue's program colour drives fields, primary buttons, focus, switches and selected states automatically.
-- **Do** give every new area or action a filled geometric pictogram on the 24-unit grid (45/90 degree angles, round heads) and add it to the sprite.
-- **Do** keep panels flat: surface fill, 1px line border, 2px corners.
-- **Do** use tabular numerals for every changing number.
-- **Do** mark off-nominal states with the alert pictogram and, when critical or failed, danger red; leave nominal states neutral.
-- **Do** confirm destructive actions in the dialog with a red tile and a danger confirm button.
-- **Do** keep the light theme white ground / silver panels / white fields, and the dark theme Lufthansa navy with lifted program hues.
-- **Do** disable hover tints under `(hover: none)`; on phones use the bottom tab bar, the 2-row health grid and stacked tables with positioned labels.
+- **Do** build every resident surface from page, surface and sunken with 1px line borders.
+- **Do** use the inverted neutral for the one primary action in a panel, and the default bordered button for the rest.
+- **Do** reserve violet for focus, links, live data and unsaved or pending state (The One Violet Rule).
+- **Do** keep status hues to their meaning and tint status surfaces lightly (5-14% fill, 30-45% border).
+- **Do** write labels in sentence case at 12px weight 500 in text-3, and use tabular numerals for changing numbers.
+- **Do** set machine text (log, prompt, keys, versions) in JetBrains Mono.
+- **Do** use 6px for controls, 10px for containers, 12px for overlays.
+- **Do** design both themes; check dark values against the dark ramp, not by inverting light.
 
 ### Don't:
-- **Don't** use a second area's colour inside an area, or put a program colour on the health strip or countdown banner.
-- **Don't** use red for anything that is not destructive or failing.
-- **Don't** add glass, backdrop-filter, gradients, glows, or shadows on resident surfaces; only dialogs and toasts float, and the dark dialog uses a border instead.
-- **Don't** set UI text in monospace; mono is for the log, the prompt and codes.
-- **Don't** use stroked or outline icon sets or emoji; pictograms are filled geometry.
-- **Don't** round beyond 2px except for things that are round by nature (chips, counts, switches, dots).
+- **Don't** fill buttons, panels or headers with the accent or any status hue except a confirming danger button.
+- **Don't** reintroduce per-area colours, coloured title fields, bands or 2px corners from the retired identity program.
+- **Don't** use uppercase, letter-spaced labels or kickers above headings.
+- **Don't** put shadows on resident layout beyond the light hairline.
+- **Don't** use red for anything that is not a danger or failure.
+- **Don't** reference the legacy `--c-*` or `--area` aliases in new code; use `--accent`, `--ok`, `--warn`, `--c-danger`.

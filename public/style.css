@@ -27,7 +27,7 @@
   --ok: #15803d;
   --warn: #b45309;
   --c-danger: #dc2626;
-  --on-area: #ffffff;
+  --danger-solid: #dc2626; /* filled danger buttons: white text at 4.8:1 in both themes */
 
   --bg: #fafafa;
   --rail: #fafafa;
@@ -59,7 +59,6 @@
     --ok: #22c55e;
     --warn: #f5a524;
     --c-danger: #f87171;
-    --on-area: #0a0a0a;
 
     --bg: #0a0a0a;
     --rail: #0a0a0a;
@@ -236,7 +235,6 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
 .platform-chip b { color: var(--text); font-weight: 600; }
 .platform-chip small { color: var(--text-3); font-size: inherit; }
 .topbar > .health { margin-left: auto; padding: 12px 0; }
-.band { display: none; }
 
 .conn {
   display: inline-flex;
@@ -424,8 +422,8 @@ main { flex: 1; min-height: 0; overflow: auto; padding: 28px 28px 48px; scrollba
 /* Primary is the inverted neutral, as on Vercel; the accent stays rare. */
 .btn-primary { background: var(--text); border-color: var(--text); color: var(--bg); }
 .btn-primary:hover { background: color-mix(in srgb, var(--text) 86%, var(--bg)); border-color: transparent; }
-.btn-danger { background: var(--c-danger); border-color: var(--c-danger); color: #fff; }
-.btn-danger:hover { background: color-mix(in srgb, var(--c-danger) 88%, #000); border-color: transparent; }
+.btn-danger { background: var(--danger-solid); border-color: var(--danger-solid); color: #fff; }
+.btn-danger:hover { background: color-mix(in srgb, var(--danger-solid) 88%, #000); border-color: transparent; }
 .btn-quiet { border-color: transparent; background: transparent; color: var(--text-2); box-shadow: none; }
 .btn-quiet:hover { background: var(--hover); border-color: transparent; color: var(--text); }
 .btn-quiet.danger:hover { color: var(--c-danger); background: color-mix(in srgb, var(--c-danger) 9%, transparent); }
@@ -512,7 +510,7 @@ select.field { padding-right: 6px; }
   box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 @media (prefers-color-scheme: dark) {
-  .segmented button[aria-checked='true'], .subnav [role='tab'][aria-selected='true'] { background: #262626; box-shadow: none; }
+  .segmented button[aria-checked='true'], .subnav [role='tab'][aria-selected='true'] { background: var(--line); box-shadow: none; }
 }
 
 .search { position: relative; display: flex; align-items: center; flex: 1; min-width: 140px; max-width: 320px; }
@@ -1306,8 +1304,7 @@ kbd {
   .readout dd { font-size: 14px; }
   .readout dd small { display: none; }
   .countdown { padding: 10px 16px; }
-  .band { display: none; }
-
+  
   main { padding: 16px 16px calc(92px + env(safe-area-inset-bottom)); }
   .area { gap: 16px; }
   .console { height: 58dvh; }
@@ -1355,7 +1352,7 @@ kbd {
   .btn:hover { background: var(--surface); border-color: var(--line-strong); }
   .btn-quiet:hover, .btn-quiet.danger:hover { background: transparent; color: var(--text-2); }
   .btn-primary:hover { background: var(--text); border-color: var(--text); }
-  .btn-danger:hover { background: var(--c-danger); border-color: var(--c-danger); }
+  .btn-danger:hover { background: var(--danger-solid); border-color: var(--danger-solid); }
   .table tbody tr:hover td, #online li:hover { background: none; }
 }
 
