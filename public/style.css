@@ -1263,6 +1263,10 @@ kbd {
   .mobile-only { display: inline-flex !important; }
   .desktop-only { display: none; }
   .app { grid-template-columns: minmax(0, 1fr); }
+  /* A solid strip under the status bar, fixed to the top edge. iOS 26 Safari
+     tints the status-bar area from a fixed element there instead of blurring
+     the page beneath it (theme-color is ignored since Safari 26). */
+  body.app::before { content: ''; position: fixed; inset: 0 0 auto; z-index: 40; height: env(safe-area-inset-top); background: var(--bg); pointer-events: none; }
 
   .rail {
     position: fixed;
