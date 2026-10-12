@@ -1241,7 +1241,8 @@ kbd {
   .op-bar { padding: 9px 20px; }
   .world-new { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar { padding: 0 20px; }
-  .topbar > .health { margin: 0 -20px; padding: 10px 20px; border-top: 1px solid var(--line); }
+  .topbar > .health { width: calc(100% + 40px); margin: 0 -20px; padding: 10px 20px; border-top: 1px solid var(--line); }
+  .topbar > .area-title, .topbar > .conn { margin-block: 14px; }
   main { padding: 20px; }
   .countdown { padding: 10px 20px; }
   .health { width: 100%; overflow-x: auto; scrollbar-width: none; }
@@ -1282,7 +1283,7 @@ kbd {
   .nav [role='tab']:hover { background: none; }
 
   .topbar { padding: 0 8px 0 16px; gap: 0; min-height: 56px; }
-  .area-title { flex: 1; min-width: 0; padding: 12px 0; gap: 10px; }
+  .area-title { flex: 1; min-width: 0; padding: 0; gap: 10px; }
   .area-pg { width: 18px; height: 18px; }
   .area-title h1 { font-size: 17px; }
   .topbar > .conn { margin: 0 4px 0 12px; max-width: 16ch; align-self: center; }
@@ -1290,15 +1291,13 @@ kbd {
   /* every readout visible: off-nominal values never hide off-screen */
   .topbar > .health {
     order: 3;
-    width: 100%;
-    margin: 0;
+    width: calc(100% + 24px);
     margin: 0 -8px 0 -16px;
     padding: 10px 16px 12px;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px 8px;
     overflow: visible;
-    border-bottom: 1px solid var(--line);
   }
   .readout, .readout:first-child { padding: 0; border-left: 0; }
   .readout dd { font-size: 14px; }
