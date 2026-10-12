@@ -1,10 +1,16 @@
-# Publishes a GitHub release for every pushed version tag (v1.2.3), after the
-# tests pass. Release notes come from docs/releases/<tag>.md.
+# Publishes a GitHub release, after the tests pass:
+# - on a push to main, for the version in package.json, if that release
+#   doesn't exist yet (the tag v<version> is created on the pushed commit);
+# - on a pushed version tag (v1.2.3).
+# Release notes come from docs/releases/<tag>.md when it exists.
 name: Release
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
+    paths: ['package.json', 'docs/releases/**', '.github/workflows/release.yml']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,18 +20,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Find the version
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then tag="${GITHUB_REF_NAME}"; else tag="v$(node -p 'require("./package.json").version')"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-node@v4
+        if: steps.v.outputs.exists == 'false'
         with:
           node-version: 22
       - run: npm test
+        if: steps.v.outputs.exists == 'false'
       - name: Publish release
+        if: steps.v.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
           notes="docs/releases/${TAG}.md"
-          if [ -f "$notes" ]; then
-            gh release create "$TAG" --verify-tag --title "rconsole ${TAG}" --notes-file "$notes"
-          else
-            gh release create "$TAG" --verify-tag --title "rconsole ${TAG}" --generate-notes
-          fi
+          args=(--title "rconsole ${TAG}" --target "$GITHUB_SHA" --latest)
+          if [ -f "$notes" ]; then args+=(--notes-file "$notes"); else args+=(--generate-notes); fi
+          gh release create "$TAG" "${args[@]}"
