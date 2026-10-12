@@ -199,16 +199,22 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 12px 8px 0;
+  align-items: stretch;
+  gap: 10px;
+  padding: 14px 0 0;
   border-top: 1px solid var(--line);
 }
-.preview { padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-3); font-size: 11px; font-weight: 500; text-decoration: none; }
-.preview:hover { color: var(--text); border-color: var(--line-strong); }
+.rail-foot .update-note { padding: 0 2px; }
+.preview { color: var(--text-3); text-decoration: none; }
+.preview:hover { color: var(--text); text-decoration: underline; }
 .preview-note { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
-.who { font-weight: 500; font-size: 13px; color: var(--text-2); }
-.rail-foot .btn { margin-left: -10px; }
+.who { font-weight: 500; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-user { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; }
+.avatar-initial { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 16%, var(--sunken)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); color: var(--accent); font-size: 12px; font-weight: 600; }
+.rail-user-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.rail-meta { color: var(--text-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-meta .ver { font-family: var(--mono); font-size: 11px; }
+.rail-user .btn-icon { width: 30px; height: 30px; }
 
 .column { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
@@ -230,10 +236,11 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
 }
 .area-pg { width: 18px; height: 18px; flex: none; color: var(--text-3); }
 .area-title h1 { font-size: 18px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; }
-.platform-chip { display: flex; align-items: baseline; gap: 4px; color: var(--text-2); font-size: 12.5px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.platform-chip { display: flex; align-items: center; gap: 6px; width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--text-2); font-size: 12.5px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.platform-chip svg { width: 13px; height: 13px; color: var(--text-3); }
 .platform-chip[hidden] { display: none; }
 .platform-chip b { color: var(--text); font-weight: 600; }
-.platform-chip small { color: var(--text-3); font-size: inherit; }
+.platform-chip small { margin-left: auto; color: var(--text-3); font: 11px var(--mono); }
 .topbar > .health { margin-left: auto; padding: 12px 0; }
 
 .conn {
@@ -1069,8 +1076,6 @@ kbd {
 .advice-item.ok > svg { color: var(--c-players); }
 
 .advice-item.info > svg { color: var(--area); }
-.rail-version { display: flex; align-items: center; gap: 8px; }
-.rail-version .ver { color: var(--text-3); font: 11.5px var(--mono); }
 .update-note { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12.5px; font-weight: 500; text-decoration: none; }
 .update-note:hover { text-decoration: underline; }
 .update-note svg { width: 14px; height: 14px; }
@@ -1079,6 +1084,8 @@ kbd {
 .changelog li:last-child { border-bottom: 0; }
 .changelog a { font-size: 12px; }
 .self-panel .panel-head .btn + .btn { margin-left: 8px; }
+.panel.flash { animation: flash 1.4s ease-out; }
+@keyframes flash { 0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); } }
 .upd-summary { list-style: none; margin: 0; padding: 0; }
 .upd-summary li { display: grid; grid-template-columns: minmax(0, 1fr) auto 104px; align-items: center; gap: 20px; min-height: 64px; padding: 10px 20px; }
 .upd-summary li + li { border-top: 1px solid var(--line); }

@@ -78,14 +78,16 @@
   </nav>
   <button class="palette-btn" id="palette-open" aria-keyshortcuts="Control+K Meta+K"><svg><use href="#pg-search"/></svg><span>Search &amp; run</span><kbd id="palette-key">Ctrl K</kbd></button>
   <div class="rail-foot">
-    <div class="rail-version">
-      <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Early preview</a>
-      <span class="ver" id="rail-ver"></span>
-    </div>
-    <span class="platform-chip" id="platform-chip" hidden></span>
     <a class="update-note" id="rail-update" href="#server/updates" hidden><svg><use href="#pg-updates"/></svg><span id="rail-update-text">Update available</span></a>
-    <span class="who" id="me"></span>
-    <button class="btn btn-quiet btn-sm" id="logout"><svg><use href="#pg-signout"/></svg>Sign out</button>
+    <span class="platform-chip" id="platform-chip" hidden></span>
+    <div class="rail-user">
+      <span class="avatar-initial" id="me-initial" aria-hidden="true"></span>
+      <div class="rail-user-text">
+        <span class="who" id="me"></span>
+        <span class="rail-meta"><span class="ver" id="rail-ver"></span> · <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Preview</a></span>
+      </div>
+      <button class="btn btn-quiet btn-icon btn-sm" id="logout" aria-label="Sign out" title="Sign out"><svg><use href="#pg-signout"/></svg></button>
+    </div>
   </div>
 </aside>
 

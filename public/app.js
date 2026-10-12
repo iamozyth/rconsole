@@ -734,7 +734,7 @@ function renderPlatform(pf) {
   const chip = $('platform-chip');
   chip.hidden = false;
   chip.dataset.family = pf.family;
-  chip.replaceChildren(el('b', {}, pf.name), pf.mcVersion ? ` ${pf.mcVersion}` : '', pf.build ? el('small', {}, ` #${pf.build}`) : '');
+  chip.replaceChildren(icon('server'), el('b', {}, pf.name), pf.mcVersion ? el('span', {}, pf.mcVersion) : '', pf.build ? el('small', {}, `#${pf.build}`) : '');
   chip.title = [`${pf.name}${pf.mcVersion ? ` on Minecraft ${pf.mcVersion}` : ''}`, pf.build ? `build ${pf.build}` : null, pf.loaderVersion ? `loader ${pf.loaderVersion}` : null,
     pf.addons ? `loads ${pf.addons}s` : 'no plugins or mods', pf.updates ? 'updated by rconsole' : 'updated by hand'].filter(Boolean).join(' · ');
   const tab = document.querySelector('#tab-server .subnav [data-view=plugins]');
@@ -1664,6 +1664,18 @@ async function loadUpdates(refresh) {
   }
 }
 
+// "Options": bring the server-software panel into view, mark it and put the
+// focus on its first option, so the jump is visible even when it's on screen.
+function showUpdateOptions() {
+  const panel = $('upd-server');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  panel.classList.remove('flash');
+  void panel.offsetWidth;
+  panel.classList.add('flash');
+  const first = panel.querySelector('.update-options input:not([hidden]), .update-options select, .update-options button:not([hidden])');
+  first?.focus({ preventScroll: true });
+}
+
 // One overview row per component: what is installed, its state, one action.
 function summaryRow(key, { version, state, action }) {
   if (version !== undefined) $(`sum-${key}-ver`).textContent = version;
@@ -1676,7 +1688,7 @@ function renderServerSummary(o) {
   const name = o.platform?.name || 'Server software';
   $('sum-server-name').textContent = name;
   const version = o.current ? `${o.current.version}${o.current.build ? ` · build ${o.current.build}` : ''}` : 'Version not known yet';
-  const details = el('button', { class: 'btn btn-sm', onclick: () => $('upd-server').scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 'Options');
+  const details = el('button', { class: 'btn btn-sm', onclick: showUpdateOptions }, 'Options');
   if (!o.supported) return summaryRow('server', { version, state: ['', 'settings', 'Updated by hand'], action: details });
   if (o.error) return summaryRow('server', { version, state: ['bad', 'alert', "Can't reach PaperMC"], action: details });
   const newest = o.newerBuilds[0];
@@ -2629,7 +2641,10 @@ async function signOut() {
 }
 $('logout').addEventListener('click', signOut);
 $('logout-m').addEventListener('click', signOut);
-api('GET', '/api/me').then(({ user }) => ($('me').textContent = user)).catch(() => {});
+api('GET', '/api/me').then(({ user }) => {
+  $('me').textContent = user;
+  $('me-initial').textContent = (user || '?').slice(0, 1).toUpperCase();
+}).catch(() => {});
 
 connectLogs();
 refreshStatus();
