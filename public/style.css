@@ -1058,9 +1058,15 @@ kbd {
 /* Notifications, map, phone "More" ----------------------------------------- */
 
 .notify-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.notify-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 20px; }
-.notify-events .check { font-weight: 500; align-items: flex-start; }
-.notify-events .check input { margin-top: 2px; }
+.notify-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 0 24px; }
+.notify-event { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.notify-event .check { flex: 1; min-width: 0; font-weight: 500; align-items: flex-start; }
+.notify-event .check input { margin-top: 2px; }
+.notify-events .notify-event select.field.prio { width: 104px; height: 30px; padding: 0 8px; font-size: 13px; flex: none; }
+.notify-form .fld.wide > .note { margin-top: 2px; }
+.quiet-row { align-items: center; flex-wrap: wrap; gap: 16px; }
+.notify-form .quiet-row .field { width: auto; }
+.warn-note { color: var(--c-schedule); }
 .notify-form .form-actions .note { margin-right: auto; }
 .map-frame { position: relative; height: calc(100vh - 150px); min-height: 420px; border: 1px solid var(--line); border-top: 4px solid var(--area); border-radius: var(--r); overflow: hidden; background: var(--surface); }
 .map-open { position: absolute; top: 10px; right: 10px; z-index: 2; box-shadow: var(--shadow); }

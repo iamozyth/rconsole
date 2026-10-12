@@ -66,6 +66,22 @@ ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });
+// One-tap actions from notifications (opt-in, see lib/notify.js).
+notify.handlers = {
+  ban: async (ip) => {
+    if (!/^[0-9a-fA-F:.]{3,45}$/.test(String(ip))) throw httpError(400, 'Invalid address');
+    const out = await rcon.send(`ban-ip ${ip} Connection scanner`);
+    audit.record({ user: 'ntfy', action: 'command', target: `/ban-ip ${ip}` });
+    return out;
+  },
+  start: async () => {
+    const st = await power.state();
+    if (st.active === 'active') return 'Already running';
+    await power.run('start');
+    audit.record({ user: 'ntfy', action: 'server start' });
+    return 'Starting';
+  },
+};
 const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log, audit: (e) => audit.record(e) });
 const users = new Users(config.stateDir);
 const sessions = new Sessions();
@@ -84,6 +100,7 @@ const types = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.png': 'image/png',
   '.woff2': 'font/woff2',
 };
 const IMMUTABLE = { 'Cache-Control': 'public, max-age=604800' };
@@ -94,6 +111,7 @@ const PUBLIC_FILES = {
   '/login.js': load('login.js'),
   '/style.css': load('style.css'),
   '/favicon.svg': load('favicon.svg', IMMUTABLE),
+  '/notify-icon.png': load('notify-icon.png', IMMUTABLE), // ntfy shows it next to notifications
   '/fonts/archivo.woff2': load('fonts/archivo.woff2', IMMUTABLE),
 };
 const APP_FILES = { '/': load('index.html'), '/app.js': load('app.js'), '/commands.js': load('commands.js') };
@@ -357,7 +375,7 @@ route('POST', /^\/api\/notify$/, async (req) => notify.update(await readJson(req
 route('POST', /^\/api\/notify\/test$/, async (req) => {
   if (!notify.config.url) throw httpError(409, 'Set the ntfy topic URL first');
   try {
-    await notify.send('test', 'rconsole test notification', `Sent by ${req.user}. Notifications work.`, { force: true });
+    await notify.test(req.user);
   } catch (err) {
     throw httpError(502, `ntfy: ${err.message}`);
   }
@@ -719,6 +737,13 @@ const server = http.createServer(async (req, res) => {
   const { pathname } = new URL(req.url, 'http://localhost');
   const isRead = req.method === 'GET' || req.method === 'HEAD';
 
+  // One-tap notification actions come from the ntfy app, without a session or
+  // same-origin headers; the single-use token is the credential.
+  const act = req.method === 'POST' && pathname.match(/^\/api\/notify\/act\/([A-Za-z0-9_-]{32})$/);
+  if (act) return handle(req, res, () => notify.act(act[1]).then((r) => ({ ok: true, ...r })).catch((err) => {
+    audit.record({ user: 'ntfy', ip: clientIp(req), action: 'notification action', ok: false, error: err.message });
+    throw err;
+  }));
   if (!isRead && !sameOrigin(req)) return send(res, 403, { error: 'Cross-origin request blocked' });
 
   if (isRead && PUBLIC_FILES[pathname]) return send(res, 200, ...PUBLIC_FILES[pathname]);

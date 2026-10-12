@@ -15,7 +15,7 @@ function ntfyServer() {
     let body = '';
     req.on('data', (d) => (body += d));
     req.on('end', () => {
-      got.push({ title: req.headers.title, priority: req.headers.priority, auth: req.headers.authorization, body });
+      got.push({ ...JSON.parse(body || '{}'), auth: req.headers.authorization, path: req.url });
       res.end('{}');
     });
   });
@@ -39,7 +39,11 @@ test('notify: down/up, lag after N minutes, rate limits, token and update dedup'
   await settle();
   assert.deepStrictEqual(got.map((g) => g.title), ['Minecraft server is down', 'Minecraft server is back up']);
   assert.strictEqual(got[0].auth, 'Bearer tk_secret');
-  assert.strictEqual(got[0].priority, '5');
+  assert.strictEqual(got[0].priority, 5);
+  assert.strictEqual(got[0].path, '/');
+  assert.strictEqual(got[0].topic, 'alerts');
+  assert.strictEqual(got[0].sequence_id, 'server-state');
+  assert.strictEqual(got[1].sequence_id, 'server-state', 'back up replaces the down alert');
 
   // A second crash within 10 minutes is rate limited.
   n.onSample({ up: 0 }, ctx);
@@ -55,7 +59,7 @@ test('notify: down/up, lag after N minutes, rate limits, token and update dedup'
   n.onSample({ up: 1, tps: 20 }, ctx);
   await settle();
   assert.ok(got.some((g) => g.title === 'Disk almost full'));
-  assert.ok(got.some((g) => g.title === 'TPS recovered'));
+  assert.ok(got.some((g) => g.title === 'Lag is over'));
 
   n.onAudit({ ok: false, action: 'login', error: 'locked out', user: 'x', ip: '1.2.3.4' });
   n.onAudit({ ok: true, action: 'login', user: 'x' });
@@ -67,7 +71,7 @@ test('notify: down/up, lag after N minutes, rate limits, token and update dedup'
   const before = got.length;
   await n.checkUpdates(deps);
   assert.strictEqual(got.length, before, 'same build is announced once');
-  assert.match(got[before - 1].body, /Paper build 200/);
+  assert.match(got[before - 1].message, /\*\*Paper\*\* build 200/);
   assert.ok(JSON.parse(fs.readFileSync(path.join(dir, 'notify.json'), 'utf8')).seen['paper-200']);
   server.close();
 });
@@ -101,7 +105,7 @@ test('notify: joins and leaves come from the polled player list', async () => {
   n.onSample({ up: 1, tps: 20 }, ctx(['Steve', 'Kai'])); // new baseline, no flood
   await settle();
   assert.deepStrictEqual(got.map((g) => g.title).filter((t) => /joined|left/.test(t)), ['Steve joined', 'Alex left']);
-  assert.strictEqual(got.find((g) => g.title === 'Steve joined').priority, '3');
+  assert.strictEqual(got.find((g) => g.title === 'Steve joined').priority, 3);
   server.close();
 });
 
@@ -121,5 +125,43 @@ test('notify: Paper 26 "System chat:" join lines alert at once, without duplicat
   n.onSample({ up: 1, tps: 20 }, ctx([]));
   await settle();
   assert.deepStrictEqual(got.map((g) => g.title), ['NXZET joined', 'NXZET left']);
+  server.close();
+});
+
+
+test('notify: click target, icon, buttons, quiet hours and one-tap actions', async () => {
+  const { server, got, url } = await ntfyServer();
+  const n = new Notify({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-notify-')) });
+  assert.throws(() => n.update({ publicUrl: 'javascript:alert(1)' }), /rconsole URL/);
+  n.update({ url, publicUrl: 'https://rconsole.example.com/', events: { scanner: true }, oneTap: true });
+  let banned = null;
+  n.handlers = { ban: async (ip) => { banned = ip; return 'ok'; } };
+  n.onScanner({ ip: '176.65.149.198', name: 'FishNet', reason: 'Disconnected' });
+  n.onScanner({ ip: '176.65.149.198', name: 'Admin', reason: 'Disconnected' }); // same address: no new alert
+  n.onScanner({ ip: '45.83.64.12', name: null, reason: 'Internal Exception' });
+  await settle();
+  assert.deepStrictEqual(got.map((g) => g.title), ['Unknown connection from 176.65.149.198', '2 unknown addresses today']);
+  const last = got[1];
+  assert.strictEqual(last.click, 'https://rconsole.example.com/#players/security');
+  assert.strictEqual(last.icon, 'https://rconsole.example.com/notify-icon.png');
+  assert.strictEqual(last.markdown, true);
+  assert.match(last.sequence_id, /^scanners-\d{4}-\d{2}-\d{2}$/);
+  assert.deepStrictEqual(last.actions.map((a) => a.action), ['http', 'copy', 'view']);
+  const token = last.actions[0].url.split('/').pop();
+  assert.deepStrictEqual((await n.act(token)).arg, '45.83.64.12');
+  assert.strictEqual(banned, '45.83.64.12');
+  await assert.rejects(n.act(token), /expired or was already used/);
+
+  // One-tap off: no http buttons, and old tokens stop working.
+  const token2 = got[0].actions[0].url.split('/').pop();
+  n.update({ oneTap: false });
+  await assert.rejects(n.act(token2), /expired or was already used/);
+
+  // Quiet hours lower everything but urgent alerts.
+  n.update({ quiet: { enabled: true, from: '00:00', to: '23:59' }, events: { tps: true } });
+  assert.ok(n.inQuietHours(new Date(2026, 0, 1, 12, 0)));
+  assert.ok(!n.inQuietHours(new Date(2026, 0, 1, 23, 59, 30)));
+  n.update({ quiet: { from: '22:00', to: '07:00' } });
+  assert.ok(n.inQuietHours(new Date(2026, 0, 1, 23, 0)) && n.inQuietHours(new Date(2026, 0, 1, 6, 59)) && !n.inQuietHours(new Date(2026, 0, 1, 12, 0)));
   server.close();
 });

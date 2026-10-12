@@ -417,7 +417,24 @@
           <form class="panel-body notify-form" id="notify-form" autocomplete="off">
             <label class="fld"><span>Topic URL</span><input class="field" name="url" type="url" placeholder="https://ntfy.sh/your-secret-topic" maxlength="200"></label>
             <label class="fld"><span>Access token (optional)</span><input class="field" name="token" type="password" placeholder="tk_…" maxlength="200" autocomplete="new-password"></label>
+            <div class="fld wide">
+              <span>rconsole URL</span>
+              <div class="row"><input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200"><button type="button" class="btn" id="ntfy-here">Use this address</button></div>
+              <p class="note">Tapping a notification opens the matching page here, and buttons can act on it. Must be reachable from your phone.</p>
+            </div>
             <fieldset class="fld wide"><legend>Notify me when</legend><div class="notify-events" id="notify-events"></div></fieldset>
+            <fieldset class="fld wide quiet"><legend>Quiet hours</legend>
+              <div class="row quiet-row">
+                <label class="switch"><input type="checkbox" role="switch" name="quietOn"><span>Deliver silently</span></label>
+                <label class="inline-fld"><span>from</span><input class="field" name="quietFrom" type="time"></label>
+                <label class="inline-fld"><span>to</span><input class="field" name="quietTo" type="time"></label>
+              </div>
+              <p class="note">Everything but urgent alerts (server down) arrives without sound during these hours.</p>
+            </fieldset>
+            <fieldset class="fld wide"><legend>One-tap actions</legend>
+              <label class="check"><input type="checkbox" name="oneTap"><span>Add buttons that act right away: <b>Ban IP</b> on scanner alerts, <b>Start server</b> when it's down</span></label>
+              <p class="note warn-note">Each button carries a single-use link that works for 24 hours without signing in. Anyone who can read your topic could press it, so use a private topic or an access token.</p>
+            </fieldset>
             <label class="fld"><span>Lag alert below TPS</span><input class="field num" name="tpsBelow" type="number" min="1" max="20" step="0.5"></label>
             <label class="fld"><span>…for at least (minutes)</span><input class="field num" name="tpsMinutes" type="number" min="1" max="60"></label>
             <div class="form-actions"><p class="note" id="notify-note"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>

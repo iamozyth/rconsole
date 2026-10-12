@@ -2456,9 +2456,20 @@ async function loadNotify() {
     f.token.value = '';
     f.token.placeholder = n.hasToken ? 'Saved; leave empty to keep' : 'tk_… (only for protected topics)';
     f.token.disabled = n.fromEnv;
+    f.publicUrl.value = n.publicUrl || '';
+    f.publicUrl.disabled = n.publicUrlFromEnv;
+    $('ntfy-here').hidden = n.publicUrlFromEnv;
     f.tpsBelow.value = n.tpsBelow;
     f.tpsMinutes.value = n.tpsMinutes;
-    $('notify-events').replaceChildren(...n.events.map((e) => el('label', { class: 'check' }, el('input', { type: 'checkbox', name: `ev-${e.key}`, checked: e.enabled || undefined }), el('span', {}, e.label))));
+    f.quietOn.checked = n.quiet.enabled;
+    f.quietFrom.value = n.quiet.from;
+    f.quietTo.value = n.quiet.to;
+    f.oneTap.checked = n.oneTap;
+    const prio = (key, value) => el('select', { class: 'field prio', name: `prio-${key}`, 'aria-label': 'Priority' },
+      ...Object.entries(n.priorityNames).map(([v, label]) => el('option', { value: v, selected: Number(v) === value || undefined }, label)));
+    $('notify-events').replaceChildren(...n.events.map((e) => el('div', { class: 'notify-event' },
+      el('label', { class: 'check' }, el('input', { type: 'checkbox', name: `ev-${e.key}`, checked: e.enabled || undefined }), el('span', {}, e.label)),
+      prio(e.key, e.priority))));
     $('notify-note').textContent = n.fromEnv ? 'Topic and token come from NTFY_URL / NTFY_TOKEN in rconsole.env.' : n.url ? 'Notifications are on.' : 'Off until a topic URL is set. Pick a long, unguessable topic name: anyone who knows it can read the alerts.';
     $('ntfy-test').disabled = !n.url;
   } catch (e) {
@@ -2472,9 +2483,13 @@ notifyForm.addEventListener('submit', async (e) => {
   const f = notifyForm.elements;
   const body = {
     events: Object.fromEntries([...notifyForm.querySelectorAll('[name^=ev-]')].map((c) => [c.name.slice(3), c.checked])),
+    priorities: Object.fromEntries([...notifyForm.querySelectorAll('[name^=prio-]')].map((c) => [c.name.slice(5), Number(c.value)])),
+    quiet: { enabled: f.quietOn.checked, from: f.quietFrom.value || '22:00', to: f.quietTo.value || '07:00' },
+    oneTap: f.oneTap.checked,
     tpsBelow: Number(f.tpsBelow.value),
     tpsMinutes: Number(f.tpsMinutes.value),
   };
+  if (!f.publicUrl.disabled) body.publicUrl = f.publicUrl.value.trim();
   if (!f.url.disabled) body.url = f.url.value.trim();
   if (!f.token.disabled && f.token.value) body.token = f.token.value;
   await busy(notifyForm.querySelector('.btn-primary'), async () => {
@@ -2486,6 +2501,9 @@ notifyForm.addEventListener('submit', async (e) => {
       toast(err.message, 'bad');
     }
   });
+});
+$('ntfy-here').addEventListener('click', () => {
+  notifyForm.elements.publicUrl.value = location.origin;
 });
 $('ntfy-test').addEventListener('click', (e) => busy(e.currentTarget, () => api('POST', '/api/notify/test').then(() => toast('Test notification sent. Check your phone.')).catch((err) => toast(err.message, 'bad'))));
 

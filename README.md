@@ -145,7 +145,7 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user t
 | `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
 | `MC_SERVICE`    | `minecraft.service`      | systemd unit rconsole starts, stops and restarts     |
 | `NTFY_URL` / `NTFY_TOKEN` | (none) | ntfy topic and token; otherwise set them in the UI (Server → Overview) |
-| `PUBLIC_URL`    | (none)                   | rconsole's own URL, so notifications open it when tapped |
+| `PUBLIC_URL`    | (none)                   | rconsole's own URL for notification links (otherwise set in the UI) |
 | `METRICS_TOKEN` | (none)                   | Enables `/metrics` for Prometheus with this bearer token |
 | `MAP_URL`       | (none)                   | squaremap/BlueMap web server, e.g. `http://127.0.0.1:8100` |
 | `SELF_UPDATE_CHECK` | `1`                  | `0` turns off the background check for rconsole updates |
@@ -243,7 +243,14 @@ Mods are matched on Modrinth with the right loader, and their names come from `f
 
 ## Notifications
 
-Install the ntfy app, subscribe to a topic with a long, unguessable name (anyone who knows it can read it, or use a self-hosted ntfy with an access token), and paste the topic URL under **Server → Overview → Notifications**. **Send test** checks the setup. Each kind of alert can be switched off; repeats of the same alert are held back for 10 minutes and there are at most 30 per hour.
+Install the ntfy app, subscribe to a topic with a long, unguessable name (anyone who knows it can read it, or use a self-hosted ntfy with an access token), and paste the topic URL under **Server → Overview → Notifications**. Also set the **rconsole URL** (one click: *Use this address*); then:
+
+- tapping a notification opens the matching page in rconsole, and an **Open rconsole** button is added; Android shows the rconsole icon,
+- follow-ups replace the original notification instead of piling up: *server down* becomes *back up after 4 min*, *lagging* becomes *lag is over*, a player's *joined* becomes *left after 35 min*, and scanner sightings collect in one notification per day,
+- each kind of alert has its own priority (min … urgent), and **quiet hours** deliver everything but urgent alerts silently,
+- optional **one-tap actions** add buttons that act right away: *Ban &lt;ip&gt;* on scanner alerts and *Start server* when it is down. Each button holds a single-use link that works for 24 hours without signing in, so only turn this on for a private topic or one protected by an access token. Uses are recorded in the audit log as user `ntfy`.
+
+Messages are published as JSON with Markdown. **Send test** shows what an alert looks like. Repeats of the same alert are held back for 10 minutes and there are at most 30 per hour.
 
 ## Prometheus
 
