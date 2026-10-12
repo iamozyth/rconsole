@@ -10,7 +10,8 @@
 #      was customized (then it reports the manual step instead)
 #   4. restart rconsole; if it doesn't come up, roll back and restart again
 #
-# Progress and the result go to $STATE_DIR/self-update.json for the UI.
+# Progress and the result go to /var/lib/rconsole-selfupdate/self-update.json
+# (root-owned, world-readable) for the UI.
 #
 # Everything is inside main() so bash has parsed the whole script before git
 # replaces this file on disk.
@@ -19,24 +20,33 @@ main() {
   set -euo pipefail
   local dir="${RCONSOLE_DIR:-/opt/rconsole}"
   local branch="${RCONSOLE_BRANCH:-main}"
-  local state_dir="${STATE_DIR:-/var/lib/rconsole}"
-  local status="$state_dir/self-update.json"
+  # Status goes to a root-owned directory of its own, never into rconsole's
+  # state dir: rconsole could plant a symlink there and have root write to
+  # (and hand over) any file. STATE_DIR is deliberately ignored.
+  local status_dir="${STATUS_DIR:-/var/lib/rconsole-selfupdate}"
+  local status="$status_dir/self-update.json"
   local service="${RCONSOLE_SERVICE:-rconsole.service}"
   local unit_dir="${SYSTEMD_DIR:-/etc/systemd/system}" polkit_dir="${POLKIT_DIR:-/etc/polkit-1/rules.d}"
   local git=(git -C "$dir" -c safe.directory="$dir")
   local before after manual=() installed=()
 
   report() { # state message
-    local manual_json="" installed_json="" m
+    local manual_json="" installed_json="" m tmp
     for m in "${manual[@]+"${manual[@]}"}"; do manual_json+="${manual_json:+,}\"$m\""; done
     for m in "${installed[@]+"${installed[@]}"}"; do installed_json+="${installed_json:+,}\"$m\""; done
+    tmp="$(mktemp "$status_dir/.status.XXXXXX")" # O_EXCL, random name
     printf '{"state":"%s","message":"%s","from":"%s","to":"%s","at":"%s","manual":[%s],"installed":[%s]}\n' \
-      "$1" "${2//\"/\'}" "${before:-}" "${after:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$manual_json" "$installed_json" > "$status.tmp"
-    chown --reference="$state_dir" "$status.tmp" 2>/dev/null || true
-    chmod 0600 "$status.tmp"
-    mv "$status.tmp" "$status"
+      "$1" "${2//\"/\'}" "${before:-}" "${after:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$manual_json" "$installed_json" > "$tmp"
+    chmod 0644 "$tmp" # no secrets; rconsole only reads it
+    mv -fT "$tmp" "$status"
     echo "self-update: $1: $2"
   }
+
+  mkdir -p -m 0755 "$status_dir"
+  if [ -L "$status_dir" ] || [ "$(stat -c %u "$status_dir")" != "$(id -u)" ]; then
+    echo "self-update: $status_dir must be a directory owned by $(id -un)" >&2
+    exit 1
+  fi
 
   before="$("${git[@]}" rev-parse HEAD)"
   report running "Fetching $branch"

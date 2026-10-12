@@ -34,9 +34,9 @@ const fail = (msg) => {
   throw new Error(msg);
 };
 
-function run(cmd, args, { okCodes = [0], capture = false } = {}) {
+function run(cmd, args, { okCodes = [0], capture = false, outFd = null } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', capture ? 'pipe' : 'ignore', 'pipe'] });
+    const child = spawn(cmd, args, { stdio: ['ignore', outFd ?? (capture ? 'pipe' : 'ignore'), 'pipe'] });
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (d) => (stdout += d));
@@ -54,6 +54,31 @@ const exists = (p) => {
     return false;
   }
 };
+
+// BACKUP_DIR is group-writable for rconsole, which is less trusted than this
+// helper: it can plant symlinks or swap files there at any time. Everything
+// the helper writes there is created exclusively (O_EXCL|O_NOFOLLOW) under a
+// random name and renamed into place; everything it reads from there is
+// opened once, no-follow, and copied somewhere only the helper can write.
+const EXCL = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
+const randomName = (base) => `${base}.${require('crypto').randomBytes(6).toString('hex')}.tmp`;
+
+function realDir(dir) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o750 });
+  if (!fs.lstatSync(dir).isDirectory()) fail(`${dir} is not a directory`);
+  return dir;
+}
+
+function writeExclusive(file, data, mode = 0o640) {
+  const tmp = randomName(file);
+  const fd = fs.openSync(tmp, EXCL, mode);
+  try {
+    fs.writeFileSync(fd, data);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file); // rename replaces a planted link, never follows it
+}
 
 const worldDirs = (world) => names.DIMENSIONS.map((d) => world + d).filter((d) => exists(path.join(MC, d)));
 
@@ -76,13 +101,17 @@ async function backup({ world, stamp }) {
 
   const name = `${world}-${stamp}.tar.gz`;
   const final = path.join(BK, name);
-  const partial = `${final}.partial`;
+  const partial = randomName(`${final}.partial`);
+  const fd = fs.openSync(partial, EXCL, 0o640);
   try {
-    // tar exit 1 = "file changed as we read it", fine for region files.
-    await run('tar', ['-czf', partial, '-C', MC, '--', ...dirs], { okCodes: [0, 1] });
-    fs.chmodSync(partial, 0o640);
+    // tar writes to our descriptor, so nothing in BACKUP_DIR is opened by
+    // path. Exit 1 = "file changed as we read it", fine for region files.
+    await run('tar', ['-czf', '-', '-C', MC, '--', ...dirs], { okCodes: [0, 1], outFd: fd });
+    fs.fchmodSync(fd, 0o640);
+    fs.closeSync(fd);
     fs.renameSync(partial, final);
   } catch (err) {
+    try { fs.closeSync(fd); } catch {}
     fs.rmSync(partial, { force: true });
     throw err;
   }
@@ -118,8 +147,36 @@ async function inspectArchive(file) {
 async function restore({ file, target, replace }) {
   if (!names.parseBackupName(file)) fail('Invalid backup name');
   checkWorld(target);
-  const archive = path.join(BK, file);
-  if (!exists(archive) || !fs.statSync(archive).isFile()) fail('Backup not found');
+  // Private copy: rconsole could otherwise swap the archive between the
+  // inspection below and the extraction.
+  const archive = path.join(MC, randomName('.rconsole-restore'));
+  let src;
+  try {
+    src = fs.openSync(path.join(BK, file), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  } catch {
+    fail('Backup not found');
+  }
+  try {
+    if (!fs.fstatSync(src).isFile()) fail('Backup not found');
+    const dst = fs.openSync(archive, EXCL, 0o600);
+    try {
+      const buf = Buffer.alloc(1 << 20);
+      let n;
+      while ((n = fs.readSync(src, buf, 0, buf.length, null)) > 0) fs.writeSync(dst, buf, 0, n);
+    } finally {
+      fs.closeSync(dst);
+    }
+  } finally {
+    fs.closeSync(src);
+  }
+  try {
+    return await restoreFrom(archive, file, target, replace);
+  } finally {
+    fs.rmSync(archive, { force: true });
+  }
+}
+
+async function restoreFrom(archive, file, target, replace) {
   const base = await inspectArchive(archive);
 
   const existing = worldDirs(target);
@@ -236,10 +293,9 @@ function writeIndex(index) {
 
 // Moves a plugin jar out of the way into BACKUP_DIR/.plugin-trash.
 function trashPlugin(file) {
-  const dir = path.join(BK, '.plugin-trash');
-  fs.mkdirSync(dir, { recursive: true });
+  const dir = realDir(path.join(BK, '.plugin-trash'));
   const dest = path.join(dir, `${names.timestamp()}-${file}`);
-  fs.copyFileSync(path.join(pluginsDir, file), dest);
+  fs.copyFileSync(path.join(pluginsDir, file), dest, fs.constants.COPYFILE_EXCL);
   fs.rmSync(path.join(pluginsDir, file));
   return path.basename(dest);
 }
@@ -321,10 +377,7 @@ function writeResult(file, result) {
   // 0750 under UMask=0027: rconsole (group, inherited from the setgid backup
   // dir) reads results, only the helper writes. No chmod: the units set
   // RestrictSUIDSGID, which refuses touching the setgid bit.
-  fs.mkdirSync(jobsDir, { recursive: true, mode: 0o750 });
-  const out = path.join(jobsDir, file);
-  fs.writeFileSync(`${out}.tmp`, JSON.stringify({ ...result, finished: new Date().toISOString() }), { mode: 0o640 });
-  fs.renameSync(`${out}.tmp`, out);
+  writeExclusive(path.join(realDir(jobsDir), file), JSON.stringify({ ...result, finished: new Date().toISOString() }));
 }
 
 async function main() {

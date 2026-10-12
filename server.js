@@ -143,8 +143,7 @@ function sessionCookie(req, value, maxAge) {
 
 // Returns the signed-in user name, or null. Sessions die when the user is
 // removed or their password changes (the CLI edits users.json directly).
-function currentUser(req) {
-  const token = cookies(req)[COOKIE];
+function sessionUser(token) {
   const s = sessions.get(token);
   if (!s) return null;
   const user = users.get(s.user);
@@ -154,6 +153,8 @@ function currentUser(req) {
   }
   return s.user;
 }
+
+const currentUser = (req) => sessionUser(cookies(req)[COOKIE]);
 
 // Same-origin check for state-changing requests, on top of SameSite=Strict cookies.
 function sameOrigin(req) {
@@ -223,6 +224,9 @@ function streamLogs(req, res) {
 // Auth routes
 // ---------------------------------------------------------------------------
 
+const loginsInFlight = new Map(); // ip -> password checks running
+let loginsTotal = 0;
+
 async function login(req, res) {
   const { username, password, code } = await readJson(req);
   const name = String(username || '').trim().toLowerCase().slice(0, 64);
@@ -238,8 +242,22 @@ async function login(req, res) {
     throw httpError(429, `Too many failed attempts. Try again in ${Math.ceil(wait / 60)} min.`, { 'Retry-After': wait });
   }
 
-  const user = users.get(name);
-  const ok = (await verifyPassword(String(password || '').slice(0, 1024), user?.hash ?? (await getDummyHash()))) && user;
+  // The throttle counts failures only after scrypt has run, so cap how many
+  // run at once: a burst from one address can't queue up hashing work (and
+  // starve the libuv pool that file I/O shares) before the lockout applies.
+  if ((loginsInFlight.get(ip) || 0) >= 2 || loginsTotal >= 8) throw httpError(429, 'Too many sign-in attempts at once. Try again in a moment.', { 'Retry-After': 2 });
+  loginsInFlight.set(ip, (loginsInFlight.get(ip) || 0) + 1);
+  loginsTotal++;
+  let ok;
+  let user;
+  try {
+    user = users.get(name);
+    ok = (await verifyPassword(String(password || '').slice(0, 1024), user?.hash ?? (await getDummyHash()))) && user;
+  } finally {
+    loginsTotal--;
+    if (loginsInFlight.get(ip) > 1) loginsInFlight.set(ip, loginsInFlight.get(ip) - 1);
+    else loginsInFlight.delete(ip);
+  }
   if (!ok) {
     throttle.fail(...keys);
     log(`auth: failed login for "${name}" from ${ip}`);
@@ -623,14 +641,12 @@ function mapToken(req) {
 }
 
 // Valid while the session that asked for it is.
+// Same checks as the cookie: ends with the session, and with a password or
+// 2FA change of its user.
 function mapSessionUser(token) {
-  const session = mapTokens.get(token);
-  const s = session && sessions.get(session);
-  if (!s || !users.get(s.user)) {
-    mapTokens.delete(token);
-    return null;
-  }
-  return s.user;
+  const user = mapTokens.has(token) ? sessionUser(mapTokens.get(token)) : null;
+  if (!user) mapTokens.delete(token);
+  return user;
 }
 
 function proxyMap(req, res, pathname) {

@@ -8,7 +8,10 @@ Type=oneshot
 # Root: writes /opt/rconsole, installs changed unit files and restarts
 # rconsole. The script takes no input from rconsole; see bin/self-update.sh.
 ExecStart=/bin/bash /opt/rconsole/bin/self-update.sh
-Environment=RCONSOLE_DIR=/opt/rconsole RCONSOLE_BRANCH=main STATE_DIR=/var/lib/rconsole
+Environment=RCONSOLE_DIR=/opt/rconsole RCONSOLE_BRANCH=main
+# Status for the UI; root-owned so rconsole can read but not redirect it.
+StateDirectory=rconsole-selfupdate
+StateDirectoryMode=0755
 TimeoutStartSec=5min
 NoNewPrivileges=true
 PrivateTmp=true
