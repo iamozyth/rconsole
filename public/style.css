@@ -1312,7 +1312,8 @@ kbd {
   #follow-label { display: none; }
   .prompt .hint-key { display: none; }
   .prompt input { font-size: 16px; }
-  .field, .search input { font-size: 16px; }
+  /* iOS zooms into any text control under 16px; keep every one at 16px on phones. */
+  input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea { font-size: 16px !important; }
 
   .table thead { display: none; }
   .table, .table tbody, .table tr, .table td { display: block; width: auto; }
