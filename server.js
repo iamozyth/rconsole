@@ -20,6 +20,7 @@ const { Maintenance } = require('./lib/maintenance');
 const { readProperties } = require('./lib/access');
 const { Pending } = require('./lib/pending');
 const { Plugins } = require('./lib/plugins');
+const platformLib = require('./lib/platform');
 const settingsSchema = require('./lib/settings');
 const { Audit, summarize } = require('./lib/audit');
 const { Metrics } = require('./lib/metrics');
@@ -51,9 +52,10 @@ const ops = new Ops({ log });
 const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs, backups, power, countdown, ops, rcon, log });
 const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
 const pending = new Pending({ stateDir: config.stateDir, power });
-const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log });
+const platform = platformLib.detector(config.mcDir);
+const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform });
 const gameVersion = async () => (await updates.installed())?.version || null;
-const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion });
+const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform });
 const commandCatalog = new CommandCatalog({ rcon, log });
 const notify = new Notify({ stateDir: config.stateDir, log, publicUrl: config.publicUrl });
 const selfUpdate = new SelfUpdate({ dir: __dirname, stateDir: config.stateDir, runner: config.jobRunner, log });
@@ -393,6 +395,7 @@ route('GET', /^\/api\/status$/, async () => ({
   op: ops.state,
   pending: await pending.list(),
   self: selfUpdate.summary(),
+  platform: (({ id, name, family, mcVersion, build, loaderVersion, addons, updates: auto }) => ({ id, name, family, mcVersion, build, loaderVersion, addons: addons?.kind || null, updates: Boolean(auto) }))(platform()),
 }));
 
 // --- server power & maintenance ---------------------------------------------
@@ -613,7 +616,7 @@ async function serveMetrics(req, res) {
     return send(res, 401, { error: 'Bearer token required' }, undefined, { 'WWW-Authenticate': 'Bearer' });
   }
   try {
-    send(res, 200, await prom.render({ metrics, stats, power, backups, maintenance, selfUpdate, updates }), 'text/plain; version=0.0.4; charset=utf-8');
+    send(res, 200, await prom.render({ metrics, stats, power, backups, maintenance, selfUpdate, updates, platform }), 'text/plain; version=0.0.4; charset=utf-8');
   } catch (err) {
     send(res, 500, { error: err.message });
   }

@@ -24,6 +24,7 @@ const paper = require('../lib/paper');
 const names = require('../lib/names');
 const modrinth = require('../lib/modrinth');
 const { FILE_RE: PLUGIN_FILE_RE } = require('../lib/plugins');
+const platform = require('../lib/platform');
 
 const MC = config.mcDir;
 const BK = config.backupDir;
@@ -253,7 +254,10 @@ async function paperUpdate({ version, build, rollback }) {
     return { rolledBack: true };
   }
   if (!/^\d+(\.\d+)+$/.test(String(version)) || !Number.isInteger(build) || build < 1) fail('Invalid update target');
-  const download = await paper.download(version, build);
+  // Which project (paper/folia) is decided here from MC_DIR, not by rconsole.
+  const pf = platform.detect(MC);
+  if (!pf.updates) fail(`Automatic updates aren't available for ${pf.name}`);
+  const download = await paper.download(version, build, pf.updates);
   const body = await fetchVerified(download.url, 'sha256', download.sha256, paper.USER_AGENT);
   const tmp = path.join(MC, `.${config.mcJar}.download`);
   try {
@@ -269,9 +273,21 @@ async function paperUpdate({ version, build, rollback }) {
 
 // --- plugins ------------------------------------------------------------------
 
-const pluginsDir = path.join(MC, 'plugins');
-const previousDir = path.join(pluginsDir, '.rconsole-previous');
-const previousIndexFile = path.join(previousDir, 'index.json');
+// plugins/ or mods/ depending on the server software, decided here from
+// MC_DIR rather than taken from rconsole.
+let pluginsDir;
+let previousDir;
+let previousIndexFile;
+let addonLoaders;
+function useAddonDir() {
+  const pf = platform.detect(MC);
+  if (!pf.addons) fail(`${pf.name} loads no plugins or mods`);
+  pluginsDir = path.join(MC, pf.addons.dir);
+  previousDir = path.join(pluginsDir, '.rconsole-previous');
+  previousIndexFile = path.join(previousDir, 'index.json');
+  addonLoaders = pf.loaders;
+  return pf;
+}
 
 function pluginFile(file) {
   if (!PLUGIN_FILE_RE.test(String(file)) || path.basename(file) !== file) fail('Invalid plugin file name');
@@ -303,7 +319,9 @@ function trashPlugin(file) {
 // Installs a Modrinth version (re-resolved here, never taken from rconsole),
 // optionally replacing an installed jar that is kept for rollback.
 async function pluginInstall({ versionId, replace }) {
+  useAddonDir();
   const version = await modrinth.version(String(versionId));
+  if (!(version.loaders || []).some((l) => addonLoaders.includes(l))) fail(`This release is for ${(version.loaders || []).join(', ') || 'another loader'}, not this server`);
   const file = modrinth.primaryFile(version);
   if (replace) {
     pluginFile(replace);
@@ -332,6 +350,7 @@ async function pluginInstall({ versionId, replace }) {
 }
 
 async function pluginToggle({ file, enabled }) {
+  useAddonDir();
   pluginFile(file);
   const isDisabled = file.endsWith('.disabled');
   if (Boolean(enabled) === !isDisabled) fail(enabled ? 'Already enabled' : 'Already disabled');
@@ -342,12 +361,14 @@ async function pluginToggle({ file, enabled }) {
 }
 
 async function pluginRemove({ file }) {
+  useAddonDir();
   pluginFile(file);
   if (!exists(path.join(pluginsDir, file))) fail(`${file} not found`);
   return { removed: file, trashed: trashPlugin(file) };
 }
 
 async function pluginRollback({ file }) {
+  useAddonDir();
   pluginFile(file);
   const index = readIndex();
   const previous = index[file];

@@ -686,6 +686,7 @@ function renderStatus(s) {
   $('status').textContent = rcon.ok ? 'Online' : stopped ? `Server ${POWER_LABEL[power.active]?.toLowerCase() || power.active}` : 'RCON offline';
   conn.title = rcon.ok ? 'Server running, RCON connected' : rcon.error || '';
   $('maint-badge').hidden = !s.maintenance?.enabled;
+  renderPlatform(s.platform);
   renderPower(s);
   renderOp(s.op);
 
@@ -718,6 +719,29 @@ function renderStatus(s) {
   renderBackupState(s.backup);
   renderUpdateState(s.update);
   renderSelfSummary(s.self);
+}
+
+// Server software: chip in the top bar; Plugins/Mods tab follows what it loads.
+let platformKey = '';
+function renderPlatform(pf) {
+  if (!pf) return;
+  const key = `${pf.id}|${pf.mcVersion}|${pf.build}|${pf.addons}`;
+  if (key === platformKey) return;
+  platformKey = key;
+  const chip = $('platform-chip');
+  chip.hidden = false;
+  chip.dataset.family = pf.family;
+  chip.replaceChildren(el('b', {}, pf.name), pf.mcVersion ? ` ${pf.mcVersion}` : '', pf.build ? el('small', {}, ` #${pf.build}`) : '');
+  chip.title = [`${pf.name}${pf.mcVersion ? ` on Minecraft ${pf.mcVersion}` : ''}`, pf.build ? `build ${pf.build}` : null, pf.loaderVersion ? `loader ${pf.loaderVersion}` : null,
+    pf.addons ? `loads ${pf.addons}s` : 'no plugins or mods', pf.updates ? 'updated by rconsole' : 'updated by hand'].filter(Boolean).join(' · ');
+  const tab = document.querySelector('#tab-server .subnav [data-view=plugins]');
+  tab.hidden = !pf.addons;
+  tab.textContent = pf.addons === 'mod' ? 'Mods' : 'Plugins';
+  const kind = pf.addons === 'mod' ? 'mod' : 'plugin';
+  $('plugins-title').textContent = `Installed ${kind}s`;
+  $('plugin-search').elements.q.placeholder = kind === 'mod' ? 'Search mods, e.g. lithium' : 'Search plugins, e.g. squaremap';
+  $('modrinth-note').textContent = `Only ${kind}s for your Minecraft version that run on ${pf.name} are offered. Downloads are checked against Modrinth's SHA-512.`;
+  if (!pf.addons && currentView('server') === 'plugins') showView('server', 'overview');
 }
 
 function insertName(name) {
@@ -1593,7 +1617,18 @@ async function loadUpdates(refresh) {
   try {
     const o = await api('GET', `/api/updates${refresh ? '?refresh' : ''}`);
     updatesLoaded = true;
-    $('upd-current').textContent = o.current ? `Paper ${o.current.version} · build ${o.current.build}` : 'Unknown version';
+    const name = o.platform?.name || 'Server';
+    for (const id of ['upd-builds', 'upd-versions']) $(id).closest('.panel').hidden = !o.supported;
+    document.querySelector('.update-options').hidden = !o.supported && !o.canRollback;
+    $('upd-backup').closest('label').hidden = !o.supported;
+    $('upd-current').textContent = o.current ? `${name} ${o.current.version}${o.current.build ? ` · build ${o.current.build}` : o.platform?.loaderVersion ? ` · loader ${o.platform.loaderVersion}` : ''}` : name;
+    if (!o.supported) {
+      $('upd-channel').hidden = true;
+      $('upd-source').textContent = `rconsole updates Paper and Folia automatically. Update ${name} by hand (new server jar or loader), then restart here.`;
+      $('upd-rollback').hidden = !o.canRollback;
+      renderUpdateState(o.state);
+      return;
+    }
     $('upd-source').textContent = o.error ? `Can't reach PaperMC: ${o.error}` : o.current ? '' : 'Start the server once so its version shows in the log.';
     const latest = o.current && !o.newerBuilds.length;
     $('upd-channel').hidden = !o.current;
@@ -1610,9 +1645,9 @@ async function loadUpdates(refresh) {
           el('td', { 'data-label': 'Released' }, b.time ? [fmt.date(b.time), el('span', { class: 'sub' }, fmt.relative(b.time))] : '–'),
           el('td', { class: 'act' }, el('button', {
             class: `btn btn-sm ${i === 0 ? 'btn-primary' : ''}`, 'data-update': true, disabled: updateBusy || undefined,
-            onclick: () => startUpdate({ version: o.current.version, build: b.id }, { title: `Update to build ${b.id}?`, body: `Paper ${o.current.version} #${o.current.build} → #${b.id} (${(b.channel || '').toLowerCase()}). The previous jar is kept for rollback.`, confirm: 'Update', icon: 'updates' }),
+            onclick: () => startUpdate({ version: o.current.version, build: b.id }, { title: `Update to build ${b.id}?`, body: `${name} ${o.current.version} #${o.current.build} → #${b.id} (${(b.channel || '').toLowerCase()}). The previous jar is kept for rollback.`, confirm: 'Update', icon: 'updates' }),
           }, icon('updates'), 'Update'))))
-      : [emptyRow(4, o.current ? [el('b', {}, 'You are on the latest build. '), `Paper ${o.current.version} #${o.current.build}.`] : 'No version information yet.')]));
+      : [emptyRow(4, o.current ? [el('b', {}, 'You are on the latest build. '), `${name} ${o.current.version} #${o.current.build}.`] : 'No version information yet.')]));
 
     $('upd-versions').replaceChildren(...(o.newerVersions.length
       ? o.newerVersions.map((v) => el('tr', {},

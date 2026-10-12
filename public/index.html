@@ -80,6 +80,7 @@
       <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Early preview</a>
       <span class="ver" id="rail-ver"></span>
     </div>
+    <span class="platform-chip" id="platform-chip" hidden></span>
     <a class="update-note" id="rail-update" href="#server/updates" hidden><svg><use href="#pg-updates"/></svg><span id="rail-update-text">Update available</span></a>
     <span class="who" id="me"></span>
     <button class="btn btn-quiet btn-sm" id="logout"><svg><use href="#pg-signout"/></svg>Sign out</button>
@@ -431,7 +432,7 @@
       <div class="view" data-view="plugins" hidden>
         <section class="panel">
           <header class="panel-head">
-            <div class="head-text"><h2>Installed plugins</h2><p class="note" id="plugins-info"></p></div>
+            <div class="head-text"><h2 id="plugins-title">Installed plugins</h2><p class="note" id="plugins-info"></p></div>
             <button class="btn" id="plugins-refresh"><svg><use href="#pg-refresh"/></svg>Check for updates</button>
           </header>
           <table class="table">
@@ -441,7 +442,7 @@
         </section>
 
         <section class="panel">
-          <header class="panel-head"><div class="head-text"><h2>Add from Modrinth</h2><p class="note">Only versions for your Minecraft version and a Paper-compatible loader are offered. Downloads are checked against Modrinth's SHA-512.</p></div></header>
+          <header class="panel-head"><div class="head-text"><h2>Add from Modrinth</h2><p class="note" id="modrinth-note">Only versions for your Minecraft version and a Paper-compatible loader are offered. Downloads are checked against Modrinth's SHA-512.</p></div></header>
           <form class="panel-body row" id="plugin-search" role="search">
             <input class="field" name="q" type="search" placeholder="Search plugins, e.g. squaremap" aria-label="Search Modrinth" maxlength="100" autocomplete="off">
             <button class="btn btn-primary"><svg><use href="#pg-search"/></svg>Search</button>

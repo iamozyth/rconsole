@@ -229,6 +229,10 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
 .area-pg { width: 24px; height: 24px; flex: none; }
 .area-title h1 { font-size: 20px; font-weight: 700; line-height: 1; letter-spacing: -0.01em; }
 .topbar > .conn { align-self: center; }
+.platform-chip { display: flex; align-items: baseline; gap: 4px; color: var(--text-2); font-size: 12.5px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.platform-chip[hidden] { display: none; }
+.platform-chip b { color: var(--text); font-weight: 650; }
+.platform-chip small { color: var(--text-3); font-size: inherit; }
 .topbar > .health { align-self: center; margin-left: auto; padding: 12px 0; }
 .band { height: 4px; background: var(--area); transition: background-color 200ms ease-out; }
 
@@ -1357,4 +1361,8 @@ kbd {
   .notify-form { grid-template-columns: minmax(0, 1fr); }
   .notify-form .fld.wide { grid-column: auto; }
   .map-frame { height: calc(100vh - 230px); }
+}
+
+@media (max-width: 760px) {
+  .platform-chip { display: none; }
 }

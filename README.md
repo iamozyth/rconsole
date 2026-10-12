@@ -19,7 +19,7 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 - **Schedule**: daily or weekly restarts with in-game countdown warnings, backups and arbitrary commands
 - **Settings**: edit `server.properties` through a typed form with a review step; difficulty, game mode and whitelist apply live, everything else is flagged "restart to apply"
 - **Plugins**: identify installed jars on Modrinth by hash, update (with rollback), enable/disable, remove, and search and install new plugins for your Minecraft version, SHA-512 verified
-- **Updates**: Paper build and Minecraft version updates from PaperMC, SHA-256 verified, with automatic backup, countdown restart and one-click rollback
+- **Updates**: Paper/Folia build and Minecraft version updates from PaperMC, SHA-256 verified, with automatic backup, countdown restart and one-click rollback
 - **Security**: user accounts with scrypt-hashed passwords, optional TOTP 2FA, session cookies, brute-force lockout, audit log, strict CSP, sandboxed systemd service
 
 ## Security model
@@ -221,6 +221,21 @@ If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole
 - **Metrics** are sampled every 30 seconds while rconsole runs: TPS/MSPT, players online, host CPU and memory, and the Minecraft process's CPU and RSS (from `/proc/<MainPID>`, so it needs `MC_SERVICE` to be readable via `systemctl show`). 24 hours are kept at full resolution and 7 days as 5-minute averages, in `/var/lib/rconsole/metrics.json`.
 - **Player history** is rebuilt from `logs/latest.log` and `logs/*.log.gz`. What has been read from rotated logs is cached in `/var/lib/rconsole/players.json`, so history survives old logs being deleted. Log lines only carry a time of day; dates come from the rotated file names and the last write of `latest.log`.
 - **Log search** reads newest first and stops at 500 matches or after 8 seconds; use the date range to reach further back.
+
+## Server software
+
+rconsole detects what runs in `MC_DIR` from the startup lines of `logs/latest.log` (falling back to files only that software creates) and shows it in the sidebar. Everything that talks RCON or reads `server.properties` works the same everywhere; the rest adapts:
+
+| Software | Add-ons (Server → …) | Automatic updates |
+|---|---|---|
+| Paper (and forks reporting like Paper, e.g. Pufferfish) | Plugins, `plugins/` | Paper builds |
+| Folia | Plugins (Folia-compatible only) | Folia builds |
+| Purpur, Spigot, CraftBukkit | Plugins | by hand |
+| Fabric, Quilt | Mods, `mods/` | by hand |
+| Forge, NeoForge | Mods, `mods/` | by hand |
+| Vanilla | none (data packs live in the world) | by hand |
+
+Mods are matched on Modrinth with the right loader, and their names come from `fabric.mod.json`, `quilt.mod.json` or `mods.toml`. The helper decides the add-on folder and checks a release's loaders itself, so a Fabric mod can't end up in `plugins/`. Set `MC_JAR` to the jar your unit starts if it isn't `paper.jar`.
 
 ## Notifications
 
