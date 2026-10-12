@@ -78,18 +78,28 @@ main() {
     fi
   done
 
-  # Unit files and the polkit rule: install the new copy only when the
-  # installed one is exactly what the old version shipped.
-  local changed=0 src dest
+  # Unit files and the polkit rule: bring the installed copy up to date when
+  # it is exactly some version this repository shipped (so it wasn't
+  # customized), even if that change came in an earlier update that ran by
+  # hand. Customized copies are left alone and reported when they change.
+  local changed=0 src dest shipped
   for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service 50-rconsole.rules; do
     [ -f "$dir/$src" ] || continue
     if [ "$src" = 50-rconsole.rules ]; then dest="$polkit_dir/$src"; else dest="$unit_dir/$src"; fi
-    "${git[@]}" diff --quiet "$before" "$after" -- "$src" && continue
-    if [ ! -f "$dest" ] || cmp -s "$dest" <("${git[@]}" show "$before:$src" 2>/dev/null); then
+    [ -f "$dest" ] && cmp -s "$dest" "$dir/$src" && continue
+    shipped=0
+    if [ -f "$dest" ]; then
+      local want blob
+      want="$("${git[@]}" hash-object "$dest")"
+      while read -r blob; do
+        [ "$blob" = "$want" ] && { shipped=1; break; }
+      done < <("${git[@]}" log --format='%H' -- "$src" | while read -r c; do "${git[@]}" rev-parse -q --verify "$c:$src" 2>/dev/null; done)
+    fi
+    if [ ! -f "$dest" ] || [ "$shipped" = 1 ]; then
       install -m 0644 "$dir/$src" "$dest"
       installed+=("$src")
       [ "$src" != 50-rconsole.rules ] && changed=1
-    else
+    elif ! "${git[@]}" diff --quiet "$before" "$after" -- "$src"; then
       manual+=("$src changed but your installed copy is customized: merge $dir/$src into $dest")
     fi
   done
