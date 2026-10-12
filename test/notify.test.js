@@ -101,10 +101,13 @@ test('notify: joins and leaves come from the polled player list', async () => {
   n.onSample({ up: 1, tps: 20 }, ctx(['Alex'])); // baseline: nobody is announced
   n.onSample({ up: 1, tps: 20 }, ctx(['Alex', 'Steve']));
   n.onSample({ up: 1, tps: 20 }, ctx(['Steve']));
-  n.onSample({ up: 0 }, ctx(undefined)); // RCON down
-  n.onSample({ up: 1, tps: 20 }, ctx(['Steve', 'Kai'])); // new baseline, no flood
+  n.onSample({ up: 0 }, ctx(undefined)); // RCON hiccup: the baseline stays
+  n.onSample({ up: 1, tps: 20 }, ctx(['Steve', 'Kai']));
+  n.rebaselineMs = -1; // a long outage
+  n.onSample({ up: 0 }, ctx(undefined));
+  n.onSample({ up: 1, tps: 20 }, ctx(['Mia', 'Ben'])); // new baseline, no flood
   await settle();
-  assert.deepStrictEqual(got.map((g) => g.title).filter((t) => /joined|left/.test(t)), ['Steve joined', 'Alex left']);
+  assert.deepStrictEqual(got.map((g) => g.title).filter((t) => /joined|left/.test(t)), ['Steve joined', 'Alex left', 'Kai joined']);
   assert.strictEqual(got.find((g) => g.title === 'Steve joined').priority, 3);
   server.close();
 });
@@ -123,8 +126,13 @@ test('notify: Paper 26 "System chat:" join lines alert at once, without duplicat
   n.onLogLine('[12:07:46] [Server thread/INFO]: FishNet (/176.65.149.198:61000) lost connection: Disconnected');
   n.onLogLine('[12:08:00] [Async Chat Thread - #0/INFO]: <NXZET> Bob joined the game');
   n.onSample({ up: 1, tps: 20 }, ctx([]));
+  // 13:00 on the live server: RCON timed out while the world saved, and a
+  // player joined before it reconnected.
+  n.onSample({ up: 0 }, ctx(undefined));
+  n.onLogLine('[13:00:05] [Server thread/INFO]: System chat: TheRealLykan joined the game');
+  n.onSample({ up: 1, tps: 20 }, ctx(['TheRealLykan']));
   await settle();
-  assert.deepStrictEqual(got.map((g) => g.title), ['NXZET joined', 'NXZET left']);
+  assert.deepStrictEqual(got.map((g) => g.title).filter((t) => /joined|left/.test(t)), ['NXZET joined', 'NXZET left', 'TheRealLykan joined']);
   server.close();
 });
 

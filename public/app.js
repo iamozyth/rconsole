@@ -2145,11 +2145,12 @@ function historyRow(p) {
   return [row, detail];
 }
 
-function rowActionBtn(label, iconName, command, confirmOpts, danger) {
+function rowActionBtn(label, iconName, command, confirmOpts, danger, after) {
   const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}` }, icon(iconName), label);
   btn.addEventListener('click', async () => {
     if (confirmOpts && !(await confirmAction(confirmOpts))) return;
-    busy(btn, () => mutate(command));
+    await busy(btn, () => mutate(command));
+    after?.();
   });
   return btn;
 }
@@ -2226,12 +2227,12 @@ async function copyText(text, label) {
   }
 }
 
-async function loadSecurity() {
+async function loadSecurity({ quiet = false } = {}) {
   try {
     localStorage.setItem(SEEN_KEY, String(Date.now()));
   } catch {}
   renderSecurityBadge(null);
-  skeletonRows($('sec-list'), 6);
+  if (!quiet) skeletonRows($('sec-list'), 6);
   try {
     const [h, access, settings] = await Promise.all([api('GET', '/api/players/history'), api('GET', '/api/access'), api('GET', '/api/settings').catch(() => null)]);
     accessCache = access;
@@ -2251,7 +2252,7 @@ async function loadSecurity() {
     if (!access.whitelistEnabled) {
       advice.push(adviceItem(pub.length ? 'bad' : 'warn', 'The whitelist is off',
         `Anyone who finds the server can join.${pub.length ? ` ${pub.length} unknown internet address${pub.length === 1 ? '' : 'es'} already tried.` : ''}`,
-        el('button', { class: 'btn btn-primary btn-sm', onclick: async (e) => { await busy(e.currentTarget, () => mutate('whitelist on')); loadSecurity(); } }, 'Turn on whitelist')));
+        el('button', { class: 'btn btn-primary btn-sm', onclick: async (e) => { await busy(e.currentTarget, () => mutate('whitelist on')); loadSecurity({ quiet: true }); } }, 'Turn on whitelist')));
     } else {
       advice.push(adviceItem('ok', 'Whitelist is on', `Unknown visitors are turned away at sign-in.${prop('enforce-whitelist') === 'true' ? '' : ' Tip: also turn on “Kick players removed from the whitelist” in Settings.'}`));
     }
@@ -2269,15 +2270,15 @@ async function loadSecurity() {
           const safe = IP_OK.test(a.ip);
           const isBanned = banned.has(a.ip);
           return el('tr', {},
-            el('td', { class: 'primary-cell', 'data-label': 'Address' }, el('span', { class: 'mono' }, a.ip), ' ',
+            el('td', { class: 'primary-cell', 'data-label': 'Address' }, el('span', { class: 'addr' }, el('span', { class: 'mono' }, a.ip),
               el('span', { class: `pill ${a.private ? '' : 'bad'}` }, a.private ? 'Local network' : 'Internet'),
-              isBanned ? el('span', { class: 'pill own' }, icon('ban'), 'Banned') : null),
+              isBanned ? el('span', { class: 'pill own' }, icon('ban'), 'Banned') : null)),
             el('td', { 'data-label': 'Names tried' }, a.names.length ? a.names.join(', ') : el('span', { class: 'sub' }, 'none sent')),
             el('td', { class: 'num', 'data-label': 'Attempts' }, String(a.count)),
             el('td', { 'data-label': 'Last seen' }, fmt.relative(new Date(a.last).toISOString()), el('span', { class: 'sub' }, fmt.date(new Date(a.last).toISOString()))),
             el('td', { class: 'result', 'data-label': 'Reason' }, a.reasons[0] || '–'),
             el('td', { class: 'act' },
-              safe && !isBanned && !a.private ? rowActionBtn('Ban IP', 'ban', `ban-ip ${a.ip} Connection scanner`, { title: `Ban ${a.ip}?`, body: 'The server refuses this address from now on. Scanners often switch addresses, so the whitelist protects you better.', confirm: 'Ban IP', tone: 'danger', icon: 'ban' }, true) : null,
+              safe && !isBanned && !a.private ? rowActionBtn('Ban IP', 'ban', `ban-ip ${a.ip} Connection scanner`, { title: `Ban ${a.ip}?`, body: 'The server refuses this address from now on. Scanners often switch addresses, so the whitelist protects you better.', confirm: 'Ban IP', tone: 'danger', icon: 'ban' }, true, () => loadSecurity({ quiet: true })) : null,
               safe && !a.private ? el('button', { class: 'btn btn-quiet btn-sm', title: 'Copy a ufw rule that blocks this address before it reaches Minecraft', onclick: () => copyText(`sudo ufw insert 1 deny from ${a.ip} to any port ${port} proto tcp`, 'Firewall rule') }, icon('copy'), 'Firewall rule') : null));
         })
       : [emptyRow(6, el('b', {}, 'Nothing suspicious. '), 'Connections that never log in show up here, with a way to block them.')]));
