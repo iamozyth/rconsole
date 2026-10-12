@@ -78,31 +78,37 @@ main() {
     fi
   done
 
-  # Unit files and the polkit rule: bring the installed copy up to date when
-  # it is exactly some version this repository shipped (so it wasn't
-  # customized), even if that change came in an earlier update that ran by
-  # hand. Customized copies are left alone and reported when they change.
-  local changed=0 src dest shipped
+  # Unit files and the polkit rule, rendered with this host's paths and users
+  # (bin/units.sh, values from /etc/rconsole.env): bring the installed copy
+  # up to date when it is exactly some version this repository shipped (so
+  # it wasn't customized), even if that change came in an earlier update
+  # that ran by hand. Customized copies are left alone and reported when
+  # they change.
+  # shellcheck source=units.sh
+  source "$dir/bin/units.sh"
+  load_rconsole_env "${RCONSOLE_ENV:-/etc/rconsole.env}"
+  local changed=0 src dest shipped c rendered
+  rendered="$(mktemp)"
   for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service 50-rconsole.rules; do
     [ -f "$dir/$src" ] || continue
     if [ "$src" = 50-rconsole.rules ]; then dest="$polkit_dir/$src"; else dest="$unit_dir/$src"; fi
-    [ -f "$dest" ] && cmp -s "$dest" "$dir/$src" && continue
+    render_unit < "$dir/$src" > "$rendered" || continue
+    [ -f "$dest" ] && cmp -s "$dest" "$rendered" && continue
     shipped=0
     if [ -f "$dest" ]; then
-      local want blob
-      want="$("${git[@]}" hash-object "$dest")"
-      while read -r blob; do
-        [ "$blob" = "$want" ] && { shipped=1; break; }
-      done < <("${git[@]}" log --format='%H' -- "$src" | while read -r c; do "${git[@]}" rev-parse -q --verify "$c:$src" 2>/dev/null; done)
+      while read -r c; do
+        if "${git[@]}" show "$c:$src" 2>/dev/null | render_unit | cmp -s - "$dest"; then shipped=1; break; fi
+      done < <("${git[@]}" log --format='%H' -- "$src")
     fi
     if [ ! -f "$dest" ] || [ "$shipped" = 1 ]; then
-      install -m 0644 "$dir/$src" "$dest"
+      install -m 0644 "$rendered" "$dest"
       installed+=("$src")
       [ "$src" != 50-rconsole.rules ] && changed=1
     elif ! "${git[@]}" diff --quiet "$before" "$after" -- "$src"; then
       manual+=("$src changed but your installed copy is customized: merge $dir/$src into $dest")
     fi
   done
+  rm -f "$rendered"
   [ "$changed" = 1 ] && systemctl daemon-reload
 
   report running "Restarting rconsole"

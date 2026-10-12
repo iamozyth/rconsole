@@ -36,7 +36,28 @@ A lightweight web console for managing a Minecraft server over RCON. No dependen
 
 rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below) and set `TRUST_PROXY` to the proxy's IP, so client IPs and `Secure` cookies are correct. For defence in depth, firewall port 80 so only the proxy can reach it.
 
-## Setup on Debian
+## Quick install
+
+On a Debian or Ubuntu host where your Minecraft server already runs as a systemd service:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/iamozyth/rconsole/main/install.sh | sudo bash
+```
+
+The installer finds the server (its service, folder, user, jar and software: Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge or vanilla) and shows what it found before changing anything. Then it:
+
+- installs Node.js, git and polkit if missing;
+- clones rconsole to `/opt/rconsole` and creates the `rconsole` system user;
+- turns on RCON with a generated password if needed (the old file is kept as `server.properties.before-rconsole`);
+- makes the server folder group-readable, creates the backup folder, and adds `Restart=always` to the Minecraft service if it has no restart policy (rconsole restarts the server by stopping it);
+- writes `/etc/rconsole.env`, installs the units and polkit rule for your paths, user and service name, and starts rconsole;
+- creates your first account.
+
+It never overwrites values already in `/etc/rconsole.env` and can be run again at any time. Options: `--mc-dir`, `--service`, `--backup-dir`, `--host`, `--port` (default `0.0.0.0:8080`), `--admin NAME`, `--yes` (no questions; a generated password is printed), `--dry-run` (show what would change) and `--uninstall`. Pass options through the pipe with `| sudo bash -s -- --dry-run`. Rather read it first: `curl -fsSLO …/install.sh && less install.sh && sudo bash install.sh`.
+
+Afterwards put rconsole behind TLS (see Traefik) and set `TRUST_PROXY`. The manual steps below describe the same setup.
+
+## Setup on Debian (manual)
 
 Assumes Minecraft runs as user and group `minecraft` from `/srv/minecraft`.
 
