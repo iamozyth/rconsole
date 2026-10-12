@@ -26,6 +26,7 @@ const { Audit, summarize } = require('./lib/audit');
 const { Metrics } = require('./lib/metrics');
 const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
+const { Scanners } = require('./lib/scanners');
 const { CommandCatalog } = require('./lib/commands');
 const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
@@ -64,6 +65,7 @@ const audit = new Audit({ stateDir: config.stateDir, log, onRecord: (e) => notif
 ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target: st.label, ok: !st.error, ...(st.error ? { error: st.error } : {}) });
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
+const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });
 const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log, audit: (e) => audit.record(e) });
 const users = new Users(config.stateDir);
 const sessions = new Sessions();
@@ -395,6 +397,7 @@ route('GET', /^\/api\/status$/, async () => ({
   op: ops.state,
   pending: await pending.list(),
   self: selfUpdate.summary(),
+  security: scanners.summary(),
   platform: (({ id, name, family, mcVersion, build, loaderVersion, addons, updates: auto }) => ({ id, name, family, mcVersion, build, loaderVersion, addons: addons?.kind || null, updates: Boolean(auto) }))(platform()),
 }));
 
@@ -752,7 +755,8 @@ scheduler.load().then(() => {
   setTimeout(updateCheck, 5 * 60 * 1000).unref();
   setInterval(updateCheck, 24 * 3600 * 1000).unref();
   selfUpdate.startTimer();
-  playerHistory.history().catch((err) => log(`players: ${err.message}`)); // backfill from old logs
+  playerHistory.history().then((h) => scanners.seed(h)).catch((err) => log(`players: ${err.message}`)); // backfill from old logs
+  logTail.on('line', (line) => scanners.onLogLine(line));
   server.listen(config.webPort, config.webHost, () => {
     log(`rconsole listening on http://${config.webHost}:${config.webPort}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);

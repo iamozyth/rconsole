@@ -1026,6 +1026,24 @@ kbd {
 .nav [data-tab='server'].has-update .tile { position: relative; }
 .nav [data-tab='server'].has-update .tile::after { content: ''; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--c-server); box-shadow: 0 0 0 2px var(--rail); }
 .nav [data-tab='server'][aria-selected='true'].has-update .tile::after { background: var(--on-area); box-shadow: 0 0 0 2px var(--c-server); }
+.nav [data-tab='players'].has-alert .tile { position: relative; }
+.nav [data-tab='players'].has-alert .tile::after { content: ''; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--c-danger); box-shadow: 0 0 0 2px var(--rail); }
+.advice { display: flex; flex-direction: column; gap: 10px; }
+.advice:empty { display: none; }
+.advice-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--text-3); border-radius: var(--r); background: var(--surface); }
+.advice-item > svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--text-3); }
+.advice-item > div { flex: 1; min-width: 0; }
+.advice-item b { display: block; font-weight: 650; }
+.advice-item p { margin: 2px 0 0; color: var(--text-2); font-size: 13.5px; line-height: 1.5; }
+.advice-item > .btn { flex: none; align-self: center; }
+.advice-item.bad { border-left-color: var(--c-danger); background: color-mix(in srgb, var(--c-danger) 7%, var(--surface)); }
+.advice-item.bad > svg { color: var(--c-danger); }
+.advice-item.warn { border-left-color: var(--c-schedule); }
+.advice-item.warn > svg { color: var(--c-schedule); }
+.advice-item.ok { border-left-color: var(--c-players); }
+.advice-item.ok > svg { color: var(--c-players); }
+.advice-item.info { border-left-color: var(--area); }
+.advice-item.info > svg { color: var(--area); }
 .rail-version { display: flex; align-items: center; gap: 8px; }
 .rail-version .ver { color: var(--text-3); font: 11.5px var(--mono); }
 .update-note { display: flex; align-items: center; gap: 6px; color: var(--c-server); font-size: 12.5px; font-weight: 600; text-decoration: none; }

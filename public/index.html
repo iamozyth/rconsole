@@ -184,6 +184,7 @@
       <div class="subnav segmented" role="tablist" aria-label="Players sections">
         <button role="tab" data-view="access" aria-selected="true">Access</button>
         <button role="tab" data-view="history" aria-selected="false">History</button>
+        <button role="tab" data-view="security" aria-selected="false">Security</button>
       </div>
       <div class="view" data-view="access">
       <div class="area-error" id="access-error" role="alert" hidden></div>
@@ -245,6 +246,19 @@
           <table class="table">
             <thead><tr><th>Player</th><th>Last seen</th><th>First seen</th><th class="num">Sessions</th><th class="num">Playtime</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
             <tbody id="ph-list"></tbody>
+          </table>
+        </section>
+      </div>
+
+      <div class="view" data-view="security" hidden>
+        <div class="advice" id="sec-advice"></div>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Unknown connection attempts</h2><p class="note" id="sec-info">Clients that connected but never logged in, from addresses no player has used. Mostly scanners that search the internet for open Minecraft servers.</p></div>
+          </header>
+          <table class="table">
+            <thead><tr><th>Address</th><th>Names tried</th><th class="num">Attempts</th><th>Last seen</th><th>Reason</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="sec-list"></tbody>
           </table>
         </section>
       </div>

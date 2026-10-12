@@ -123,3 +123,37 @@ test('player history reads Paper 26 "System chat:" joins', () => {
   assert.deepStrictEqual(ev('[12:05:38] [Server thread/INFO]: System chat: NXZET left the game'), { type: 'leave', name: 'NXZET', extra: undefined });
   assert.strictEqual(ev('[12:08:00] [Async Chat Thread - #0/INFO]: <NXZET> System chat: Bob joined the game'), undefined);
 });
+
+test('connection attempts: grouped by address, known players and LAN excluded', async () => {
+  const dir = tmp();
+  const logs = path.join(dir, 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  fs.writeFileSync(path.join(logs, 'latest.log'), [
+    '[11:40:07] [Server thread/INFO]: Starting minecraft server version 26.3',
+    '[12:05:07] [User Authenticator #0/INFO]: UUID of player NXZET is d6837fe0-a88e-405d-ae5a-68a96f883729',
+    '[12:05:08] [Server thread/INFO]: System chat: NXZET joined the game',
+    '[12:05:08] [Server thread/INFO]: NXZET[/10.10.5.20:52752] logged in with entity id 61 at ([minecraft:overworld]8.0, 68.0, 5.3)',
+    '[12:05:38] [Server thread/INFO]: NXZET lost connection: Disconnected',
+    '[12:07:46] [Server thread/INFO]: FishNet (/176.65.149.198:61000) lost connection: Disconnected',
+    '[12:09:00] [Server thread/INFO]: Admin (/176.65.149.198:61002) lost connection: You are not white-listed on this server!',
+    '[12:10:00] [Server thread/INFO]: Friend (/10.10.5.21:5000) lost connection: Disconnected',
+    '[12:11:00] [Server thread/INFO]: Late (/10.10.5.20:5001) lost connection: Disconnected',
+  ].join('\n'));
+  const { attempts, players } = await new PlayerHistory({ mcDir: dir, stateDir: dir }).history();
+  assert.strictEqual(players.length, 1, 'attempts are not players');
+  assert.deepStrictEqual(attempts.map((a) => [a.ip, a.count, a.names.sort().join(','), a.private]), [['10.10.5.21', 1, 'Friend', true], ['176.65.149.198', 2, 'Admin,FishNet', false]]);
+  assert.match(attempts[1].reasons.join(), /white-listed/);
+});
+
+test('scanner tracker: live alerts only for unknown public addresses, never for the replayed log', () => {
+  const { Scanners } = require('../lib/scanners');
+  const seen = [];
+  const s = new Scanners({ onAttempt: (a) => seen.push(a.ip) });
+  s.onLogLine('[12:07:46] [Server thread/INFO]: Old (/9.9.9.9:1) lost connection: Disconnected'); // before seeding: replay
+  s.seed({ players: [{ ip: '81.2.3.4' }], attempts: [] });
+  s.onLogLine('[12:07:46] [Server thread/INFO]: FishNet (/176.65.149.198:61000) lost connection: Disconnected');
+  s.onLogLine('[12:07:47] [Server thread/INFO]: Me (/81.2.3.4:2) lost connection: Disconnected'); // known player address
+  s.onLogLine('[12:07:48] [Server thread/INFO]: Lan (/192.168.1.9:2) lost connection: Disconnected');
+  assert.deepStrictEqual(seen, ['176.65.149.198']);
+  assert.deepStrictEqual([s.summary().addresses, s.summary().attempts], [1, 1]);
+});

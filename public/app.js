@@ -719,6 +719,7 @@ function renderStatus(s) {
   renderBackupState(s.backup);
   renderUpdateState(s.update);
   renderSelfSummary(s.self);
+  if (!(document.body.dataset.area === 'players' && currentView('players') === 'security')) renderSecurityBadge(s.security);
 }
 
 // Server software: chip in the top bar; Plugins/Mods tab follows what it loads.
@@ -2190,6 +2191,102 @@ async function loadPlayerHistory() {
   }
 }
 viewLoaders['players/history'] = loadPlayerHistory;
+
+// ---------------------------------------------------------------------------
+// Players: security (unknown connection attempts, advice)
+// ---------------------------------------------------------------------------
+
+const SEEN_KEY = 'rconsole.security.seen';
+const seenAt = () => {
+  try {
+    return Number(localStorage.getItem(SEEN_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+};
+
+function renderSecurityBadge(sec) {
+  const fresh = sec?.last && Date.parse(sec.last) > seenAt();
+  document.querySelector('.nav [data-tab=players]').classList.toggle('has-alert', Boolean(fresh));
+}
+
+function adviceItem(tone, title, body, action) {
+  return el('div', { class: `advice-item ${tone}` }, icon(tone === 'ok' ? 'check' : 'alert'),
+    el('div', {}, el('b', {}, title), el('p', {}, body)), action || null);
+}
+
+const IP_OK = /^[0-9a-fA-F:.]{3,45}$/;
+
+async function copyText(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`${label} copied.`);
+  } catch {
+    window.prompt(label, text);
+  }
+}
+
+async function loadSecurity() {
+  try {
+    localStorage.setItem(SEEN_KEY, String(Date.now()));
+  } catch {}
+  renderSecurityBadge(null);
+  skeletonRows($('sec-list'), 6);
+  try {
+    const [h, access, settings] = await Promise.all([api('GET', '/api/players/history'), api('GET', '/api/access'), api('GET', '/api/settings').catch(() => null)]);
+    accessCache = access;
+    const prop = (key) => {
+      const spec = settings?.schema.find((x) => x.key === key);
+      return spec ? spec.value ?? spec.default : null;
+    };
+    const port = settings?.other?.find((o) => o.key === 'server-port')?.value || '25565';
+    const pub = h.attempts.filter((a) => !a.private);
+    const banned = new Set((access.ipBans || []).map((b) => b.ip));
+
+    const advice = [];
+    if (prop('online-mode') === 'false') {
+      advice.push(adviceItem('bad', 'Online mode is off', 'Anyone can join under any name, an operator’s included. Turn it on unless a proxy such as Velocity handles sign-ins.',
+        el('button', { class: 'btn btn-sm', onclick: () => showTab('server/settings') }, 'Open settings')));
+    }
+    if (!access.whitelistEnabled) {
+      advice.push(adviceItem(pub.length ? 'bad' : 'warn', 'The whitelist is off',
+        `Anyone who finds the server can join.${pub.length ? ` ${pub.length} unknown internet address${pub.length === 1 ? '' : 'es'} already tried.` : ''}`,
+        el('button', { class: 'btn btn-primary btn-sm', onclick: async (e) => { await busy(e.currentTarget, () => mutate('whitelist on')); loadSecurity(); } }, 'Turn on whitelist')));
+    } else {
+      advice.push(adviceItem('ok', 'Whitelist is on', `Unknown visitors are turned away at sign-in.${prop('enforce-whitelist') === 'true' ? '' : ' Tip: also turn on “Kick players removed from the whitelist” in Settings.'}`));
+    }
+    if (pub.length) {
+      advice.push(adviceItem('warn', 'Your server is reachable from the internet',
+        `Scanners probe every open server within hours; they come from ever-changing addresses, so banning single ones helps little. If only your own people play, close port ${port} on the router or firewall and reach it over a VPN (WireGuard, Tailscale).`));
+    }
+    $('sec-advice').replaceChildren(...advice);
+
+    $('sec-info').textContent = h.attempts.length
+      ? `${pub.length} internet and ${h.attempts.length - pub.length} local address${h.attempts.length - pub.length === 1 ? '' : 'es'} connected without ever logging in. Mostly scanners looking for open servers.`
+      : 'No unknown connection attempts in the logs.';
+    $('sec-list').replaceChildren(...(h.attempts.length
+      ? h.attempts.map((a) => {
+          const safe = IP_OK.test(a.ip);
+          const isBanned = banned.has(a.ip);
+          return el('tr', {},
+            el('td', { class: 'primary-cell', 'data-label': 'Address' }, el('span', { class: 'mono' }, a.ip), ' ',
+              el('span', { class: `pill ${a.private ? '' : 'bad'}` }, a.private ? 'Local network' : 'Internet'),
+              isBanned ? el('span', { class: 'pill own' }, icon('ban'), 'Banned') : null),
+            el('td', { 'data-label': 'Names tried' }, a.names.length ? a.names.join(', ') : el('span', { class: 'sub' }, 'none sent')),
+            el('td', { class: 'num', 'data-label': 'Attempts' }, String(a.count)),
+            el('td', { 'data-label': 'Last seen' }, fmt.relative(new Date(a.last).toISOString()), el('span', { class: 'sub' }, fmt.date(new Date(a.last).toISOString()))),
+            el('td', { class: 'result', 'data-label': 'Reason' }, a.reasons[0] || '–'),
+            el('td', { class: 'act' },
+              safe && !isBanned && !a.private ? rowActionBtn('Ban IP', 'ban', `ban-ip ${a.ip} Connection scanner`, { title: `Ban ${a.ip}?`, body: 'The server refuses this address from now on. Scanners often switch addresses, so the whitelist protects you better.', confirm: 'Ban IP', tone: 'danger', icon: 'ban' }, true) : null,
+              safe && !a.private ? el('button', { class: 'btn btn-quiet btn-sm', title: 'Copy a ufw rule that blocks this address before it reaches Minecraft', onclick: () => copyText(`sudo ufw insert 1 deny from ${a.ip} to any port ${port} proto tcp`, 'Firewall rule') }, icon('copy'), 'Firewall rule') : null));
+        })
+      : [emptyRow(6, el('b', {}, 'Nothing suspicious. '), 'Connections that never log in show up here, with a way to block them.')]));
+  } catch (e) {
+    $('sec-list').replaceChildren(emptyRow(6, `Can't read connection attempts: ${e.message}`));
+  }
+}
+viewLoaders['players/security'] = loadSecurity;
+
 $('ph-filter').addEventListener('input', renderHistoryRows);
 
 // ---------------------------------------------------------------------------
@@ -2230,6 +2327,7 @@ function paletteActions() {
   act('Check for rconsole updates', 'updates', 'rconsole self update version upgrade', () => { showTab('server/updates'); loadSelfUpdate(true); });
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
+  act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist', () => showTab('players/security'));
   act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });
   act('Add a scheduled task…', 'schedule', 'cron schedule task timer', () => { showTab('schedule'); });
   act('Refresh the command list from the server', 'refresh', 'commands autocomplete reload plugins', () => loadServerCommands(true).then(() => toast(`${serverCommands?.length || 0} commands from the server.`)));
