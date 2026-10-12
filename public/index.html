@@ -503,14 +503,14 @@
 
         <section class="panel self-panel" id="self-panel" hidden>
           <header class="panel-head">
-            <div class="head-text"><h2>rconsole update</h2><p class="note" id="self-info">Checking…</p></div>
+            <div class="head-text"><h2>What's new in rconsole</h2><p class="note" id="self-note" hidden>Updating restarts rconsole and signs everyone out; if the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p></div>
             <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update rconsole</button>
           </header>
           <div class="panel-body stack">
             <div class="version" hidden><span id="self-current">–</span><span class="pill" id="self-pill" hidden></span></div>
             <div class="job" id="self-status" hidden></div>
             <ol class="changelog" id="self-changes" hidden></ol>
-            <p class="note" id="self-note" hidden>Updating fast-forwards the git checkout and restarts rconsole, which signs everyone out. If the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p>
+            <p class="note" id="self-info"></p>
           </div>
         </section>
 

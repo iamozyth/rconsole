@@ -1770,32 +1770,31 @@ async function loadSelfUpdate(refresh) {
     $('self-pill').hidden = !o.current || Boolean(c.error && !c.status);
     $('self-pill').className = `pill ${behind ? 'own' : 'ok'}`;
     $('self-pill').replaceChildren(icon(behind ? 'updates' : 'check'), behind ? `${behind} new commit${behind === 1 ? '' : 's'}` : c.status === 'diverged' ? 'Diverged from GitHub' : 'Up to date');
-    $('self-info').textContent = c.error
-      ? c.error
-      : `From github.com/${o.repo} (${o.branch}), last checked ${fmt.relative(c.at)}.`;
+    $('self-info').textContent = c.error ? `Can't check github.com/${o.repo}: ${c.error}` : '';
     // Only a status about the installed version is news: a finished update
     // must have ended on it, a failed one must have started from it.
     const cur = o.current?.sha || '';
     const u = o.update && cur && (o.update.state === 'running' || String(o.update.state === 'done' ? o.update.to : o.update.from).startsWith(cur)) ? o.update : null;
     if (u?.state === 'running') setJob($('self-status'), 'running', 'updates', `${u.message}…`);
     else if (u?.state === 'failed' && Date.now() - Date.parse(u.at) < 7 * 86400000) setJob($('self-status'), 'failed', 'alert', `Last update failed: ${u.message}`);
-    else if (u?.state === 'done' && u.from !== u.to && Date.now() - Date.parse(u.at) < 86400000) {
-      setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}.${u.manual?.length ? ` Manual step: ${u.manual.join('; ')}` : ''}${u.installed?.length ? ` Installed: ${u.installed.join(', ')}.` : ''}`);
+    else if (u?.state === 'done' && (u.manual?.length) && Date.now() - Date.parse(u.at) < 86400000) {
+      // Only a finished update that left something to do by hand needs a box.
+      setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}. Manual step: ${u.manual.join('; ')}`);
     } else setJob($('self-status'), null);
+    const updatedAgo = u?.state === 'done' && u.from !== u.to && Date.now() - Date.parse(u.at) < 86400000 ? ` · updated ${fmt.relative(u.at)}` : '';
     $('self-changes').hidden = !behind;
     $('self-changes').replaceChildren(...(c.commits || []).map((x) => el('li', {},
       el('a', { class: 'mono', href: `https://github.com/${o.repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener' }, x.sha),
       el('span', {}, x.message),
       x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : null)));
-    $('self-update').hidden = !behind;
     $('self-note').hidden = !behind;
     // The overview row says "up to date"; the panel only appears when there is more to show.
     $('self-panel').hidden = !behind && $('self-status').hidden && !(c.error && !c.status);
     $('self-update').disabled = !o.canUpdate || u?.state === 'running';
     $('self-update').title = o.canUpdate ? '' : 'Needs the systemd install (see README)';
     summaryRow('self', {
-      version: o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Unknown version',
-      state: c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
+      version: o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}${updatedAgo}` : 'Unknown version',
+      state: u?.state === 'running' ? ['own', 'updates', 'Updating…'] : c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
       action: behind && o.canUpdate
         ? el('button', { class: 'btn btn-sm btn-primary', disabled: u?.state === 'running' || undefined, onclick: () => $('self-update').click() }, icon('updates'), 'Update')
         : el('a', { class: 'btn btn-sm', href: `https://github.com/${o.repo}/commits/${o.branch}`, target: '_blank', rel: 'noopener' }, 'Changes'),
