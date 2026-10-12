@@ -71,7 +71,7 @@ test('notify: down/up, lag after N minutes, rate limits, token and update dedup'
   const before = got.length;
   await n.checkUpdates(deps);
   assert.strictEqual(got.length, before, 'same build is announced once');
-  assert.match(got[before - 1].message, /\*\*Paper\*\* build 200/);
+  assert.match(got[before - 1].message, /Paper build 200/);
   assert.ok(JSON.parse(fs.readFileSync(path.join(dir, 'notify.json'), 'utf8')).seen['paper-200']);
   server.close();
 });
@@ -152,7 +152,7 @@ test('notify: click target, icon, buttons, quiet hours and one-tap actions', asy
   const last = got[1];
   assert.strictEqual(last.click, 'https://rconsole.example.com/#players/security');
   assert.strictEqual(last.icon, 'https://rconsole.example.com/notify-icon.png');
-  assert.strictEqual(last.markdown, true);
+  assert.strictEqual(last.markdown, undefined); // plain text: iOS shows Markdown literally
   assert.match(last.sequence_id, /^scanners-\d{4}-\d{2}-\d{2}$/);
   assert.deepStrictEqual(last.actions.map((a) => a.action), ['http', 'copy', 'view']);
   const token = last.actions[0].url.split('/').pop();

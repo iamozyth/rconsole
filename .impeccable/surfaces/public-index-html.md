@@ -13,15 +13,15 @@ Task: run commands and read the live log; manage whitelist/ops/bans; take, downl
 
 ## Direction contract
 
-THESIS: The console as an identity program, Otl Aicher's Munich '72 discipline applied to server operations: every work area owns one colour from a strict program and one geometric pictogram, so place and state are known before a word is read. Refuses the category default of a grey-black dashboard with one neon accent and monospace everywhere.
+THESIS: A quiet operations console in the Vercel register, aligned with the owner's site winterstetter.io: neutral surfaces, hairline borders and precise type carry the structure, so the few colours left (one violet accent, ok/warn/danger) always mean something. Chosen by the owner on 2026-10-12 to replace the Aicher '72 identity program ("cleaner, more enterprise").
 
-OWN-WORLD: Light (Munich '72): white ground, silver-grey panels, program colours sky blue (Console), green (Players), deep blue (Backups), orange (Schedule), violet (Updates); red only for destructive. Dark (Lufthansa navy): navy ground, lighter navy panels, same program hues lifted. Archivo (Univers-like grotesk, self-hosted) for all UI, tabular numerals; system mono only for the log. Square-ish 2px corners, flat solid fills, hairline rules, no shadows except overlays. Pictograms: authored filled geometric SVG on a 24-unit grid, 45/90 degree angles, round heads.
+OWN-WORLD: Dark: near-black ground #0a0a0a, panels #111, hairlines #262626, ink #ededed. Light: #fafafa ground, white panels, hairlines #e5e5e5, ink #171717. Accent violet (#a78bfa dark / #7c3aed light) for focus, links, switches, charts and unsaved state only; primary buttons are inverted neutral. Inter for UI, JetBrains Mono for log/prompt/code (both self-hosted, OFL). Radii 6px controls, 10px panels, 12px overlays; segmented controls as a sunken track with a raised selection; sentence-case labels; shadows only on overlays. Pictograms kept, rendered monochrome.
 
 STORY: The admin sees connection and server health in the top bar, knows which area they are in by colour and pictogram, acts with standard controls, and is never surprised by a disruptive action.
 
-FIRST VIEWPORT: Desktop: left rail (rconsole wordmark, five area tiles pictogram + label, active tile filled in its area colour), top bar with connection state and a health strip of readouts, work area headed by the area name on a colour band. Console: log fills the work area, command bar docked at its bottom, right column with online players, quick actions, restart. Phone: top bar compact, bottom tab bar of five pictograms, the same work areas stacked.
+FIRST VIEWPORT: Desktop: left rail (wordmark, area list with monochrome pictograms, selected item on a subtle raised fill), top bar with area name, connection chip and the health readouts, hairline under it. Console: log fills the work area, command bar docked at its bottom, right column with online players, quick actions, restart. Phone: compact top bar with the readout grid, bottom tab bar, the same work areas stacked.
 
-FORM: Aicher '72 identity program (candidate 1 of 7, user-chosen over the assigned Braun front panel); seed key 6abadd5f. Signature move: per-area colour coding plus a pictogram system across nav, headings, actions and states.
+FORM: Vercel/Geist-style neutral console (owner-directed restyle of the earlier Aicher '72 program). Signature: restraint; the accent and status colours are the only colour in the interface.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 

@@ -112,7 +112,8 @@ const PUBLIC_FILES = {
   '/style.css': load('style.css'),
   '/favicon.svg': load('favicon.svg', IMMUTABLE),
   '/notify-icon.png': load('notify-icon.png', IMMUTABLE), // ntfy shows it next to notifications
-  '/fonts/archivo.woff2': load('fonts/archivo.woff2', IMMUTABLE),
+  '/fonts/inter.woff2': load('fonts/inter.woff2', IMMUTABLE),
+  '/fonts/jetbrains-mono.woff2': load('fonts/jetbrains-mono.woff2', IMMUTABLE),
 };
 const APP_FILES = { '/': load('index.html'), '/app.js': load('app.js'), '/commands.js': load('commands.js') };
 

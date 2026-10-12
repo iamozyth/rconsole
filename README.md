@@ -271,7 +271,7 @@ Install the ntfy app, subscribe to a topic with a long, unguessable name (anyone
 - each kind of alert has its own priority (min … urgent), and **quiet hours** deliver everything but urgent alerts silently,
 - optional **one-tap actions** add buttons that act right away: *Ban &lt;ip&gt;* on scanner alerts and *Start server* when it is down. Each button holds a single-use link that works for 24 hours without signing in, so only turn this on for a private topic or one protected by an access token. Uses are recorded in the audit log as user `ntfy`.
 
-Messages are published as JSON with Markdown. **Send test** shows what an alert looks like. Repeats of the same alert are held back for 10 minutes and there are at most 30 per hour.
+Messages are published as JSON in plain text (the iOS app does not render Markdown). **Send test** shows what an alert looks like. Repeats of the same alert are held back for 10 minutes and there are at most 30 per hour.
 
 ## Prometheus
 
