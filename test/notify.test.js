@@ -109,6 +109,7 @@ test('notify: joins and leaves come from the polled player list', async () => {
   await settle();
   assert.deepStrictEqual(got.map((g) => g.title).filter((t) => /joined|left/.test(t)), ['Steve joined', 'Alex left', 'Kai joined']);
   assert.strictEqual(got.find((g) => g.title === 'Steve joined').priority, 3);
+  assert.strictEqual(got.find((g) => g.title === 'Alex left').priority, 3); // one priority per event, joins and leaves alike
   server.close();
 });
 

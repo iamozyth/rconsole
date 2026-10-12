@@ -268,7 +268,7 @@ Install the ntfy app, subscribe to a topic with a long, unguessable name (anyone
 
 - tapping a notification opens the matching page in rconsole, and an **Open rconsole** button is added; Android shows the rconsole icon,
 - follow-ups replace the original notification instead of piling up: *server down* becomes *back up after 4 min*, *lagging* becomes *lag is over*, a player's *joined* becomes *left after 35 min*, and scanner sightings collect in one notification per day,
-- each kind of alert has its own priority (min … urgent), and **quiet hours** deliver everything but urgent alerts silently,
+- each kind of alert has its own priority (min … urgent) that applies to all its messages (joined and left, down and back up), and **quiet hours** deliver everything but urgent alerts silently,
 - optional **one-tap actions** add buttons that act right away: *Ban &lt;ip&gt;* on scanner alerts and *Start server* when it is down. Each button holds a single-use link that works for 24 hours without signing in, so only turn this on for a private topic or one protected by an access token. Uses are recorded in the audit log as user `ntfy`.
 
 Messages are published as JSON in plain text (the iOS app does not render Markdown). **Send test** shows what an alert looks like. Repeats of the same alert are held back for 10 minutes and there are at most 30 per hour.
