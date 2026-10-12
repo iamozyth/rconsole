@@ -1224,16 +1224,66 @@ kbd {
 
 /* Login --------------------------------------------------------------- */
 
-.login-page { display: grid; place-items: center; min-height: 100dvh; padding: calc(24px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); background: radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%), var(--bg); }
-.login { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 20px; }
-.login .wordmark { justify-content: center; padding: 0; margin: 0; font-size: 20px; }
-.login .wordmark .mark { width: 30px; height: 30px; }
-.login .panel { border-radius: 12px; box-shadow: var(--shadow); }
-.login form { display: flex; flex-direction: column; gap: 16px; padding: 24px; }
-.login .fld .field { height: 40px; font-size: 14px; }
-.login .btn { height: 40px; font-size: 14px; }
-.login .lede { color: var(--text-2); font-size: 13.5px; }
-.login .foot { text-align: center; color: var(--text-3); font-size: 12.5px; }
+.login-page {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: calc(24px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  overflow-x: hidden;
+}
+/* A faint 32px grid that fades out from the top, and a violet glow above the card. */
+.login-page::before, .login-page::after { content: ''; position: fixed; inset: 0; pointer-events: none; }
+.login-page::before {
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: center top;
+  opacity: 0.55;
+  -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 20%, transparent 75%);
+}
+.login-page::after { background: radial-gradient(ellipse 50% 35% at 50% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%); }
+.login { position: relative; z-index: 1; width: 100%; max-width: 384px; display: flex; flex-direction: column; align-items: stretch; gap: 24px; animation: login-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes login-in { from { opacity: 0; transform: translateY(10px); } }
+.login-brand { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.login-brand .mark { width: 44px; height: 44px; filter: drop-shadow(0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent)); }
+.login-host { padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--text-3); font: 12px var(--mono); letter-spacing: 0; }
+.login-host:empty { display: none; }
+.login-card { border-radius: 14px; background: color-mix(in srgb, var(--surface) 88%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: var(--shadow); }
+.login form { display: flex; flex-direction: column; gap: 18px; padding: 28px; }
+.login-head { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; margin-bottom: 4px; }
+.login-head h1 { font-size: 20px; letter-spacing: -0.025em; }
+.login .lede { color: var(--text-2); font-size: 13.5px; line-height: 1.5; text-wrap: balance; }
+.login-badge { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 6px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); color: var(--accent); }
+.login-badge svg { width: 20px; height: 20px; }
+.login-step { display: flex; flex-direction: column; gap: 14px; animation: step-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes step-in { from { opacity: 0; transform: translateX(8px); } }
+.login .fld .field { width: 100%; height: 42px; font-size: 14px; }
+.pw-wrap { position: relative; display: block; }
+.pw-wrap .field { padding-right: 42px; }
+.pw-toggle { position: absolute; top: 50%; right: 4px; display: grid; place-items: center; width: 34px; height: 34px; transform: translateY(-50%); border: 0; border-radius: var(--r); background: none; color: var(--text-3); cursor: pointer; }
+.pw-toggle:hover { color: var(--text); background: var(--hover); }
+.pw-toggle svg { width: 17px; height: 17px; }
+.caps { color: var(--warn); font-size: 12px; font-weight: 500; }
+.login .code-field { height: 56px !important; text-align: center; font: 500 26px var(--mono) !important; letter-spacing: 0.3em; }
+.login .code-field::placeholder { color: color-mix(in srgb, var(--text-3) 55%, transparent); }
+.field[aria-invalid='true']:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-danger) 22%, transparent); border-color: var(--c-danger); }
+.login-error { display: flex; align-items: flex-start; gap: 8px; margin: -4px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--c-danger) 30%, var(--line)); border-radius: var(--r); background: color-mix(in srgb, var(--c-danger) 7%, transparent); color: var(--c-danger); font-size: 13px; line-height: 1.45; }
+.login-error svg { width: 15px; height: 15px; margin-top: 1px; }
+.login-submit { position: relative; width: 100%; height: 42px; font-size: 14px; }
+.login-submit .spinner, .login-submit .done { display: none; }
+.login-submit[data-state='busy'] .spinner { display: block; width: 15px; height: 15px; border: 2px solid color-mix(in srgb, var(--bg) 35%, transparent); border-top-color: var(--bg); border-radius: 50%; animation: spin 700ms linear infinite; }
+.login-submit[data-state='done'] .done { display: block; width: 16px; height: 16px; }
+.login-submit[data-state] { opacity: 1; cursor: progress; }
+.login-submit[data-state=''] { cursor: pointer; }
+.login-back { align-self: center; margin-top: -6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.login form.shake { animation: shake 360ms cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+@keyframes shake { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+.login form.success .login-step { opacity: 0.5; transition: opacity 200ms ease-out; }
+.login .foot { text-align: center; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
+.preview-tag { display: inline-block; margin-left: 4px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; white-space: nowrap; }
 
 /* Responsive ---------------------------------------------------------- */
 
