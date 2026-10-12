@@ -499,27 +499,27 @@
           </ul>
         </section>
 
-        <section class="panel self-panel">
+        <section class="panel self-panel" id="self-panel" hidden>
           <header class="panel-head">
-            <div class="head-text"><h2>rconsole</h2><p class="note" id="self-info">Checking…</p></div>
+            <div class="head-text"><h2>rconsole update</h2><p class="note" id="self-info">Checking…</p></div>
             <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update rconsole</button>
           </header>
           <div class="panel-body stack">
-            <div class="version"><span id="self-current">–</span><span class="pill" id="self-pill" hidden></span></div>
+            <div class="version" hidden><span id="self-current">–</span><span class="pill" id="self-pill" hidden></span></div>
             <div class="job" id="self-status" hidden></div>
             <ol class="changelog" id="self-changes" hidden></ol>
             <p class="note" id="self-note" hidden>Updating fast-forwards the git checkout and restarts rconsole, which signs everyone out. If the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p>
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" id="upd-server">
           <header class="panel-head">
             <div class="head-text"><h2>Server software</h2><p class="note">Updates warn players, then disconnect everyone and stop the server. The world is backed up while nobody plays, the new jar goes in, and the server starts again.</p></div>
           </header>
           <div class="panel-body installed">
-            <div class="version"><span id="upd-current">–</span><span class="pill" id="upd-channel" hidden></span></div>
-            <p class="note" id="upd-source"></p>
+            <div class="version" hidden><span id="upd-current">–</span><span class="pill" id="upd-channel" hidden></span></div>
             <div class="job" id="upd-status" hidden></div>
+            <p class="note" id="upd-source"></p>
             <div class="update-options">
               <label class="check"><input type="checkbox" id="upd-backup" checked><span>Back up the world first</span></label>
               <label class="inline-fld"><span>Warn players</span>

@@ -1620,7 +1620,8 @@ async function loadUpdates(refresh) {
     renderServerSummary(o);
     updatesLoaded = true;
     const name = o.platform?.name || 'Server';
-    for (const id of ['upd-builds', 'upd-versions']) $(id).closest('.panel').hidden = !o.supported;
+    $('upd-builds').closest('.panel').hidden = !o.supported || !o.newerBuilds.length;
+    $('upd-versions').closest('.panel').hidden = !o.supported || !o.newerVersions.length;
     document.querySelector('.update-options').hidden = !o.supported && !o.canRollback;
     $('upd-backup').closest('label').hidden = !o.supported;
     $('upd-current').textContent = o.current ? `${name} ${o.current.version}${o.current.build ? ` · build ${o.current.build}` : o.platform?.loaderVersion ? ` · loader ${o.platform.loaderVersion}` : ''}` : name;
@@ -1634,7 +1635,7 @@ async function loadUpdates(refresh) {
     $('upd-source').textContent = o.error ? `Can't reach PaperMC: ${o.error}` : o.current ? '' : 'Start the server once so its version shows in the log.';
     const latest = o.current && !o.newerBuilds.length;
     $('upd-channel').hidden = !o.current;
-    $('upd-channel').className = `pill ${latest ? '' : 'own'}`;
+    $('upd-channel').className = `pill ${latest ? 'ok' : 'own'}`;
     $('upd-channel').replaceChildren(icon(latest ? 'check' : 'updates'), latest ? 'Latest build' : `${o.newerBuilds.length} update${o.newerBuilds.length === 1 ? '' : 's'} available`);
     $('upd-rollback').hidden = !o.canRollback;
     renderUpdateState(o.state);
@@ -1675,10 +1676,11 @@ function renderServerSummary(o) {
   const name = o.platform?.name || 'Server software';
   $('sum-server-name').textContent = name;
   const version = o.current ? `${o.current.version}${o.current.build ? ` · build ${o.current.build}` : ''}` : 'Version not known yet';
-  if (!o.supported) return summaryRow('server', { version, state: ['', 'settings', 'Updated by hand'] });
-  if (o.error) return summaryRow('server', { version, state: ['bad', 'alert', "Can't reach PaperMC"] });
+  const details = el('button', { class: 'btn btn-sm', onclick: () => $('upd-server').scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 'Options');
+  if (!o.supported) return summaryRow('server', { version, state: ['', 'settings', 'Updated by hand'], action: details });
+  if (o.error) return summaryRow('server', { version, state: ['bad', 'alert', "Can't reach PaperMC"], action: details });
   const newest = o.newerBuilds[0];
-  if (!newest) return summaryRow('server', { version, state: ['ok', 'check', 'Up to date'] });
+  if (!newest) return summaryRow('server', { version, state: ['ok', 'check', 'Up to date'], action: details });
   summaryRow('server', {
     version,
     state: ['own', 'updates', `Build ${newest.id} available`],
@@ -1754,7 +1756,7 @@ async function loadSelfUpdate(refresh) {
     $('self-current').textContent = o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Unknown version';
     const behind = c.status === 'ahead' ? c.behind : 0;
     $('self-pill').hidden = !o.current || Boolean(c.error && !c.status);
-    $('self-pill').className = `pill ${behind ? 'own' : ''}`;
+    $('self-pill').className = `pill ${behind ? 'own' : 'ok'}`;
     $('self-pill').replaceChildren(icon(behind ? 'updates' : 'check'), behind ? `${behind} new commit${behind === 1 ? '' : 's'}` : c.status === 'diverged' ? 'Diverged from GitHub' : 'Up to date');
     $('self-info').textContent = c.error
       ? c.error
@@ -1775,16 +1777,21 @@ async function loadSelfUpdate(refresh) {
       x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : null)));
     $('self-update').hidden = !behind;
     $('self-note').hidden = !behind;
+    // The overview row says "up to date"; the panel only appears when there is more to show.
+    $('self-panel').hidden = !behind && $('self-status').hidden && !(c.error && !c.status);
     $('self-update').disabled = !o.canUpdate || u?.state === 'running';
     $('self-update').title = o.canUpdate ? '' : 'Needs the systemd install (see README)';
     summaryRow('self', {
       version: o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Unknown version',
       state: c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
-      action: behind && o.canUpdate ? el('button', { class: 'btn btn-sm btn-primary', disabled: u?.state === 'running' || undefined, onclick: () => $('self-update').click() }, icon('updates'), 'Update') : null,
+      action: behind && o.canUpdate
+        ? el('button', { class: 'btn btn-sm btn-primary', disabled: u?.state === 'running' || undefined, onclick: () => $('self-update').click() }, icon('updates'), 'Update')
+        : el('a', { class: 'btn btn-sm', href: `https://github.com/${o.repo}/commits/${o.branch}`, target: '_blank', rel: 'noopener' }, 'Changes'),
     });
     return { updates: behind, error: c.error && !c.status ? c.error : null };
   } catch (e) {
     $('self-info').textContent = e.message;
+    $('self-panel').hidden = false;
     summaryRow('self', { state: ['bad', 'alert', "Couldn't check"] });
     return { error: e.message };
   }
