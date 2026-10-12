@@ -1663,7 +1663,10 @@ async function loadSelfUpdate(refresh) {
     $('self-info').textContent = c.error
       ? c.error
       : `From github.com/${o.repo} (${o.branch}). Checked ${fmt.relative(c.at)}; rconsole checks every 6 hours.`;
-    const u = o.update;
+    // Only a status about the installed version is news: a finished update
+    // must have ended on it, a failed one must have started from it.
+    const cur = o.current?.sha || '';
+    const u = o.update && cur && (o.update.state === 'running' || String(o.update.state === 'done' ? o.update.to : o.update.from).startsWith(cur)) ? o.update : null;
     if (u?.state === 'running') setJob($('self-status'), 'running', 'updates', `${u.message}…`);
     else if (u?.state === 'failed' && Date.now() - Date.parse(u.at) < 7 * 86400000) setJob($('self-status'), 'failed', 'alert', `Last update failed: ${u.message}`);
     else if (u?.state === 'done' && u.from !== u.to && Date.now() - Date.parse(u.at) < 86400000) {
