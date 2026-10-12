@@ -322,3 +322,9 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 - TPS uses `tps` on Paper/Spigot and `tick query` on vanilla 1.20.3+. Older vanilla versions show `n/a`.
 - Backups archive the world folders (`level-name`, plus `_nether` and `_the_end` if present) as `.tar.gz`.
 - Player avatars load from mc-heads.net.
+
+## License
+
+rconsole is source-available, not open source. You may install, run, configure and update it to manage your own Minecraft servers, for private or business use. You may not modify it, build on it, redistribute it, sell it or offer it as a (hosted) service. See [LICENSE](LICENSE) for the full terms. For anything beyond that, get in touch via [winterstetter.io](https://winterstetter.io).
+
+Versions up to commit `7f7683a` were published under the MIT License.

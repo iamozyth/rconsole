@@ -1,21 +1,92 @@
-MIT License
+rconsole License
+Version 1.0, 12 October 2026
 
-Copyright (c) 2026 iamozyth
+Copyright (c) 2026 iamozyth (winterstetter.io). All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+rconsole, including its source code, documentation, design, pictograms and
+logo (the "Software"), is the property of the copyright holder named above
+(the "Licensor"). The Software is source-available, not open source. This
+license replaces the MIT License under which earlier versions were published;
+it applies to this version and every later version of the Software.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Permitted use
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+   Subject to the terms below, the Licensor grants you a free, worldwide,
+   non-exclusive, non-transferable, revocable license to:
+
+   a) download, install and run unmodified copies of the Software to manage
+      Minecraft servers that you operate or administer, for private or
+      business purposes;
+   b) configure the Software through its documented means (environment
+      files, settings in its interface, command-line options, systemd units
+      and polkit rules as shipped or as rendered by its installer);
+   c) update the Software from the Licensor's official repository
+      (https://github.com/iamozyth/rconsole), including with its built-in
+      updater;
+   d) read the source code to evaluate, audit or troubleshoot the Software.
+
+2. Restrictions
+
+   Except as expressly permitted in section 1, you may not, and may not allow
+   others to:
+
+   a) modify, adapt, translate or create derivative works of the Software or
+      any part of it, or incorporate it into other software;
+   b) sell, resell, rent, lease, license, sublicense, or otherwise
+      commercialise the Software or access to it, including offering it, on
+      its own or bundled with other products, as a paid or hosted service to
+      third parties (for example as part of a server-hosting offer);
+   c) distribute, publish or otherwise make copies of the Software available
+      to third parties, modified or not, other than by referring them to the
+      Licensor's official repository;
+   d) remove, alter or obscure any copyright notice, this license, the
+      "Early preview" notice, or any name or logo of the Software;
+   e) use the name "rconsole", its logo or the Licensor's name to endorse or
+      promote other products without prior written permission.
+
+   Copies that a hosting platform makes as a technical consequence of its
+   own terms of service (for example a fork on GitHub) do not grant any of
+   the rights withheld above.
+
+3. Contributions
+
+   You may suggest changes to the Licensor, for example through issues or
+   pull requests on the official repository. By submitting a contribution
+   you grant the Licensor a perpetual, worldwide, irrevocable, royalty-free
+   right to use, modify, relicense and distribute it as part of the Software,
+   and you confirm that you have the right to grant it.
+
+4. Third-party components
+
+   Parts of the Software are third-party works under their own licenses,
+   which take precedence for those parts. Notably, the fonts in public/fonts
+   (Inter and JetBrains Mono) are licensed under the SIL Open Font License
+   1.1; see the license files next to them.
+
+5. Termination
+
+   This license ends automatically if you breach any of its terms. On
+   termination you must stop using the Software and delete all copies in
+   your possession. Sections 2, 5, 6 and 7 survive termination.
+
+6. No warranty, limitation of liability
+
+   The Software is provided "as is", without warranty of any kind, express
+   or implied, including but not limited to the warranties of
+   merchantability, fitness for a particular purpose and non-infringement.
+   You are responsible for your own backups. To the extent permitted by law,
+   the Licensor is not liable for any damages arising from the use of or the
+   inability to use the Software, including loss of data, worlds or revenue.
+   Liability for intent and gross negligence and mandatory statutory
+   liability remain unaffected.
+
+7. General
+
+   This license is governed by the laws of the Federal Republic of Germany,
+   excluding its conflict-of-laws rules and the UN Convention on Contracts
+   for the International Sale of Goods. If any provision is held
+   unenforceable, the remaining provisions stay in effect. Rights not
+   expressly granted are reserved by the Licensor.
+
+   For permissions beyond this license (modifications, redistribution,
+   commercial or hosting use), contact the Licensor via winterstetter.io.
