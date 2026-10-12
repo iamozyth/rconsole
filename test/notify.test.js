@@ -88,3 +88,19 @@ test('prometheus output has HELP/TYPE and skips unknown values', async () => {
   assert.doesNotMatch(text, /minecraft_process_cpu_ratio/);
   assert.doesNotMatch(text, /host_disk/);
 });
+
+test('notify: joins and leaves come from the polled player list', async () => {
+  const { server, got, url } = await ntfyServer();
+  const n = new Notify({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-notify-')) });
+  n.update({ url, events: { players: true } });
+  const ctx = (players) => ({ stats: { cache: { game: { players: { players } } } }, ops: { state: {} }, countdown: { remaining: null }, backups: { state: {} } });
+  n.onSample({ up: 1, tps: 20 }, ctx(['Alex'])); // baseline: nobody is announced
+  n.onSample({ up: 1, tps: 20 }, ctx(['Alex', 'Steve']));
+  n.onSample({ up: 1, tps: 20 }, ctx(['Steve']));
+  n.onSample({ up: 0 }, ctx(undefined)); // RCON down
+  n.onSample({ up: 1, tps: 20 }, ctx(['Steve', 'Kai'])); // new baseline, no flood
+  await settle();
+  assert.deepStrictEqual(got.map((g) => g.title).filter((t) => /joined|left/.test(t)), ['Steve joined', 'Alex left']);
+  assert.strictEqual(got.find((g) => g.title === 'Steve joined').priority, '3');
+  server.close();
+});
