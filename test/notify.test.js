@@ -104,3 +104,22 @@ test('notify: joins and leaves come from the polled player list', async () => {
   assert.strictEqual(got.find((g) => g.title === 'Steve joined').priority, '3');
   server.close();
 });
+
+test('notify: Paper 26 "System chat:" join lines alert at once, without duplicates from the list', async () => {
+  const { server, got, url } = await ntfyServer();
+  const n = new Notify({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-notify-')) });
+  n.update({ url, events: { players: true } });
+  const ctx = (players) => ({ stats: { cache: { game: { players: { players } } } }, ops: { state: {} }, countdown: { remaining: null }, backups: { state: {} } });
+  n.onSample({ up: 1, tps: 20 }, ctx([]));
+  n.onLogLine('[12:05:07] [User Authenticator #0/INFO]: UUID of player NXZET is d6837fe0-a88e-405d-ae5a-68a96f883729');
+  n.onLogLine('[12:05:08] [Server thread/INFO]: System chat: NXZET joined the game');
+  n.onSample({ up: 1, tps: 20 }, ctx(['NXZET'])); // list agrees: no second alert
+  n.onLogLine('[12:05:38] [Server thread/INFO]: NXZET lost connection: Disconnected');
+  n.onLogLine('[12:05:38] [Server thread/INFO]: System chat: NXZET left the game');
+  n.onLogLine('[12:07:46] [Server thread/INFO]: FishNet (/176.65.149.198:61000) lost connection: Disconnected');
+  n.onLogLine('[12:08:00] [Async Chat Thread - #0/INFO]: <NXZET> Bob joined the game');
+  n.onSample({ up: 1, tps: 20 }, ctx([]));
+  await settle();
+  assert.deepStrictEqual(got.map((g) => g.title), ['NXZET joined', 'NXZET left']);
+  server.close();
+});

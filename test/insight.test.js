@@ -115,3 +115,11 @@ test('audit drops secrets, filters and returns newest first', async () => {
   assert.strictEqual((await a.query({ failed: true })).entries.length, 1);
   assert.strictEqual((await a.query({ action: 'world' })).entries[0].target, 'old');
 });
+
+test('player history reads Paper 26 "System chat:" joins', () => {
+  const { pickEvent } = require('../lib/players');
+  const ev = (l) => pickEvent(parseLine(l));
+  assert.deepStrictEqual(ev('[12:05:08] [Server thread/INFO]: System chat: NXZET joined the game'), { type: 'join', name: 'NXZET', extra: undefined });
+  assert.deepStrictEqual(ev('[12:05:38] [Server thread/INFO]: System chat: NXZET left the game'), { type: 'leave', name: 'NXZET', extra: undefined });
+  assert.strictEqual(ev('[12:08:00] [Async Chat Thread - #0/INFO]: <NXZET> System chat: Bob joined the game'), undefined);
+});

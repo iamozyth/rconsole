@@ -744,6 +744,7 @@ scheduler.load().then(() => {
   logTail.start();
   metrics.start();
   metrics.onSample((sample) => notify.onSample(sample, { stats, ops, countdown, backups }));
+  logTail.on('line', (line) => notify.onLogLine(line));
   const updateCheck = () => notify.checkUpdates({ updates, plugins, selfUpdate }).catch((err) => log(`notify: ${err.message}`));
   setTimeout(updateCheck, 5 * 60 * 1000).unref();
   setInterval(updateCheck, 24 * 3600 * 1000).unref();
