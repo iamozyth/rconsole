@@ -1,40 +1,40 @@
-# rconsole
+<p align="center">
+  <img src="docs/logo.svg" width="72" height="72" alt="rconsole logo">
+</p>
+
+<h1 align="center">rconsole</h1>
+
+<p align="center">
+  <b>A self-hosted web console for your Minecraft server.</b><br>
+  Live console, players, worlds, backups, updates, plugins and alerts in one fast, secure page, built for Paper, Spigot, Fabric, Forge and vanilla.
+</p>
+
+<p align="center">
+  <a href="#quick-install"><img alt="Install in one command" src="https://img.shields.io/badge/install-one%20command-7c3aed"></a>
+  <a href="https://github.com/iamozyth/rconsole/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/iamozyth/rconsole/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/iamozyth/rconsole/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/iamozyth/rconsole?color=7c3aed"></a>
+  <img alt="Node.js 18+" src="https://img.shields.io/badge/node-%E2%89%A518-339933">
+  <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen">
+  <img alt="Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge, vanilla" src="https://img.shields.io/badge/servers-Paper%20%C2%B7%20Spigot%20%C2%B7%20Fabric%20%C2%B7%20Forge%20%C2%B7%20vanilla-555">
+  <a href="LICENSE"><img alt="License: PolyForm Strict 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Strict-555"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-install">Quick install</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#documentation">Documentation</a> ·
+  <a href="#faq">FAQ</a>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/console.webp" alt="rconsole: live server console with command autocomplete, online players and quick actions" width="900">
+</p>
+
+rconsole turns RCON and your server's own files into a polished admin panel. It installs next to an existing server in one command, needs nothing but Node.js, and keeps the server's files out of its reach: everything that changes them runs as the Minecraft user in sandboxed jobs.
 
 > [!WARNING]
-> **Early preview, vibe-coded.** rconsole was written almost entirely by an AI coding assistant (Claude Code) in a few sessions, with a human steering, reviewing and testing it on one homelab server. It has automated tests and was checked against a real Paper server, but it has not had an independent security review or wide real-world use. Expect rough edges and breaking changes. Run it on a trusted network, keep your own backups, and read the code before you give it control of a server you care about.
-
-A lightweight web console for managing a Minecraft server over RCON. No dependencies, Node.js 18+.
-
-- **Console**: live server log (chat, joins, warnings, errors) with filter and chat-only view, plus a command prompt with history (↑/↓) and autocomplete: commands with descriptions and syntax, subcommands, online/whitelisted/banned players, game modes, game rules (Tab to complete, Ctrl+Space to list). Plugin commands are discovered from the server's `help`.
-- **Command palette**: Ctrl+K (⌘K) to jump to any view, run actions (restart, backup, maintenance, update checks…) or pick a Minecraft command
-- **Stats**: TPS/MSPT, players, in-game day and time, host CPU, RAM, disk and uptime
-- **Players**: whitelist (with on/off switch), operators, banned players and IPs, with one-click add and remove; history of everyone who played (sessions, playtime, last IP, daily activity) built from the server logs
-- **Server**: start, stop and restart the Minecraft service with in-game countdowns; maintenance mode (only operators can join, whitelist restored afterwards)
-- **Worlds**: switch between worlds, create new ones (seed, type), delete with an automatic archive
-- **Backups**: per-world backups (autosave paused during the copy), download, delete, per-world retention, and restore, either over a world (with a safety backup, stopping the server if needed) or as a new world
-- **Insights**: 24 h and 7 day charts of TPS, players, CPU and memory (host and Minecraft process) with downtime marked; search across `latest.log` and all rotated `.log.gz` files; a filterable audit trail of every change and sign-in
-- **Notifications**: push alerts through [ntfy](https://ntfy.sh): server down/up, lag, failed backups and tasks, low disk, new updates, sign-in lockouts, optionally joins
-- **Map**: squaremap (or BlueMap) inside rconsole, behind your sign-in and isolated from it
-- **Prometheus**: `/metrics` with a bearer token
-- **Schedule**: daily or weekly restarts with in-game countdown warnings, backups and arbitrary commands
-- **Settings**: edit `server.properties` through a typed form with a review step; difficulty, game mode and whitelist apply live, everything else is flagged "restart to apply"
-- **Plugins**: identify installed jars on Modrinth by hash, update (with rollback), enable/disable, remove, and search and install new plugins for your Minecraft version, SHA-512 verified
-- **Updates**: Paper/Folia build and Minecraft version updates from PaperMC, SHA-256 verified, with automatic backup, countdown restart and one-click rollback
-- **Security**: user accounts with scrypt-hashed passwords, optional TOTP 2FA, session cookies, brute-force lockout, audit log, strict CSP, sandboxed systemd service
-
-## Security model
-
-- **Accounts** live in `/var/lib/rconsole/users.json` with scrypt password hashes. They're managed with `cli.js` on the server only; there is no web signup.
-- **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days, and are revoked when the password changes or the user is removed. Sessions are kept in memory, so restarting rconsole signs everyone out.
-- **2FA**: optional TOTP per user, with replay protection.
-- **Brute force**: 5 failed logins per client IP or per username within 15 minutes lock that IP or name for 15 minutes.
-- **Cross-site requests**: state-changing requests must be same-origin and JSON.
-- **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.
-- **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
-- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
-- **polkit** lets the `rconsole` user start exactly these job units and start/stop/restart `minecraft.service`, nothing else. Signed-in users are full admins: RCON commands and plugin installs (from Modrinth) run with the Minecraft server's rights by design. rconsole itself can't make the helper write outside its fixed job types, and updates only install downloads whose hash matches the publisher's API.
-
-rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below) and set `TRUST_PROXY` to the proxy's IP, so client IPs and `Secure` cookies are correct. For defence in depth, firewall port 80 so only the proxy can reach it.
+> **Early preview.** rconsole was written largely with an AI coding assistant (Claude Code), with a human steering, reviewing and testing it on a real Paper server. It has automated tests but no independent security review yet. Run it on a trusted network or behind a TLS proxy, keep your own backups, and expect breaking changes.
 
 ## Quick install
 
@@ -43,6 +43,89 @@ On a Debian or Ubuntu host where your Minecraft server already runs as a systemd
 ```sh
 curl -fsSL https://raw.githubusercontent.com/iamozyth/rconsole/main/install.sh | sudo bash
 ```
+
+Then open `http://<your-server>:8080` and sign in. The installer explains each step before it changes anything; [details below](#what-the-installer-does).
+
+## Features
+
+**Console and control**
+- **Live console**: the server log as it happens, filterable, with a chat-and-joins view and a command prompt with history and **autocomplete** for commands, subcommands, players, game modes and game rules, including plugin commands.
+- **Command palette** (Ctrl/⌘ K): jump anywhere, run any action, or type a Minecraft command.
+- **Server power**: start, stop and restart with in-game countdowns; **maintenance mode** that lets only operators in and restores the whitelist afterwards.
+- **Health at a glance**: TPS and MSPT, players, game time, CPU, memory, disk and uptime.
+
+**Players and security**
+- Whitelist, operators, bans and IP bans with one click.
+- **Player history** from your logs: sessions, playtime, last IP, daily activity.
+- **Scanner detection**: spots bots probing your server, explains what to do, and offers a ban or a ready-made firewall rule.
+
+**Worlds and backups**
+- Switch worlds, create new ones (seed and type), delete with an automatic archive.
+- Per-world **backups** with autosave paused during the copy, retention, download, and **restore** over a world or as a new one.
+- **Schedule** restarts, backups and commands, daily or weekly.
+
+**Updates and plugins**
+- **One check for everything**: rconsole itself, the server software and your plugins or mods.
+- **Server updates** for Paper and Folia, SHA-256 verified. Players are warned, then disconnected; the world is backed up while nobody plays; the server starts on the new build. One-click rollback.
+- **Plugins and mods from Modrinth**: identify installed jars, update with rollback, enable, disable, search and install, SHA-512 verified.
+- **Settings editor** for `server.properties` with a review step; live where Minecraft allows it.
+- **Self-update** with automatic rollback if the new version doesn't start.
+
+**Insights and integrations**
+- 24-hour and 7-day **charts** of TPS, players, CPU and memory, with downtime marked.
+- **Log search** across `latest.log` and every rotated `.log.gz`.
+- **Audit trail** of every change and sign-in.
+- **Push notifications** through [ntfy](https://ntfy.sh): server down, lag, failed backups, updates, scanners, joins, with one-tap actions and quiet hours.
+- **Map**: squaremap or BlueMap inside rconsole, behind your sign-in.
+- **Prometheus** `/metrics` endpoint.
+
+**Works with** Paper, Purpur, Folia, Spigot, Bukkit, Fabric, Quilt, Forge, NeoForge and vanilla. rconsole detects the server software and adapts plugins, mods and updates to it.
+
+**Secure by design**: accounts with scrypt hashes and optional TOTP 2FA, brute-force lockout, strict Content Security Policy, a sandboxed systemd service with read-only access to your server, and privileged work done only through fixed, validated helper jobs. See [Security model](#security-model).
+
+## Screenshots
+
+| | |
+|---|---|
+| <img src="docs/screenshots/updates.webp" alt="One check for rconsole, server software and plugin updates"><br><sub>**Updates**: one check for rconsole, the server and plugins</sub> | <img src="docs/screenshots/insights.webp" alt="TPS, players, CPU and memory charts"><br><sub>**Insights**: TPS, players, CPU and memory over 24 h or 7 days</sub> |
+| <img src="docs/screenshots/security.webp" alt="Unknown connection attempts with ban and firewall options"><br><sub>**Security**: scanners spotted, with advice and one-click bans</sub> | <img src="docs/screenshots/worlds.webp" alt="Worlds and backups"><br><sub>**Worlds**: switch, create, back up and restore</sub> |
+| <img src="docs/screenshots/settings.webp" alt="server.properties editor"><br><sub>**Settings**: `server.properties` as a typed form</sub> | <img src="docs/screenshots/palette.webp" alt="Command palette"><br><sub>**Command palette**: Ctrl/⌘ K for everything</sub> |
+| <img src="docs/screenshots/players-light.webp" alt="Player history in the light theme"><br><sub>**Player history**, in the light theme</sub> | <img src="docs/screenshots/login.webp" alt="Sign-in page"><br><sub>**Sign-in** with optional two-step verification</sub> |
+
+<p align="center">
+  <img src="docs/screenshots/mobile.webp" alt="rconsole on a phone: console, players and server" width="720"><br>
+  <sub>Made for phones too: every view works on a small screen.</sub>
+</p>
+
+## Requirements
+
+- Linux with systemd: Debian or Ubuntu for the installer (developed on Debian); other distributions with the manual setup.
+- Node.js 18 or newer (installed automatically if missing).
+- A Minecraft server running as a systemd service under its own user. Java Edition: Paper, Purpur, Folia, Spigot, Bukkit, Fabric, Quilt, Forge, NeoForge or vanilla.
+- RCON (the installer turns it on).
+
+## FAQ
+
+**How is rconsole different from Pterodactyl, Crafty Controller or AMP?**
+Those are hosting panels: they install and run servers for you, often in containers, and bring their own databases and daemons. rconsole is the opposite: a single small Node.js process that attaches to the server you already run, with no database and no dependencies. It is for people who run one server (a homelab, friends, a community) and want a great console for it, not a hosting platform.
+
+**Does it work with Bedrock?**
+No. rconsole speaks Java Edition RCON and reads Java server files.
+
+**Is it safe to expose to the internet?**
+Put it behind a TLS reverse proxy (see [Traefik](#traefik)) or reach it over a VPN. Sign-ins have 2FA and brute-force protection, but rconsole is an admin tool: whoever signs in can run any server command.
+
+**Can I use it for my business or hosting company?**
+Not under the default license; see [License](#license) and ask for a commercial license.
+
+## Documentation
+
+- [What the installer does](#what-the-installer-does) · [Manual setup](#setup-on-debian-manual) · [Configuration](#configuration) · [Traefik / HTTPS](#traefik)
+- [Updating rconsole](#updating) · [Server updates](#updates) · [Plugins](#plugins) · [Server software](#server-software)
+- [Insights](#insights) · [Connection attempts](#connection-attempts) · [Notifications](#notifications) · [Prometheus](#prometheus) · [Map](#map)
+- [Security model](#security-model) · [Upgrading from 1.x](#upgrading-from-1x-rconsole-backup--rconsole-update) · [Notes](#notes) · [License](#license)
+
+## What the installer does
 
 The installer finds the server (its service, folder, user, jar and software: Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge or vanilla) and shows what it found before changing anything. Then it:
 
@@ -320,6 +403,20 @@ sudo systemctl daemon-reload && sudo systemctl restart rconsole
 ```
 
 Old `world-<date>.tar.gz` backups keep working; new ones are named after their world.
+
+## Security model
+
+- **Accounts** live in `/var/lib/rconsole/users.json` with scrypt password hashes. They're managed with `cli.js` on the server only; there is no web signup.
+- **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days, and are revoked when the password changes or the user is removed. Sessions are kept in memory, so restarting rconsole signs everyone out.
+- **2FA**: optional TOTP per user, with replay protection.
+- **Brute force**: 5 failed logins per client IP or per username within 15 minutes lock that IP or name for 15 minutes.
+- **Cross-site requests**: state-changing requests must be same-origin and JSON.
+- **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.
+- **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
+- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
+- **polkit** lets the `rconsole` user start exactly these job units and start/stop/restart `minecraft.service`, nothing else. Signed-in users are full admins: RCON commands and plugin installs (from Modrinth) run with the Minecraft server's rights by design. rconsole itself can't make the helper write outside its fixed job types, and updates only install downloads whose hash matches the publisher's API.
+
+rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below) and set `TRUST_PROXY` to the proxy's IP, so client IPs and `Secure` cookies are correct. For defence in depth, firewall port 80 so only the proxy can reach it.
 
 ## Notes
 
