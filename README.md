@@ -226,12 +226,16 @@ Set `SELF_UPDATE_CHECK=0` in `/etc/rconsole.env` to turn off the background chec
 
 ## Updates
 
-The **Updates** tab reads the running Paper version from the server log and lists newer builds for that Minecraft version, plus newer Minecraft versions. An update:
+The **Updates** tab has one **Check for updates** button for everything: rconsole itself, the server software (Paper and Folia builds and newer Minecraft versions), and plugins or mods from Modrinth. A server update keeps every player's progress:
 
-1. backs up the world (optional, on by default),
-2. downloads the build from PaperMC and checks its SHA-256 against the API,
-3. swaps the jar, keeping the old one as `paper.jar.previous`,
-4. restarts the server with the usual in-game countdown.
+1. players get the usual in-game countdown,
+2. when it ends, everyone is disconnected and the server stops,
+3. the world is backed up while nobody plays (optional, on by default),
+4. the build is downloaded from PaperMC and its SHA-256 checked against the API,
+5. the jar is swapped, keeping the old one as `paper.jar.previous`,
+6. the server starts again, on the old jar if anything above failed.
+
+Cancelling the countdown leaves everything as it was. Without control over the Minecraft service (no polkit rule) rconsole disconnects everyone, backs up with saving paused, swaps the jar and stops the server for systemd to restart.
 
 **Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
 

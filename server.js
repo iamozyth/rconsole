@@ -54,7 +54,7 @@ const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs
 const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
 const pending = new Pending({ stateDir: config.stateDir, power });
 const platform = platformLib.detector(config.mcDir);
-const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform });
+const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon });
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform });
 const commandCatalog = new CommandCatalog({ rcon, log });

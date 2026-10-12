@@ -487,10 +487,21 @@
       </div>
 
       <div class="view" data-view="updates" hidden>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Updates</h2><p class="note" id="upd-checked">rconsole also checks on its own every 6 hours.</p></div>
+            <button class="btn" id="upd-check"><svg><use href="#pg-refresh"/></svg>Check for updates</button>
+          </header>
+          <ul class="upd-summary">
+            <li><span class="sum-what"><b>rconsole</b><span class="sub" id="sum-self-ver">–</span></span><span class="sum-state" id="sum-self-state"></span><span class="sum-act" id="sum-self-act"></span></li>
+            <li id="sum-server"><span class="sum-what"><b id="sum-server-name">Server software</b><span class="sub" id="sum-server-ver">–</span></span><span class="sum-state" id="sum-server-state"></span><span class="sum-act" id="sum-server-act"></span></li>
+            <li id="sum-plugins"><span class="sum-what"><b id="sum-plugins-name">Plugins</b><span class="sub" id="sum-plugins-ver">–</span></span><span class="sum-state" id="sum-plugins-state"></span><span class="sum-act" id="sum-plugins-act"></span></li>
+          </ul>
+        </section>
+
         <section class="panel self-panel">
           <header class="panel-head">
             <div class="head-text"><h2>rconsole</h2><p class="note" id="self-info">Checking…</p></div>
-            <button class="btn" id="self-refresh"><svg><use href="#pg-refresh"/></svg>Check</button>
             <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update rconsole</button>
           </header>
           <div class="panel-body stack">
@@ -501,10 +512,9 @@
           </div>
         </section>
 
-      <section class="panel">
+        <section class="panel">
           <header class="panel-head">
-            <div class="head-text"><h2>Installed</h2></div>
-            <button class="btn" id="upd-refresh"><svg><use href="#pg-refresh"/></svg>Check for updates</button>
+            <div class="head-text"><h2>Server software</h2><p class="note">Updates warn players, then disconnect everyone and stop the server. The world is backed up while nobody plays, the new jar goes in, and the server starts again.</p></div>
           </header>
           <div class="panel-body installed">
             <div class="version"><span id="upd-current">–</span><span class="pill" id="upd-channel" hidden></span></div>
@@ -512,11 +522,11 @@
             <div class="job" id="upd-status" hidden></div>
             <div class="update-options">
               <label class="check"><input type="checkbox" id="upd-backup" checked><span>Back up the world first</span></label>
-              <label class="inline-fld"><span>Restart</span>
+              <label class="inline-fld"><span>Warn players</span>
                 <select class="field" id="upd-delay">
-                  <option value="10">In 10 seconds</option>
-                  <option value="60" selected>In 1 minute</option>
-                  <option value="300">In 5 minutes</option>
+                  <option value="10">10 seconds ahead</option>
+                  <option value="60" selected>1 minute ahead</option>
+                  <option value="300">5 minutes ahead</option>
                 </select>
               </label>
               <button class="btn btn-quiet" id="upd-rollback" hidden><svg><use href="#pg-rollback"/></svg>Roll back to previous jar</button>

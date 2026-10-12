@@ -62,8 +62,10 @@ const fmt = {
   relative(iso) {
     if (!iso) return '';
     const diff = (new Date(iso) - Date.now()) / 1000;
-    const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+    // English like the rest of the interface; dates keep the browser's locale.
+    const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
     const abs = Math.abs(diff);
+    if (abs < 45) return diff < 0 ? 'just now' : 'in a moment';
     if (abs < 60) return rtf.format(Math.round(diff), 'second');
     if (abs < 3600) return rtf.format(Math.round(diff / 60), 'minute');
     if (abs < 86400) return rtf.format(Math.round(diff / 3600), 'hour');
@@ -1599,7 +1601,7 @@ async function startUpdate(body, opts) {
   const backup = $('upd-backup').checked && !body.rollback;
   const ok = await confirmAction({
     ...opts,
-    body: `${opts.body ? `${opts.body}\n\n` : ''}${backup ? 'The world is backed up first. ' : ''}Players are warned, then the server restarts in ${restart}.`,
+    body: `${opts.body ? `${opts.body}\n\n` : ''}Players are warned now; in ${restart} everyone is disconnected and the server stops. ${backup ? 'The world is backed up while nobody plays, then the' : 'The'} new jar goes in and the server starts again.`,
   });
   if (!ok) return;
   try {
@@ -1613,10 +1615,9 @@ async function startUpdate(body, opts) {
 
 async function loadUpdates(refresh) {
   if (!updatesLoaded) { skeletonRows($('upd-builds'), 4); skeletonRows($('upd-versions'), 2); }
-  const refreshBtn = $('upd-refresh');
-  refreshBtn.setAttribute('aria-busy', 'true');
   try {
     const o = await api('GET', `/api/updates${refresh ? '?refresh' : ''}`);
+    renderServerSummary(o);
     updatesLoaded = true;
     const name = o.platform?.name || 'Server';
     for (const id of ['upd-builds', 'upd-versions']) $(id).closest('.panel').hidden = !o.supported;
@@ -1637,7 +1638,6 @@ async function loadUpdates(refresh) {
     $('upd-channel').replaceChildren(icon(latest ? 'check' : 'updates'), latest ? 'Latest build' : `${o.newerBuilds.length} update${o.newerBuilds.length === 1 ? '' : 's'} available`);
     $('upd-rollback').hidden = !o.canRollback;
     renderUpdateState(o.state);
-    if (refresh) toast(o.error ? `Couldn't check for updates: ${o.error}` : latest ? 'You are on the latest build.' : 'New builds available.', o.error ? 'bad' : 'ok');
 
     $('upd-builds').replaceChildren(...(o.newerBuilds.length
       ? o.newerBuilds.map((b, i) => el('tr', {},
@@ -1655,13 +1655,75 @@ async function loadUpdates(refresh) {
           el('td', { class: 'primary-cell', 'data-label': 'Version' }, `Minecraft ${v}`),
           el('td', { class: 'act' }, el('button', { class: 'btn btn-sm', 'data-update': true, disabled: updateBusy || undefined, onclick: (e) => upgradeVersion(v, e.currentTarget) }, icon('updates'), 'Upgrade…'))))
       : [emptyRow(2, o.current ? `Minecraft ${o.current.version} is the newest version Paper supports.` : '–')]));
+    return { updates: o.newerBuilds.length, error: o.error };
   } catch (e) {
     $('upd-source').textContent = e.message;
-  } finally {
-    refreshBtn.removeAttribute('aria-busy');
+    summaryRow('server', { state: ['bad', 'alert', "Couldn't check"] });
+    return { error: e.message };
   }
 }
-viewLoaders['server/updates'] = () => { loadUpdates(); loadSelfUpdate(); };
+
+// One overview row per component: what is installed, its state, one action.
+function summaryRow(key, { version, state, action }) {
+  if (version !== undefined) $(`sum-${key}-ver`).textContent = version;
+  const [tone, ic, text] = state;
+  $(`sum-${key}-state`).replaceChildren(el('span', { class: `pill ${tone}` }, icon(ic), text));
+  $(`sum-${key}-act`).replaceChildren(...(action ? [action] : []));
+}
+
+function renderServerSummary(o) {
+  const name = o.platform?.name || 'Server software';
+  $('sum-server-name').textContent = name;
+  const version = o.current ? `${o.current.version}${o.current.build ? ` · build ${o.current.build}` : ''}` : 'Version not known yet';
+  if (!o.supported) return summaryRow('server', { version, state: ['', 'settings', 'Updated by hand'] });
+  if (o.error) return summaryRow('server', { version, state: ['bad', 'alert', "Can't reach PaperMC"] });
+  const newest = o.newerBuilds[0];
+  if (!newest) return summaryRow('server', { version, state: ['ok', 'check', 'Up to date'] });
+  summaryRow('server', {
+    version,
+    state: ['own', 'updates', `Build ${newest.id} available`],
+    action: el('button', { class: 'btn btn-sm btn-primary', 'data-update': true, disabled: updateBusy || undefined,
+      onclick: () => startUpdate({ version: o.current.version, build: newest.id }, { title: `Update to build ${newest.id}?`, body: `${name} ${o.current.version} #${o.current.build} → #${newest.id}. The previous jar is kept for rollback.`, confirm: 'Update', icon: 'updates' }) },
+      icon('updates'), 'Update'),
+  });
+}
+
+async function loadPluginSummary(refresh) {
+  try {
+    const o = await api('GET', `/api/plugins${refresh ? '?refresh' : ''}`);
+    $('sum-plugins').hidden = !o.addons; // vanilla: no plugins or mods
+    if (!o.addons) return {};
+    const label = o.addons.dir === 'mods' ? 'Mods' : 'Plugins';
+    $('sum-plugins-name').textContent = label;
+    const n = o.plugins.filter((p) => p.update).length;
+    const version = `${o.plugins.length} installed`;
+    const review = el('button', { class: 'btn btn-sm', onclick: () => showTab('server/plugins') }, n ? 'Review' : 'Manage');
+    if (o.remoteError) summaryRow('plugins', { version, state: ['bad', 'alert', "Can't reach Modrinth"], action: review });
+    else summaryRow('plugins', { version, state: n ? ['own', 'updates', `${n} update${n === 1 ? '' : 's'} available`] : ['ok', 'check', 'Up to date'], action: review });
+    return { updates: n, error: o.remoteError };
+  } catch (e) {
+    summaryRow('plugins', { state: ['bad', 'alert', "Couldn't check"] });
+    return { error: e.message };
+  }
+}
+
+// The one "Check for updates": rconsole, server software and plugins at once.
+async function checkAll(refresh) {
+  const btn = $('upd-check');
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    const [self, server, addons] = await Promise.all([loadSelfUpdate(refresh), loadUpdates(refresh), loadPluginSummary(refresh)]);
+    $('upd-checked').textContent = `Checked at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. rconsole also checks on its own every 6 hours.`;
+    if (!refresh) return;
+    const errors = [self, server, addons].filter((x) => x?.error).length;
+    const due = [['rconsole', self], [$('sum-server-name').textContent, server], [$('sum-plugins-name').textContent.toLowerCase(), addons]].filter(([, x]) => x?.updates).map(([name]) => name);
+    const list = due.length > 1 ? `${due.slice(0, -1).join(', ')} and ${due.at(-1)}` : due[0];
+    toast(errors ? `Checked, but ${errors} source${errors === 1 ? '' : 's'} could not be reached.` : due.length ? `Updates available for ${list}.` : 'Everything is up to date.', errors ? 'bad' : 'ok');
+  } finally {
+    btn.removeAttribute('aria-busy');
+  }
+}
+viewLoaders['server/updates'] = () => checkAll(false);
 // ---------------------------------------------------------------------------
 // rconsole's own updates
 // ---------------------------------------------------------------------------
@@ -1686,8 +1748,6 @@ function renderSelfSummary(self) {
 }
 
 async function loadSelfUpdate(refresh) {
-  const btn = $('self-refresh');
-  btn.setAttribute('aria-busy', 'true');
   try {
     const o = await api('GET', `/api/self-update${refresh ? '?refresh' : ''}`);
     const c = o.check || {};
@@ -1698,7 +1758,7 @@ async function loadSelfUpdate(refresh) {
     $('self-pill').replaceChildren(icon(behind ? 'updates' : 'check'), behind ? `${behind} new commit${behind === 1 ? '' : 's'}` : c.status === 'diverged' ? 'Diverged from GitHub' : 'Up to date');
     $('self-info').textContent = c.error
       ? c.error
-      : `From github.com/${o.repo} (${o.branch}). Checked ${fmt.relative(c.at)}; rconsole checks every 6 hours.`;
+      : `From github.com/${o.repo} (${o.branch}), last checked ${fmt.relative(c.at)}.`;
     // Only a status about the installed version is news: a finished update
     // must have ended on it, a failed one must have started from it.
     const cur = o.current?.sha || '';
@@ -1717,15 +1777,19 @@ async function loadSelfUpdate(refresh) {
     $('self-note').hidden = !behind;
     $('self-update').disabled = !o.canUpdate || u?.state === 'running';
     $('self-update').title = o.canUpdate ? '' : 'Needs the systemd install (see README)';
-    if (refresh) toast(c.error ? `Couldn't check: ${c.error}` : behind ? `${behind} new commit${behind === 1 ? '' : 's'} for rconsole.` : 'rconsole is up to date.', c.error ? 'bad' : 'ok');
+    summaryRow('self', {
+      version: o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Unknown version',
+      state: c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
+      action: behind && o.canUpdate ? el('button', { class: 'btn btn-sm btn-primary', disabled: u?.state === 'running' || undefined, onclick: () => $('self-update').click() }, icon('updates'), 'Update') : null,
+    });
+    return { updates: behind, error: c.error && !c.status ? c.error : null };
   } catch (e) {
     $('self-info').textContent = e.message;
-  } finally {
-    btn.removeAttribute('aria-busy');
+    summaryRow('self', { state: ['bad', 'alert', "Couldn't check"] });
+    return { error: e.message };
   }
 }
 
-$('self-refresh').addEventListener('click', () => loadSelfUpdate(true));
 $('self-update').addEventListener('click', async (e) => {
   const btn = e.currentTarget;
   if (!(await confirmAction({
@@ -1776,7 +1840,7 @@ async function upgradeVersion(version, btn) {
   }
 }
 
-$('upd-refresh').addEventListener('click', () => loadUpdates(true));
+$('upd-check').addEventListener('click', () => checkAll(true));
 $('upd-rollback').addEventListener('click', () => startUpdate({ rollback: true }, { title: 'Roll back to the previous jar?', body: 'Swaps the server jar back to the one before the last update.', confirm: 'Roll back', tone: 'primary', icon: 'rollback' }));
 
 // ---------------------------------------------------------------------------
@@ -2324,8 +2388,7 @@ function paletteActions() {
   act(lastStatus?.maintenance?.enabled ? 'Turn off maintenance mode' : 'Turn on maintenance mode…', 'maintenance', 'maintenance lock whitelist', () => { showTab('server/overview'); $('maint-toggle').click(); });
   act('Back up the active world', 'backups', 'backup save snapshot', () => { showTab('worlds'); $('backup-now').click(); });
   act('Create a new world…', 'worlds', 'new world create generate', () => { showTab('worlds'); toggleWorldForm(true); });
-  act('Check for Paper updates', 'updates', 'paper update upgrade version', () => { showTab('server/updates'); loadUpdates(true); });
-  act('Check for rconsole updates', 'updates', 'rconsole self update version upgrade', () => { showTab('server/updates'); loadSelfUpdate(true); });
+  act('Check for updates', 'updates', 'update upgrade version paper rconsole plugins mods self', () => { showTab('server/updates'); checkAll(true); });
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
   act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist', () => showTab('players/security'));
