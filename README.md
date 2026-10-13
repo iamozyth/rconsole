@@ -117,6 +117,9 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 **How is rconsole different from Pterodactyl, Crafty Controller or AMP?**
 Those are hosting panels: they install and run servers for you, often in containers, and bring their own databases and daemons. rconsole is the opposite: a single small Node.js process that attaches to the server you already run, with no database and no dependencies. It is for people who run one server (a homelab, friends, a community) and want a great console for it, not a hosting platform.
 
+**How much does it take from the server?**
+Very little. rconsole idles at about 70 MB of memory and well under 1% of one core. With the dashboard open it sends roughly ten RCON commands a minute (TPS every 10 s, the player list every 30 s or on a join or leave, the game time once a minute); a tab in the background sends none. Its systemd units give Minecraft priority: rconsole runs with a lower CPU and disk weight and a memory ceiling, and backups, restores and downloads only use what the server leaves over.
+
 **Does it work with Bedrock?**
 No. rconsole speaks Java Edition RCON and reads Java server files.
 

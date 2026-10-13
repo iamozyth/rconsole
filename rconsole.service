@@ -15,6 +15,13 @@ Environment=UV_USE_IO_URING=0
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=5
+# Minecraft comes first: rconsole gets a fraction of the CPU and disk when
+# both want them, and a memory ceiling well above what it needs (~70 MB).
+Nice=5
+CPUWeight=30
+IOWeight=30
+MemoryHigh=256M
+MemoryMax=512M
 
 # Users and scheduled tasks live in /var/lib/rconsole.
 StateDirectory=rconsole

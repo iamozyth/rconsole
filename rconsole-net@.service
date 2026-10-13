@@ -13,6 +13,11 @@ EnvironmentFile=/etc/rconsole.env
 Environment=UV_USE_IO_URING=0
 ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js job %i
 TimeoutStartSec=15min
+# Downloads (plugins, server jars, offsite copies) run beside the server.
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=10
+IOWeight=10
 
 ReadWritePaths=/srv/minecraft /srv/minecraft-backups
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

@@ -13,8 +13,13 @@ EnvironmentFile=/etc/rconsole.env
 Environment=UV_USE_IO_URING=0
 ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js job %i
 TimeoutStartSec=60min
+# Backups and restores compress and copy a whole world: they get what the
+# server leaves over. Nice only ranks processes inside one unit; the
+# weights rank this unit against minecraft.service.
 Nice=10
 IOSchedulingClass=idle
+CPUWeight=10
+IOWeight=10
 
 ReadWritePaths=/srv/minecraft /srv/minecraft-backups
 RestrictAddressFamilies=AF_UNIX

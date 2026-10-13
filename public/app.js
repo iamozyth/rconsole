@@ -819,8 +819,12 @@ async function refreshStatus(soon) {
     $('conn').dataset.state = 'down';
     $('status').textContent = e.message;
   }
-  statusTimer = setTimeout(refreshStatus, 5000);
+  // A tab in the background doesn't poll; it catches up when shown again.
+  if (!document.hidden) statusTimer = setTimeout(refreshStatus, 5000);
 }
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshStatus();
+});
 
 $('restart-start').addEventListener('click', async (e) => {
   const btn = e.currentTarget; // reset to null once the handler awaits

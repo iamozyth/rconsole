@@ -483,7 +483,9 @@ route('POST', /^\/api\/command$/, async (req) => {
   if (req.role === 'moderator' && !MODERATOR_COMMANDS.has(commandName(cmd))) throw httpError(403, `Moderators can't run /${commandName(cmd)}`);
   if (req.role === 'moderator' && commandName(cmd) === 'whitelist' && /^\S+\s+(on|off|reload)\b/i.test(cmd)) throw httpError(403, 'Moderators can add and remove players, not switch the whitelist');
   log(`${req.user}: /${cmd}`);
-  return { output: await rcon.send(cmd) };
+  const output = await rcon.send(cmd);
+  stats.invalidate(); // the header shows the effect (time set, kick…) on the next poll
+  return { output };
 });
 
 // Web chat: a message to everyone or one player, shown in game as
@@ -904,6 +906,9 @@ scheduler.load().then(() => {
   selfUpdate.startTimer();
   playerHistory.history().then((h) => scanners.seed(h)).catch((err) => log(`players: ${err.message}`)); // backfill from old logs
   logTail.on('line', (line) => scanners.onLogLine(line));
+  logTail.on('line', (line) => {
+    if (/ (joined|left) the game$| lost connection: /.test(line)) stats.invalidate('players');
+  });
   server.listen(config.webPort, config.webHost, () => {
     log(`rconsole listening on http://${config.webHost}:${config.webPort}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
