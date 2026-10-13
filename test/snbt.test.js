@@ -17,3 +17,14 @@ test('snbt: values, nesting, typed arrays and quoting', () => {
   assert.strictEqual(entityData('No entity was found'), undefined);
   assert.throws(() => parse('{a: [1, 2}'), /SNBT/);
 });
+
+test('snbt: unknown syntax is skipped and reported, the rest survives', () => {
+  const { parse } = require('../lib/snbt');
+  const t = '[{Slot: 0b, components: {"minecraft:damage": 12, odd: bool(1), "minecraft:x": {k: uuid("a,b")}}, count: 1, id: "minecraft:iron_pickaxe"}, {Slot: 1b, count: 64, id: "minecraft:stone"}]';
+  const seen = [];
+  const v = parse(t, { onSkip: (around) => seen.push(around) });
+  assert.deepStrictEqual(v.map((x) => [x.Slot, x.id, x.count]), [[0, 'minecraft:iron_pickaxe', 1], [1, 'minecraft:stone', 64]]);
+  assert.strictEqual(v[0].components['minecraft:damage'], 12);
+  assert.ok(seen.length >= 1 && seen.some((s) => s.includes('bool(1)')));
+  assert.throws(() => parse(t), /expected , or }/);
+});
