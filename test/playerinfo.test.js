@@ -155,6 +155,7 @@ test('playerinfo: truncated replies are read item by item', async () => {
       { Slot: 1, id: 'minecraft:diamond_pickaxe', count: 1, components: { 'minecraft:damage': 3, 'minecraft:custom_name': { text: 'Digger' } } },
       { Slot: 2, id: 'minecraft:torch', count: 64 },
       { Slot: 17, id: 'minecraft:light_blue_stained_glass_pane', count: 48 },
+      { Slot: 18, id: 'minecraft:enchanted_book', count: 1, components: { 'minecraft:stored_enchantments': { 'minecraft:mending': 1, 'minecraft:unbreaking': 3 } } },
     ],
     equipment: { legs: { id: 'minecraft:diamond_leggings', count: 1, components: { 'minecraft:damage': 118 } }, chest: { id: 'minecraft:elytra', count: 1, components: { 'minecraft:damage': 4 } } },
   };
@@ -179,6 +180,7 @@ test('playerinfo: truncated replies are read item by item', async () => {
   assert.deepStrictEqual(p.live.hotbar.slice(0, 3).map((x) => x && [x.id, x.count, x.enchanted, x.name]),
     [['diamond_sword', 1, true, null], ['diamond_pickaxe', 1, false, 'Digger'], ['torch', 64, false, null]]);
   assert.strictEqual(p.live.inventory[8].id, 'light_blue_stained_glass_pane');
+  assert.strictEqual(p.live.inventory[9].enchanted, true);
   assert.strictEqual(p.live.gear.legs.id, 'diamond_leggings');
   assert.strictEqual(p.live.gear.chest.id, 'elytra');
   assert.strictEqual(p.live.gear.head, null);
