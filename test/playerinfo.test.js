@@ -56,3 +56,88 @@ test('playerinfo: live state over RCON, stats and advancements from files', asyn
   assert.deepStrictEqual([off.online, off.live, off.stats], [false, null, null]);
   await assert.rejects(info.profile('bad name;'), /Invalid player name/);
 });
+
+// A tiny NBT writer for fixtures: { name: [type, value] } pairs.
+function nbtWrite(root) {
+  const parts = [];
+  const str = (s) => {
+    const b = Buffer.from(s, 'utf8');
+    const len = Buffer.alloc(2);
+    len.writeUInt16BE(b.length);
+    parts.push(len, b);
+  };
+  const num = (fn, size, v) => {
+    const b = Buffer.alloc(size);
+    b[fn](v);
+    parts.push(b);
+  };
+  const payload = ([type, v]) => {
+    if (type === 1) num('writeInt8', 1, v);
+    else if (type === 3) num('writeInt32BE', 4, v);
+    else if (type === 5) num('writeFloatBE', 4, v);
+    else if (type === 6) num('writeDoubleBE', 8, v);
+    else if (type === 8) str(v);
+    else if (type === 9) {
+      parts.push(Buffer.from([v.length ? v[0][0] : 0]));
+      num('writeInt32BE', 4, v.length);
+      for (const x of v) payload(x);
+    } else if (type === 10) {
+      for (const [k, x] of Object.entries(v)) {
+        parts.push(Buffer.from([x[0]]));
+        str(k);
+        payload(x);
+      }
+      parts.push(Buffer.from([0]));
+    } else if (type === 11) {
+      num('writeInt32BE', 4, v.length);
+      for (const x of v) num('writeInt32BE', 4, x);
+    }
+  };
+  parts.push(Buffer.from([10]));
+  str('');
+  payload([10, root]);
+  return require('zlib').gzipSync(Buffer.concat(parts));
+}
+
+test('playerinfo: Minecraft 26.1 layout (players/…), UUID over RCON, saved inventory', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-player26-'));
+  fs.writeFileSync(path.join(dir, 'server.properties'), 'level-name=world\n');
+  for (const d of ['data', 'stats', 'advancements']) fs.mkdirSync(path.join(dir, 'world/players', d), { recursive: true });
+  fs.writeFileSync(path.join(dir, `world/players/stats/${UUID}.json`), JSON.stringify({ stats: { 'minecraft:custom': { 'minecraft:play_time': 3456000, 'minecraft:deaths': 7 } } }));
+  fs.writeFileSync(path.join(dir, `world/players/advancements/${UUID}.json`), JSON.stringify({ 'minecraft:story/root': { done: true } }));
+  const itemTag = (slot, id, count, extra = {}) => [10, { Slot: [1, slot], id: [8, id], count: [3, count], ...extra }];
+  fs.writeFileSync(path.join(dir, `world/players/data/${UUID}.dat`), nbtWrite({
+    Health: [5, 20], SelectedItemSlot: [3, 2],
+    Inventory: [9, [itemTag(0, 'minecraft:netherite_pickaxe', 1, { components: [10, { 'minecraft:enchantments': [10, { 'minecraft:efficiency': [3, 5] }] }] }), itemTag(2, 'minecraft:oak_log', 48), itemTag(20, 'minecraft:cooked_beef', 12)]],
+    equipment: [10, { chest: [10, { id: [8, 'minecraft:elytra'], count: [3, 1] }] }],
+  }));
+  // The online player's inventory reply doesn't parse; their UUID comes over RCON (no usercache.json).
+  const replies = {
+    'data get entity Alex Pos': 'Alex has the following entity data: [-251.3d, -38.0d, -364.7d]',
+    'data get entity Alex Health': 'Alex has the following entity data: 20.0f',
+    'data get entity Alex Inventory': 'Alex has the following entity data: [{count: 1, Slot: 0b, id: "minecraft:netherite_pick',
+    'data get entity Alex UUID': 'Alex has the following entity data: [I; 110787060, 1156138790, -1514210135, 238594805]',
+  };
+  const logs = [];
+  const info = new PlayerInfo({ mcDir: dir, rcon: { send: async (c) => replies[c] ?? 'Found no elements matching x' }, log: (m) => logs.push(m) });
+  const p = await info.profile('Alex');
+  assert.strictEqual(p.uuid, UUID);
+  assert.strictEqual(p.online, true);
+  assert.strictEqual(p.live.hotbar[0].id, 'netherite_pickaxe');
+  assert.strictEqual(p.live.hotbar[0].enchanted, true);
+  assert.strictEqual(p.live.hotbar[2].count, 48);
+  assert.strictEqual(p.live.inventory[11].id, 'cooked_beef');
+  assert.strictEqual(p.live.gear.chest.id, 'elytra');
+  assert.ok(p.live.inventoryFrom);
+  assert.ok(logs.some((l) => /can't read Inventory/.test(l)));
+  assert.strictEqual(p.stats.deaths, 7);
+  assert.strictEqual(p.stats.playTimeTicks, 3456000);
+  assert.strictEqual(p.advancements.done, 1);
+
+  // Offline: the saved inventory, stats from the files.
+  const off = await new PlayerInfo({ mcDir: dir, rcon: { send: async () => 'No entity was found' } }).profile('Alex', { uuid: UUID });
+  assert.strictEqual(off.online, false);
+  assert.strictEqual(off.saved.selected, 2);
+  assert.strictEqual(off.saved.hotbar[2].id, 'oak_log');
+  assert.strictEqual(off.stats.deaths, 7);
+});
