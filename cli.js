@@ -1,11 +1,20 @@
 #!/usr/bin/env node
 'use strict';
 
-// User management: node cli.js user <add|passwd|remove|list|totp|totp-off> [name]
+// User management: node cli.js user <add|passwd|remove|list|role|totp|totp-off> [name]
 
 const readline = require('readline');
 const config = require('./lib/config');
-const { Users, newTotpSecret, totpUri, verifyTotp } = require('./lib/auth');
+const { Users, newTotpSecret, totpUri, verifyTotp, ROLES } = require('./lib/auth');
+
+// --role admin|moderator|viewer for `user add`
+const roleFlag = () => {
+  const i = process.argv.indexOf('--role');
+  if (i < 0) return null;
+  const role = process.argv[i + 1];
+  if (!ROLES.includes(role)) throw new Error(`--role must be one of: ${ROLES.join(', ')}`);
+  return role;
+};
 
 const users = new Users(config.stateDir);
 
@@ -43,8 +52,10 @@ const commands = {
   async add(name) {
     name = need(name);
     if (users.get(name)) throw new Error(`User ${name} already exists (use passwd)`);
+    const role = roleFlag();
     await users.setPassword(name, await newPassword());
-    console.log(`Created user ${name}.`);
+    if (role) users.setRole(name, role);
+    console.log(`Created user ${name} (${users.roleOf(name)}).`);
   },
   async passwd(name) {
     name = need(name);
@@ -60,7 +71,7 @@ const commands = {
     const all = users.load();
     const names = Object.keys(all);
     if (!names.length) return console.log('No users. Create one with: user add <name>');
-    for (const n of names) console.log(`${n.padEnd(20)} 2FA: ${all[n].totp ? 'on ' : 'off'}  created ${all[n].created}`);
+    for (const n of names) console.log(`${n.padEnd(20)} ${users.roleOf(n).padEnd(10)} 2FA: ${all[n].totp ? 'on ' : 'off'}  created ${all[n].created}`);
   },
   async totp(name) {
     name = need(name);
@@ -74,6 +85,13 @@ const commands = {
     users.setTotp(name, secret);
     console.log(`2FA enabled for ${name}.`);
   },
+  async role(name) {
+    name = need(name);
+    const role = process.argv[5];
+    if (!role) return console.log(`${name} is ${users.roleOf(name)}. Change with: user role ${name} <${ROLES.join('|')}>`);
+    users.setRole(name, role);
+    console.log(`${name} is now ${role}. Their sessions were signed out.`);
+  },
   async 'totp-off'(name) {
     users.setTotp(need(name), null);
     console.log(`2FA disabled for ${name}.`);
@@ -84,6 +102,8 @@ async function main() {
   const [group, cmd, name] = process.argv.slice(2);
   if (group !== 'user' || !commands[cmd]) {
     console.log(`Usage: node cli.js user <${Object.keys(commands).join('|')}> [name]`);
+    console.log('       node cli.js user add <name> [--role admin|moderator|viewer]');
+    console.log('       node cli.js user role <name> [admin|moderator|viewer]');
     console.log(`State directory: ${config.stateDir}`);
     process.exit(group ? 1 : 0);
   }

@@ -35,7 +35,7 @@ const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
 const prom = require('./lib/prom');
 const crypto = require('crypto');
-const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp } = require('./lib/auth');
+const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast } = require('./lib/auth');
 
 if (!config.rconPassword) {
   console.error('Missing required environment variable RCON_PASSWORD');
@@ -372,6 +372,28 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/tasks\/([\w-]+)\/run$/, ([id]) => ['task run', id]],
 ];
 
+// Who may call what. Reading needs a viewer, changing anything an admin,
+// except for the entries here.
+const ROLE_RULES = [
+  ['POST', /^\/api\/logout$/, 'viewer'],
+  ['POST', /^\/api\/command$/, 'moderator'], // moderators: MODERATOR_COMMANDS only
+  ['POST', /^\/api\/problems\/seen$/, 'moderator'],
+  ['GET', /^\/api\/players\/history$/, 'moderator'], // addresses of players
+  ['GET', /^\/api\/audit$/, 'admin'],
+  ['GET', /^\/api\/notify$/, 'admin'],
+  ['GET', /^\/api\/offsite/, 'admin'],
+  ['GET', /^\/api\/backups\/[^/]+$/, 'admin'], // downloads whole worlds
+];
+const requiredRole = (method, pathname) => ROLE_RULES.find(([m, re]) => m === method && re.test(pathname))?.[2] || (method === 'GET' || method === 'HEAD' ? 'viewer' : 'admin');
+
+// Console commands a moderator may run: talking to players and moderation.
+const MODERATOR_COMMANDS = new Set([
+  'say', 'me', 'tell', 'msg', 'w', 'tellraw', 'list', 'tps', 'mspt', 'help',
+  'kick', 'ban', 'ban-ip', 'pardon', 'pardon-ip', 'banlist', 'whitelist',
+  'tp', 'teleport', 'gamemode', 'spectate', 'mute', 'unmute', 'tempban', 'tempmute', 'warn', 'unban',
+]);
+const commandName = (cmd) => String(cmd).trim().replace(/^\//, '').split(/\s+/)[0].toLowerCase().replace(/^[a-z0-9_.-]+:/, '');
+
 function auditRequest(req, pathname, status, error) {
   const url = new URL(req.url, 'http://x');
   let action = `${req.method} ${pathname}`;
@@ -384,7 +406,7 @@ function auditRequest(req, pathname, status, error) {
     } catch {}
     break;
   }
-  audit.record({ user: req.user, ip: clientIp(req), action, target: String(target || '').slice(0, 300) || undefined, detail: action === 'command' ? undefined : summarize(req.body), ok: !error, status, error });
+  audit.record({ user: req.user, role: req.role === 'admin' ? undefined : req.role, ip: clientIp(req), action, target: String(target || '').slice(0, 300) || undefined, detail: action === 'command' ? undefined : summarize(req.body), ok: !error, status, error });
 }
 
 route('GET', /^\/api\/notify$/, () => notify.view());
@@ -424,7 +446,7 @@ route('GET', /^\/api\/audit$/, async (req) => {
   return audit.query({ user: q.get('user') || '', action: q.get('action') || '', q: q.get('q') || '', failed: q.has('failed'), limit: Math.min(Number(q.get('limit')) || 200, 1000) });
 });
 
-route('GET', /^\/api\/me$/, (req) => ({ user: req.user }));
+route('GET', /^\/api\/me$/, (req) => ({ user: req.user, role: req.role }));
 route('POST', /^\/api\/logout$/, logout, false);
 
 route('POST', /^\/api\/command$/, async (req) => {
@@ -432,6 +454,8 @@ route('POST', /^\/api\/command$/, async (req) => {
   const cmd = String(command || '').trim().replace(/^\//, '');
   if (!cmd) throw httpError(400, 'Missing command');
   if (cmd.length > 1400) throw httpError(400, 'Command too long');
+  if (req.role === 'moderator' && !MODERATOR_COMMANDS.has(commandName(cmd))) throw httpError(403, `Moderators can't run /${commandName(cmd)}`);
+  if (req.role === 'moderator' && commandName(cmd) === 'whitelist' && /^\S+\s+(on|off|reload)\b/i.test(cmd)) throw httpError(403, 'Moderators can add and remove players, not switch the whitelist');
   log(`${req.user}: /${cmd}`);
   return { output: await rcon.send(cmd) };
 });
@@ -790,6 +814,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 401, { error: 'Not signed in' });
   }
 
+  req.role = users.roleOf(req.user);
   if (isRead && APP_FILES[pathname]) return send(res, 200, ...APP_FILES[pathname]);
   if (req.method === 'GET' && pathname === '/api/logs') return streamLogs(req, res);
 
@@ -797,6 +822,10 @@ const server = http.createServer(async (req, res) => {
     const match = pathname.match(pattern);
     if (match && method === req.method) {
       const onDone = !isRead && audited ? (status, error) => auditRequest(req, pathname, status, error) : undefined;
+      if (!roleAtLeast(req.role, requiredRole(req.method, pathname))) {
+        onDone?.(403, 'not allowed for this role');
+        return send(res, 403, { error: `Your role (${req.role}) can't do this` });
+      }
       return handle(req, res, handler, match.slice(1), onDone);
     }
   }

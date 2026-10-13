@@ -56,6 +56,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 
 **Players and security**
 - Whitelist, operators, bans and IP bans with one click.
+- **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers.
 - **Player history** from your logs: sessions, playtime, last IP, daily activity.
 - **Scanner detection**: spots bots probing your server, explains what to do, and offers a ban or a ready-made firewall rule.
 
@@ -232,7 +233,7 @@ sudo -u rconsole node cli.js user add yourname
 sudo -u rconsole node cli.js user totp yourname   # optional 2FA, highly recommended
 ```
 
-Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user totp-off <name>`. Changes apply immediately, no restart needed.
+Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user role <name> <admin|moderator|viewer>`, `user totp-off <name>`. Add team members with a role: `user add <name> --role moderator`. Changes apply immediately, no restart needed.
 
 ## Configuration
 
@@ -435,6 +436,7 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 ## Security model
 
 - **Accounts** live in `/var/lib/rconsole/users.json` with scrypt password hashes. They're managed with `cli.js` on the server only; there is no web signup.
+- **Roles**: `admin` (everything; accounts from before roles existed are admins), `moderator` (sees everything an admin sees except the audit log and notification and offsite settings; runs only moderation commands: say, tell, kick, ban and pardon, whitelist add and remove, tp, gamemode, spectate and common mute or warn plugin commands) and `viewer` (read-only: console, charts, settings, no player addresses). The server enforces the role on every request; the interface hides what a role can't do. `node cli.js user add <name> --role moderator`, `node cli.js user role <name> viewer`; changing a role signs that user out.
 - **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days, and are revoked when the password changes or the user is removed. Sessions are kept in memory, so restarting rconsole signs everyone out.
 - **2FA**: optional TOTP per user, with replay protection.
 - **Brute force**: 5 failed logins per client IP or per username within 15 minutes lock that IP or name for 15 minutes.

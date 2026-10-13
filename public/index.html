@@ -83,7 +83,7 @@
     <div class="rail-user">
       <span class="avatar-initial" id="me-initial" aria-hidden="true"></span>
       <div class="rail-user-text">
-        <span class="who" id="me"></span>
+        <span class="who"><span id="me"></span> <span class="role-tag" id="me-role"></span></span>
         <span class="rail-meta"><span class="ver" id="rail-ver"></span> · <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Preview</a></span>
       </div>
       <button class="btn btn-quiet btn-icon btn-sm" id="logout" aria-label="Sign out" title="Sign out"><svg><use href="#pg-signout"/></svg></button>
@@ -138,7 +138,7 @@
         </div>
         <div class="log-status" id="log-status" role="status" hidden><svg><use href="#pg-alert"/></svg><span id="log-status-text"></span></div>
         <div class="log" id="log" aria-live="off" tabindex="0" aria-label="Server log"></div>
-        <form class="prompt" id="form" autocomplete="off">
+        <form class="prompt" id="form" autocomplete="off" data-min-role="moderator">
           <div class="cmd-pop">
             <ul class="cmd-suggest" id="cmd-suggest" role="listbox" aria-label="Command suggestions" hidden></ul>
             <div class="cmd-hint" id="cmd-hint" hidden></div>
@@ -155,7 +155,7 @@
           <header class="panel-head"><h2>Online</h2><span class="count" id="count"></span></header>
           <ul class="people" id="online"></ul>
         </section>
-        <section class="panel">
+        <section class="panel" data-min-role="admin">
           <header class="panel-head"><h2>Quick actions</h2></header>
           <div class="quick">
             <button class="btn" data-c="save-all"><svg><use href="#pg-save"/></svg>Save world</button>
@@ -164,7 +164,7 @@
             <button class="btn" data-c="time set night"><svg><use href="#pg-night"/></svg>Set night</button>
           </div>
         </section>
-        <section class="panel">
+        <section class="panel" data-min-role="admin">
           <header class="panel-head"><h2>Restart</h2></header>
           <div class="panel-body stack">
             <div class="row">
@@ -186,8 +186,8 @@
     <section class="area" id="tab-players" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Players sections">
         <button role="tab" data-view="access" aria-selected="true">Access</button>
-        <button role="tab" data-view="history" aria-selected="false">History</button>
-        <button role="tab" data-view="security" aria-selected="false">Security</button>
+        <button role="tab" data-view="history" aria-selected="false" data-min-role="moderator">History</button>
+        <button role="tab" data-view="security" aria-selected="false" data-min-role="moderator">Security</button>
       </div>
       <div class="view" data-view="access">
       <div class="area-error" id="access-error" role="alert" hidden></div>
@@ -195,9 +195,9 @@
         <section class="panel">
           <header class="panel-head">
             <h2>Whitelist</h2><span class="count" id="n-whitelist"></span>
-            <label class="switch"><input type="checkbox" role="switch" id="wl-toggle"><span id="wl-state">Off</span></label>
+            <label class="switch" data-min-role="admin"><input type="checkbox" role="switch" id="wl-toggle"><span id="wl-state">Off</span></label>
           </header>
-          <form class="add" data-cmd="whitelist add {v}" data-kind="player" data-label="Add to whitelist">
+          <form class="add" data-min-role="moderator" data-cmd="whitelist add {v}" data-kind="player" data-label="Add to whitelist">
             <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
             <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Add</button>
           </form>
@@ -206,7 +206,7 @@
 
         <section class="panel">
           <header class="panel-head"><h2>Operators</h2><span class="count" id="n-ops"></span></header>
-          <form class="add" data-cmd="op {v}" data-kind="player" data-confirm="op" data-label="Make operator">
+          <form class="add" data-min-role="admin" data-cmd="op {v}" data-kind="player" data-confirm="op" data-label="Make operator">
             <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
             <button class="btn btn-primary"><svg><use href="#pg-op"/></svg>Make op</button>
           </form>
@@ -215,7 +215,7 @@
 
         <section class="panel">
           <header class="panel-head"><h2>Banned players</h2><span class="count" id="n-bans"></span></header>
-          <form class="add" data-cmd="ban {v}" data-kind="player" data-confirm="ban" data-label="Ban player">
+          <form class="add" data-min-role="moderator" data-cmd="ban {v}" data-kind="player" data-confirm="ban" data-label="Ban player">
             <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
             <input class="field" placeholder="Reason (optional)" aria-label="Reason" data-reason>
             <button class="btn btn-danger"><svg><use href="#pg-ban"/></svg>Ban</button>
@@ -225,7 +225,7 @@
 
         <section class="panel">
           <header class="panel-head"><h2>Banned IPs</h2><span class="count" id="n-ipbans"></span></header>
-          <form class="add" data-cmd="ban-ip {v}" data-kind="ip" data-confirm="ban" data-label="Ban IP address">
+          <form class="add" data-min-role="moderator" data-cmd="ban-ip {v}" data-kind="ip" data-confirm="ban" data-label="Ban IP address">
             <input class="field" placeholder="IP or online player" aria-label="IP address or online player" required>
             <input class="field" placeholder="Reason (optional)" aria-label="Reason" data-reason>
             <button class="btn btn-danger"><svg><use href="#pg-ban"/></svg>Ban IP</button>
@@ -316,7 +316,7 @@
         </table>
       </section>
 
-      <section class="panel" id="os-panel">
+      <section class="panel" id="os-panel" data-min-role="admin">
         <header class="panel-head">
           <div class="head-text"><h2>Offsite copies</h2><p class="note" id="os-info">Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.</p></div>
           <button class="btn" id="os-edit" aria-expanded="false" aria-controls="os-form"><svg><use href="#pg-settings"/></svg><span>Set up</span></button>
@@ -443,7 +443,7 @@
           </section>
         </div>
 
-        <section class="panel">
+        <section class="panel" data-min-role="admin">
           <header class="panel-head">
             <div class="head-text"><h2>Notifications</h2><p class="note">Push alerts to your phone through <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a>: install the app, subscribe to a topic, paste its URL here.</p></div>
             <button class="btn" id="ntfy-test"><svg><use href="#pg-bell"/></svg>Send test</button>
@@ -590,7 +590,7 @@
         <button role="tab" data-view="metrics" aria-selected="true">Metrics</button>
         <button role="tab" data-view="problems" aria-selected="false">Problems</button>
         <button role="tab" data-view="logs" aria-selected="false">Log search</button>
-        <button role="tab" data-view="audit" aria-selected="false">Audit</button>
+        <button role="tab" data-view="audit" aria-selected="false" data-min-role="admin">Audit</button>
       </div>
 
       <div class="view" data-view="metrics">
@@ -607,7 +607,7 @@
           <div class="spark-row">
             <span class="spark-mark" aria-hidden="true"><svg><use href="#pg-insights"/></svg></span>
             <div class="head-text"><h2>Find the cause of lag</h2><p class="note" id="spark-info">spark records what the server spends its time on and shows it in a web viewer.</p></div>
-            <div class="spark-actions" id="spark-actions"></div>
+            <div class="spark-actions" id="spark-actions" data-min-role="admin"></div>
           </div>
           <ul class="spark-links" id="spark-links" hidden></ul>
         </section>
@@ -627,7 +627,7 @@
               <button role="radio" aria-checked="true" data-days="1">24 h</button>
               <button role="radio" aria-checked="false" data-days="7">7 days</button>
             </div>
-            <button class="btn" id="pr-seen"><svg><use href="#pg-check"/></svg>Mark all as seen</button>
+            <button class="btn" id="pr-seen" data-min-role="moderator"><svg><use href="#pg-check"/></svg>Mark all as seen</button>
           </header>
           <ul class="problems" id="pr-list"></ul>
         </section>

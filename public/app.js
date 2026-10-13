@@ -160,6 +160,24 @@ const AREAS = {
   insights: { name: 'Insights', icon: 'insights' },
   map: { name: 'Map', icon: 'map' },
 };
+// Roles: what the signed-in account may do. The server enforces it; the UI
+// hides what would only fail. Mirrors MODERATOR_COMMANDS in server.js.
+let myRole = 'admin';
+const ROLE_RANK = { viewer: 0, moderator: 1, admin: 2 };
+const atLeast = (role) => ROLE_RANK[myRole] >= ROLE_RANK[role];
+const MOD_COMMANDS = new Set(['say', 'me', 'tell', 'msg', 'w', 'tellraw', 'list', 'tps', 'mspt', 'help', 'kick', 'ban', 'ban-ip', 'pardon', 'pardon-ip', 'banlist', 'whitelist', 'tp', 'teleport', 'gamemode', 'spectate', 'mute', 'unmute', 'tempban', 'tempmute', 'warn', 'unban']);
+const roleForCommand = (cmd) => {
+  const name = String(cmd).trim().split(/\s+/)[0].toLowerCase().replace(/^[a-z0-9_.-]+:/, '');
+  return MOD_COMMANDS.has(name) && !/^whitelist\s+(on|off|reload)\b/i.test(cmd) ? 'moderator' : 'admin';
+};
+function applyRole(role) {
+  myRole = ROLE_RANK[role] != null ? role : 'admin';
+  document.body.dataset.role = myRole;
+  // Forms that change things are read-only below their role.
+  for (const id of ['settings-form', 'notify-form', 'task-form', 'os-form', 'world-new']) if ($(id)) $(id).inert = !atLeast('admin');
+  if (!atLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
+}
+
 // On phones the tab bar shows the first four; the rest live under "More".
 const PHONE_TABS = 4;
 // Old bookmarks keep working.
@@ -173,9 +191,9 @@ function currentView(area) {
 
 function showView(area, view) {
   const section = $(`tab-${area}`);
-  const tabs = section?.querySelectorAll('.subnav [role=tab]');
-  if (!tabs?.length) return;
-  if (![...tabs].some((t) => t.dataset.view === view)) view = tabs[0].dataset.view;
+  const tabs = [...(section?.querySelectorAll('.subnav [role=tab]') || [])].filter((t) => !t.dataset.minRole || atLeast(t.dataset.minRole));
+  if (!tabs.length) return;
+  if (!tabs.some((t) => t.dataset.view === view)) view = tabs[0].dataset.view;
   for (const t of tabs) t.setAttribute('aria-selected', t.dataset.view === view);
   for (const v of section.querySelectorAll(':scope > .view')) v.hidden = v.dataset.view !== view;
   viewLoaders[`${area}/${view}`]?.();
@@ -839,7 +857,7 @@ function personRow(p, meta, action) {
 }
 
 function rowAction(label, iconName, command, confirmOpts) {
-  const btn = el('button', { class: 'btn btn-quiet btn-sm danger', title: label }, icon(iconName), label);
+  const btn = el('button', { class: 'btn btn-quiet btn-sm danger', title: label, 'data-min-role': roleForCommand(command) }, icon(iconName), label);
   btn.addEventListener('click', async () => {
     if (confirmOpts && !(await confirmAction(confirmOpts))) return;
     busy(btn, () => mutate(command));
@@ -1157,6 +1175,7 @@ function renderOffsiteState(o) {
 }
 
 async function loadOffsite() {
+  if (!atLeast('admin')) return;
   try {
     const o = await api('GET', '/api/offsite');
     const was = offsiteView;
@@ -2491,7 +2510,7 @@ function historyRow(p) {
 }
 
 function rowActionBtn(label, iconName, command, confirmOpts, danger, after) {
-  const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}` }, icon(iconName), label);
+  const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}`, 'data-min-role': roleForCommand(command) }, icon(iconName), label);
   btn.addEventListener('click', async () => {
     if (confirmOpts && !(await confirmAction(confirmOpts))) return;
     await busy(btn, () => mutate(command));
@@ -2657,11 +2676,13 @@ function paletteActions() {
     const a = AREAS[area];
     if (!a) return [];
     return subs.length
-      ? subs.map((t) => ({ group: 'Go to', icon: a.icon, label: `${a.name} → ${t.textContent.trim()}`, keys: `${area} ${t.dataset.view}`, run: () => showTab(`${area}/${t.dataset.view}`) }))
+      ? subs.filter((t) => !t.dataset.minRole || atLeast(t.dataset.minRole)).map((t) => ({ group: 'Go to', icon: a.icon, label: `${a.name} → ${t.textContent.trim()}`, keys: `${area} ${t.dataset.view}`, run: () => showTab(`${area}/${t.dataset.view}`) }))
       : [{ group: 'Go to', icon: a.icon, label: a.name, keys: area, run: () => showTab(area) }];
   });
   items.push(...views);
-  const act = (label, iconName, keys, run, when = () => true) => when() && items.push({ group: 'Actions', icon: iconName, label, keys, run });
+  // Actions below admin: only looking things up.
+  const SAFE = /^(Show problems|Search the logs|Review unknown connection|Sign out|Refresh the command list)/;
+  const act = (label, iconName, keys, run, when = () => true) => (atLeast('admin') || SAFE.test(label)) && when() && items.push({ group: 'Actions', icon: iconName, label, keys, run });
   const p = lastStatus?.power || {};
   act('Restart the server…', 'restart', 'reboot restart power', () => { showTab('server/overview'); power('restart'); }, () => p.available && p.active === 'active');
   act('Stop the server…', 'stop', 'shutdown stop power off', () => { showTab('server/overview'); power('stop'); }, () => p.available && p.active === 'active');
@@ -2795,6 +2816,7 @@ if (/Mac|iPhone|iPad/.test(navigator.platform)) $('palette-key').textContent = '
 const notifyForm = $('notify-form');
 
 async function loadNotify() {
+  if (!atLeast('admin')) return; // the settings hold the topic and token
   try {
     const n = await api('GET', '/api/notify');
     const f = notifyForm.elements;
@@ -2905,7 +2927,9 @@ async function signOut() {
 }
 $('logout').addEventListener('click', signOut);
 $('logout-m').addEventListener('click', signOut);
-api('GET', '/api/me').then(({ user }) => {
+api('GET', '/api/me').then(({ user, role }) => {
+  applyRole(role);
+  $('me-role').textContent = role && role !== 'admin' ? role : '';
   $('me').textContent = user;
   $('me-initial').textContent = (user || '?').slice(0, 1).toUpperCase();
 }).catch(() => {});
