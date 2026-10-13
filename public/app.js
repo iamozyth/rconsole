@@ -2489,12 +2489,28 @@ viewLoaders['server/configs'] = loadConfigs;
 // ---------------------------------------------------------------------------
 
 let psPlayer = null;
+let psTab = 'inventory';
 const itemLabel = (id) => id.replace(/_/g, ' ');
 
+// A colour hint per material, since rconsole ships no item textures.
+const MATERIALS = [
+  ['netherite', /netherite|ancient_debris/], ['diamond', /diamond/], ['gold', /gold|golden/], ['iron', /iron|chainmail|anvil|bucket|shears|minecart/],
+  ['copper', /copper/], ['emerald', /emerald/], ['redstone', /redstone|tnt|red_/], ['lapis', /lapis|blue_/], ['amethyst', /amethyst|ender|purpur|chorus|shulker|enchant|experience/],
+  ['wood', /oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|bamboo|crimson|warped|_log|planks|stick|bow|arrow|crossbow|chest|barrel|crafting|book|saddle|leather|name_tag|lead/],
+  ['food', /beef|pork|chicken|mutton|rabbit|cod|salmon|bread|apple|carrot|potato|kelp|melon|pie|stew|soup|cookie|cake|berries|beetroot|honey/],
+  ['plant', /sapling|leaves|grass|vine|sugar_cane|seeds|wheat|moss|flower|fern|cactus|lily|sea_pickle|slime/],
+  ['stone', /stone|cobble|deepslate|granite|diorite|andesite|tuff|basalt|blackstone|dripstone|gravel|flint|furnace|bone|cobweb/],
+];
+const materialOf = (id) => MATERIALS.find(([, re]) => re.test(id))?.[0] || 'misc';
+const abbr = (id) => id.split('_').filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+
 function slot(it, { selected = false, label = '' } = {}) {
-  if (!it) return el('span', { class: `slot empty${selected ? ' selected' : ''}`, title: label || 'Empty' }, label ? el('span', { class: 'slot-label' }, label) : null);
-  return el('span', { class: `slot${it.enchanted ? ' ench' : ''}${selected ? ' selected' : ''}`, title: `${it.name || itemLabel(it.id)}${it.count > 1 ? ` × ${it.count}` : ''}${it.enchanted ? ' (enchanted)' : ''}` },
-    el('span', { class: 'slot-name' }, itemLabel(it.id)),
+  if (!it) return el('span', { class: `slot empty${selected ? ' selected' : ''}`, title: label ? `${label[0].toUpperCase()}${label.slice(1)}: empty` : 'Empty' }, label ? el('span', { class: 'slot-label' }, label) : null);
+  const name = it.name || itemLabel(it.id);
+  return el('span', { class: `slot m-${materialOf(it.id)}${it.enchanted ? ' ench' : ''}${selected ? ' selected' : ''}`, title: `${name}${it.name ? ` (${itemLabel(it.id)})` : ''}${it.count > 1 ? ` × ${it.count}` : ''}${it.enchanted ? ' · enchanted' : ''}` },
+    el('span', { class: 'slot-swatch', 'aria-hidden': 'true' }),
+    el('span', { class: 'slot-name' }, it.name || itemLabel(it.id)),
+    el('span', { class: 'slot-abbr', 'aria-hidden': 'true' }, abbr(it.id)),
     it.count > 1 ? el('span', { class: 'slot-count' }, String(it.count)) : null);
 }
 
@@ -2504,76 +2520,127 @@ function meter(value, max, cls) {
   return el('span', { class: `meter ${cls}` }, fill);
 }
 
-// Gear, hotbar and inventory; `savedAt` marks a copy from the player file.
-function inventorySection(inv, savedAt) {
-  return el('section', { class: 'ps-section' },
-    el('h3', {}, 'Equipment and hotbar'),
-    el('div', { class: 'slots gear' }, ...['head', 'chest', 'legs', 'feet', 'offhand'].map((k) => slot(inv.gear[k], { label: k }))),
-    el('div', { class: 'slots hotbar' }, ...inv.hotbar.map((it, i) => slot(it, { selected: i === inv.selected }))),
-    el('h3', {}, 'Inventory'),
-    el('div', { class: 'slots' }, ...inv.inventory.map((it) => slot(it))),
-    savedAt ? el('p', { class: 'note' }, `As last saved by the server, ${fmt.relative(savedAt)}.`) : null);
+// Equipment, the 3×9 inventory and the hotbar, laid out as in the game.
+// `savedAt` marks a copy from the player file.
+function inventoryPanel(inv, savedAt) {
+  return el('div', { class: 'ps-inv' },
+    el('div', { class: 'ps-inv-group' },
+      el('h4', {}, 'Equipment'),
+      el('div', { class: 'slots gear' },
+        ...['head', 'chest', 'legs', 'feet'].map((k) => slot(inv.gear[k], { label: k })),
+        el('span', { class: 'slot-gap', 'aria-hidden': 'true' }),
+        slot(inv.gear.offhand, { label: 'offhand' }))),
+    el('div', { class: 'ps-inv-group' },
+      el('h4', {}, 'Inventory'),
+      el('div', { class: 'slots' }, ...inv.inventory.map((it) => slot(it)))),
+    el('div', { class: 'ps-inv-group' },
+      el('h4', {}, 'Hotbar'),
+      el('div', { class: 'slots hotbar' }, ...inv.hotbar.map((it, i) => slot(it, { selected: i === inv.selected })))),
+    savedAt ? el('p', { class: 'note ps-foot' }, `As last saved by the server, ${fmt.relative(savedAt)}.`) : null);
+}
+
+function statsPanel(st, adv) {
+  const tile = (label, value, sub) => el('div', { class: 'ps-tile' }, el('dt', {}, label), el('dd', {}, value, sub ? el('small', {}, sub) : null));
+  const list = (title, items) => {
+    if (!items.length) return null;
+    const max = items[0].count || 1;
+    return el('div', { class: 'ps-top' }, el('h4', {}, title), el('ol', {}, ...items.map((x) => {
+      const bar = el('span', { class: 'ps-bar' });
+      bar.style.width = `${Math.max(4, (x.count / max) * 100)}%`;
+      return el('li', {}, el('span', { class: 'ps-top-name' }, itemLabel(x.id)), el('b', {}, x.count.toLocaleString()), bar);
+    })));
+  };
+  return el('div', { class: 'ps-stats' },
+    el('dl', { class: 'ps-strip ps-strip-4' },
+      tile('Play time', st.playTimeTicks != null ? fmt.duration(Math.round(st.playTimeTicks / 20)) : '–'),
+      tile('Deaths', st.deaths.toLocaleString()),
+      tile('Mob kills', st.mobKills.toLocaleString(), st.playerKills ? `· ${st.playerKills.toLocaleString()} player${st.playerKills === 1 ? '' : 's'}` : null),
+      tile('Advancements', adv ? String(adv.done) : '–'),
+      tile('Walked', `${st.walkedKm.toLocaleString()} km`),
+      tile('Blocks mined', st.blocksMined.toLocaleString()),
+      tile('Jumps', st.jumps.toLocaleString()),
+      tile('Flown', `${(st.flownKm || 0).toLocaleString()} km`)),
+    el('div', { class: 'ps-tops' }, list('Most mined', st.topMined), list('Most used', st.topUsed), list('Most killed', st.topKilled)));
 }
 
 function renderPlayer(p) {
   const L = p.live;
-  $('ps-sub').textContent = L ? `Online · ${L.gamemode || ''} · ${L.dimension || ''}`.replace(/ · $/, '') : p.saved || p.stats ? 'Offline · from the world files' : 'Offline';
+  const pills = [];
+  if (L) {
+    pills.push(el('span', { class: 'pill ok' }, el('span', { class: 'dot', 'aria-hidden': 'true' }), 'Online'));
+    if (L.gamemode) pills.push(el('span', { class: 'pill' }, L.gamemode[0].toUpperCase() + L.gamemode.slice(1)));
+    if (L.dimension) pills.push(el('span', { class: `pill dim-${L.dimension.replace(/[^a-z_]/g, '')}` }, itemLabel(L.dimension.replace(/^the_/, 'the ')).replace(/^\w/, (c) => c.toUpperCase())));
+  } else {
+    pills.push(el('span', { class: 'pill' }, 'Offline'));
+    if (p.saved?.savedAt) pills.push(el('span', { class: 'note' }, `Saved ${fmt.relative(p.saved.savedAt)}`));
+  }
+  $('ps-sub').replaceChildren(...pills);
+
   const parts = [];
   if (L) {
-    const act = (label, cmd, opts) => rowActionBtn(label, opts?.icon || 'players', cmd, opts?.confirm, opts?.danger, () => setTimeout(() => openPlayer(p.name, p.uuid), 400));
-    const tpField = el('input', { class: 'field', placeholder: 'Player or x y z', 'aria-label': 'Teleport target', maxlength: 60 });
+    const hpLow = (L.health ?? 20) <= 6;
+    const coords = L.pos.map((v) => Math.round(v)).join(' ');
+    const copy = el('button', { class: 'ps-copy mono', type: 'button', title: 'Copy coordinates', onclick: () => copyText(coords, 'Coordinates') }, coords, icon('copy'));
+    parts.push(el('dl', { class: 'ps-strip ps-vitals' },
+      el('div', { class: 'ps-tile' }, el('dt', {}, 'Position'), el('dd', {}, copy)),
+      el('div', { class: 'ps-tile' }, el('dt', {}, 'Health'), el('dd', { class: hpLow ? 'low' : '' }, `${L.health ?? '–'}`, el('small', {}, '/ 20'), meter(L.health || 0, 20, hpLow ? 'hp low' : 'hp'))),
+      el('div', { class: 'ps-tile' }, el('dt', {}, 'Food'), el('dd', {}, `${L.food ?? '–'}`, el('small', {}, '/ 20'), meter(L.food || 0, 20, 'food'))),
+      el('div', { class: 'ps-tile' }, el('dt', {}, 'Level'), el('dd', {}, String(L.xp ?? '–')))));
+
+    const refresh = () => setTimeout(() => openPlayer(p.name, p.uuid), 400);
+    const act = (label, cmd, opts) => rowActionBtn(label, opts?.icon || 'players', cmd, opts?.confirm, opts?.danger, refresh);
+    const tpField = el('input', { class: 'field', placeholder: 'Player or x y z', 'aria-label': 'Teleport to a player or coordinates', maxlength: 60, autocomplete: 'off' });
     const modes = el('select', { class: 'field', 'aria-label': 'Game mode' }, ...['survival', 'creative', 'adventure', 'spectator'].map((m) => el('option', { value: m, selected: m === L.gamemode || undefined }, m[0].toUpperCase() + m.slice(1))));
-    parts.push(
-      el('section', { class: 'ps-section' },
-        el('dl', { class: 'ps-facts' },
-          el('div', {}, el('dt', {}, 'Position'), el('dd', { class: 'mono' }, L.pos.map((v) => Math.round(v)).join(' '))),
-          el('div', {}, el('dt', {}, 'Health'), el('dd', {}, `${L.health ?? '–'} / 20`, meter(L.health || 0, 20, 'hp'))),
-          el('div', {}, el('dt', {}, 'Food'), el('dd', {}, `${L.food ?? '–'} / 20`, meter(L.food || 0, 20, 'food'))),
-          el('div', {}, el('dt', {}, 'Level'), el('dd', {}, String(L.xp ?? '–')))),
-        el('div', { class: 'ps-actions', 'data-min-role': 'moderator' },
-          el('form', { class: 'row', onsubmit: (e) => {
-            e.preventDefault();
-            const t = tpField.value.trim();
-            if (/^[A-Za-z0-9_]{1,16}$|^~?-?[\d.]+ ~?-?[\d.]+ ~?-?[\d.]+$/.test(t)) busy(e.submitter, () => mutate(`tp ${p.name} ${t}`)).then(() => openPlayer(p.name, p.uuid));
-            else toast('Enter a player name or three coordinates.', 'bad');
-          } }, tpField, el('button', { class: 'btn btn-sm' }, 'Teleport')),
-          el('div', { class: 'row' }, modes, el('button', { class: 'btn btn-sm', onclick: (e) => busy(e.currentTarget, () => mutate(`gamemode ${modes.value} ${p.name}`)).then(() => openPlayer(p.name, p.uuid)) }, 'Set mode')),
-          el('div', { class: 'row wrap' },
-            act('Heal', `effect give ${p.name} minecraft:instant_health 1 5`, { icon: 'add' }),
-            act('Kick', `kick ${p.name}`, { icon: 'remove', confirm: { title: `Kick ${p.name}?`, confirm: 'Kick', tone: 'danger', icon: 'remove' } }),
-            act('Clear inventory', `clear ${p.name}`, { icon: 'delete', danger: true, confirm: { title: `Clear ${p.name}'s inventory?`, body: 'Everything they carry is gone. This can\'t be undone.', confirm: 'Clear', tone: 'danger', icon: 'delete' } })))),
-      inventorySection(L, L.inventoryFrom));
-  } else if (p.saved) parts.push(inventorySection(p.saved, p.saved.savedAt));
-  const st = p.stats;
-  if (st) {
-    const stat = (label, value) => el('div', {}, el('dt', {}, label), el('dd', {}, value));
-    const list = (title, items) => items.length ? el('div', { class: 'ps-top' }, el('h3', {}, title), el('ol', {}, ...items.map((x) => el('li', {}, el('span', {}, itemLabel(x.id)), el('b', {}, x.count.toLocaleString()))))) : null;
-    parts.push(el('section', { class: 'ps-section' },
-      el('h3', {}, 'Statistics'),
-      el('dl', { class: 'ps-facts stats' },
-        stat('Play time', st.playTimeTicks != null ? fmt.duration(Math.round(st.playTimeTicks / 20)) : '–'),
-        stat('Deaths', st.deaths.toLocaleString()),
-        stat('Mob kills', st.mobKills.toLocaleString()),
-        stat('Player kills', st.playerKills.toLocaleString()),
-        stat('Walked', `${st.walkedKm.toLocaleString()} km`),
-        stat('Blocks mined', st.blocksMined.toLocaleString()),
-        stat('Jumps', st.jumps.toLocaleString()),
-        stat('Advancements', p.advancements ? String(p.advancements.done) : '–')),
-      el('div', { class: 'ps-tops' }, list('Most mined', st.topMined), list('Most used', st.topUsed), list('Most killed', st.topKilled))));
+    const modeBtn = el('button', { class: 'btn btn-sm', type: 'button', disabled: true, onclick: (e) => busy(e.currentTarget, () => mutate(`gamemode ${modes.value} ${p.name}`)).then(refresh) }, 'Apply');
+    modes.addEventListener('change', () => { modeBtn.disabled = modes.value === L.gamemode; });
+    parts.push(el('div', { class: 'ps-toolbar', 'data-min-role': 'moderator' },
+      el('form', { class: 'join', onsubmit: (e) => {
+        e.preventDefault();
+        const t = tpField.value.trim();
+        if (/^[A-Za-z0-9_]{1,16}$|^~?-?[\d.]+ ~?-?[\d.]+ ~?-?[\d.]+$/.test(t)) busy(e.submitter, () => mutate(`tp ${p.name} ${t}`)).then(refresh);
+        else toast('Enter a player name or three coordinates.', 'bad');
+      } }, tpField, el('button', { class: 'btn btn-sm' }, 'Teleport')),
+      el('div', { class: 'join' }, modes, modeBtn),
+      el('div', { class: 'ps-quick' },
+        act('Heal', `effect give ${p.name} minecraft:instant_health 1 5`, { icon: 'add' }),
+        act('Kick', `kick ${p.name}`, { icon: 'remove', confirm: { title: `Kick ${p.name}?`, confirm: 'Kick', tone: 'danger', icon: 'remove' } }),
+        act('Clear inventory', `clear ${p.name}`, { icon: 'delete', danger: true, confirm: { title: `Clear ${p.name}'s inventory?`, body: 'Everything they carry is gone. This can\'t be undone.', confirm: 'Clear', tone: 'danger', icon: 'delete' } }))));
   }
-  if (!parts.length) parts.push(el('p', { class: 'note ps-empty' }, `${p.name} is offline and has no saved data in this world yet.`));
+
+  const panels = [];
+  const inv = L || p.saved;
+  if (inv) panels.push(['inventory', 'Inventory', () => inventoryPanel(inv, L ? L.inventoryFrom : p.saved.savedAt)]);
+  if (p.stats) panels.push(['stats', 'Statistics', () => statsPanel(p.stats, p.advancements)]);
+  if (panels.length) {
+    if (!panels.some(([k]) => k === psTab)) psTab = panels[0][0];
+    const body = el('div', { class: 'ps-panel', role: 'tabpanel' });
+    const show = () => {
+      body.replaceChildren(panels.find(([k]) => k === psTab)[2]());
+      for (const b of tabs.children) b.setAttribute('aria-checked', String(b.dataset.tab === psTab));
+    };
+    const tabs = el('div', { class: 'segmented ps-tabs', role: 'radiogroup', 'aria-label': 'Show' },
+      ...panels.map(([k, label]) => el('button', { role: 'radio', 'data-tab': k, onclick: () => { psTab = k; show(); } }, label)));
+    if (panels.length > 1) parts.push(tabs);
+    parts.push(body);
+    show();
+  } else parts.push(el('p', { class: 'note ps-empty' }, `${p.name} is offline and has no saved data in this world yet.`));
   $('ps-body').replaceChildren(...parts);
 }
 
 async function openPlayer(name, uuid) {
+  const same = psPlayer?.name === name;
   psPlayer = { name, uuid };
+  if (!same) psTab = 'inventory';
   const sheet = $('player-sheet');
   $('ps-name').textContent = name;
-  $('ps-avatar').replaceChildren(avatar(uuid || name));
+  const img = el('img', { class: 'avatar', src: `https://mc-heads.net/avatar/${encodeURIComponent(uuid || name)}/64`, alt: '', width: 44, height: 44 });
+  img.addEventListener('error', () => img.replaceWith(el('span', { class: 'ip-tile' }, icon('players'))));
+  $('ps-avatar').replaceChildren(img);
   if (!sheet.open) {
-    $('ps-sub').textContent = 'Loading…';
-    $('ps-body').replaceChildren(el('div', { class: 'ps-section' }, el('span', { class: 'skeleton w60' }), el('span', { class: 'skeleton w40' })));
+    $('ps-sub').replaceChildren(el('span', { class: 'skeleton w40' }));
+    $('ps-body').replaceChildren(el('div', { class: 'ps-strip ps-vitals ps-loading' }, ...[1, 2, 3, 4].map(() => el('div', { class: 'ps-tile' }, el('span', { class: 'skeleton w40' }), el('span', { class: 'skeleton w60' })))));
     sheet.showModal();
+    $('ps-body').focus({ preventScroll: true }); // not the first header button: no focus ring on open
   }
   try {
     renderPlayer(await api('GET', `/api/players/${encodeURIComponent(name)}/profile${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`));
