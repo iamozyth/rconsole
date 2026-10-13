@@ -129,7 +129,7 @@ test('playerinfo: Minecraft 26.1 layout (players/…), UUID over RCON, saved inv
   assert.strictEqual(p.live.inventory[11].id, 'cooked_beef');
   assert.strictEqual(p.live.gear.chest.id, 'elytra');
   assert.ok(p.live.inventoryFrom);
-  assert.ok(logs.some((l) => /can't read Inventory/.test(l)));
+  assert.ok(logs.some((l) => /Inventory: skipped/.test(l)));
   assert.strictEqual(p.stats.deaths, 7);
   assert.strictEqual(p.stats.playTimeTicks, 3456000);
   assert.strictEqual(p.advancements.done, 1);
@@ -140,4 +140,47 @@ test('playerinfo: Minecraft 26.1 layout (players/…), UUID over RCON, saved inv
   assert.strictEqual(off.saved.selected, 2);
   assert.strictEqual(off.saved.hotbar[2].id, 'oak_log');
   assert.strictEqual(off.stats.deaths, 7);
+});
+
+// Paper 26.3 cuts `data get` replies short ("...") once they get long.
+test('playerinfo: truncated replies are read item by item', async () => {
+  const typed = (v) => (typeof v === 'number' ? `${v}` : typeof v === 'string' ? JSON.stringify(v) : Array.isArray(v) ? `[${v.map(typed).join(', ')}]`
+    : `{${Object.entries(v).map(([k, x]) => `${/^[A-Za-z0-9_]+$/.test(k) ? k : JSON.stringify(k)}: ${typed(x)}`).join(', ')}}`);
+  const enchanted = { 'minecraft:damage': 37, 'minecraft:enchantments': { 'minecraft:sharpness': 5, 'minecraft:unbreaking': 3 } };
+  const player = {
+    Pos: [-192.3, -38, -340.2], Health: 20, SelectedItemSlot: 1,
+    UUID: [110787060, 1156138790, -1514210135, 238594805],
+    Inventory: [
+      { Slot: 0, id: 'minecraft:diamond_sword', count: 1, components: enchanted },
+      { Slot: 1, id: 'minecraft:diamond_pickaxe', count: 1, components: { 'minecraft:damage': 3, 'minecraft:custom_name': { text: 'Digger' } } },
+      { Slot: 2, id: 'minecraft:torch', count: 64 },
+      { Slot: 17, id: 'minecraft:light_blue_stained_glass_pane', count: 48 },
+    ],
+    equipment: { legs: { id: 'minecraft:diamond_leggings', count: 1, components: { 'minecraft:damage': 118 } }, chest: { id: 'minecraft:elytra', count: 1, components: { 'minecraft:damage': 4 } } },
+  };
+  const resolve = (p) => {
+    let v = player;
+    for (const m of p.matchAll(/([A-Za-z_]+)|\[(\d+)\]|"([^"]+)"/g)) {
+      v = v?.[m[1] ?? m[2] ?? m[3]];
+      if (v === undefined) return undefined;
+    }
+    return v;
+  };
+  const queries = [];
+  const rcon = { send: async (c) => {
+    queries.push(c);
+    const m = c.match(/^data get entity Alex (.+)$/);
+    const v = m && resolve(m[1]);
+    if (v === undefined) return `Found no elements matching ${m?.[1]}`;
+    const text = typed(v);
+    return `Alex has the following entity data: ${text.length > 88 ? `${text.slice(0, 85)}...` : text}`;
+  } };
+  const p = await new PlayerInfo({ mcDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-trunc-')), rcon }).profile('Alex');
+  assert.deepStrictEqual(p.live.hotbar.slice(0, 3).map((x) => x && [x.id, x.count, x.enchanted, x.name]),
+    [['diamond_sword', 1, true, null], ['diamond_pickaxe', 1, false, 'Digger'], ['torch', 64, false, null]]);
+  assert.strictEqual(p.live.inventory[8].id, 'light_blue_stained_glass_pane');
+  assert.strictEqual(p.live.gear.legs.id, 'diamond_leggings');
+  assert.strictEqual(p.live.gear.chest.id, 'elytra');
+  assert.strictEqual(p.live.gear.head, null);
+  assert.ok(queries.length < 40, `${queries.length} queries`);
 });
