@@ -59,6 +59,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers.
 - **Player history** from your logs: sessions, playtime, last IP, daily activity.
+- **Player profiles**: position, health, food, level and game mode, equipment, hotbar and inventory live; statistics (play time, deaths, kills, distance, most mined and used) and advancements from the world files; teleport, game mode, heal, kick and clear inventory in one place.
 - **Scanner detection**: spots bots probing your server, explains what to do, and offers a ban or a ready-made firewall rule.
 
 **Worlds and backups**
@@ -329,6 +330,15 @@ Cancelling the countdown leaves everything as it was. Without control over the M
 **Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
 
 If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-net@*'` or `journalctl -u 'rconsole-job@*'`.
+
+## Player profiles
+
+**Profile** on a player in the console's online list or in Players → History opens their profile:
+
+- **live, while they're online** (read with `data get entity` over RCON): position, dimension, health, food, level, game mode, armor and offhand, hotbar (selected slot marked) and inventory, with counts and enchanted items highlighted;
+- **statistics** from `<world>/stats/<uuid>.json`: play time, deaths, mob and player kills, distance walked, blocks mined, jumps, and the most mined, used and killed;
+- **advancements** from `<world>/advancements/<uuid>.json`;
+- **actions** by role: teleport to a player or coordinates, set the game mode (moderators and admins), heal and clear the inventory (admins), kick.
 
 ## Chat
 

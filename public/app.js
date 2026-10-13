@@ -733,7 +733,8 @@ function renderStatus(s) {
     ...(players.length
       ? players.map((name) =>
           el('li', { title: `Insert ${name} into the command line`, onclick: () => insertName(name) },
-            avatar(name), el('span', { class: 'who-cell' }, el('span', { class: 'name' }, name))))
+            avatar(name), el('span', { class: 'who-cell' }, el('span', { class: 'name' }, name)),
+            el('button', { class: 'btn btn-quiet btn-sm', title: `${name}'s profile`, onclick: (e) => { e.stopPropagation(); openPlayer(name); } }, 'Profile')))
       : [emptyItem(rcon.ok ? 'Nobody is online. Click a player here to insert their name into a command.' : 'Player list unavailable while RCON is offline.')])
   );
 
@@ -2305,6 +2306,101 @@ $('ls-form').addEventListener('submit', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Player profile
+// ---------------------------------------------------------------------------
+
+let psPlayer = null;
+const itemLabel = (id) => id.replace(/_/g, ' ');
+
+function slot(it, { selected = false, label = '' } = {}) {
+  if (!it) return el('span', { class: `slot empty${selected ? ' selected' : ''}`, title: label || 'Empty' }, label ? el('span', { class: 'slot-label' }, label) : null);
+  return el('span', { class: `slot${it.enchanted ? ' ench' : ''}${selected ? ' selected' : ''}`, title: `${it.name || itemLabel(it.id)}${it.count > 1 ? ` × ${it.count}` : ''}${it.enchanted ? ' (enchanted)' : ''}` },
+    el('span', { class: 'slot-name' }, itemLabel(it.id)),
+    it.count > 1 ? el('span', { class: 'slot-count' }, String(it.count)) : null);
+}
+
+function meter(value, max, cls) {
+  const fill = el('span', { class: 'meter-fill' });
+  fill.style.width = `${Math.max(0, Math.min(100, (value / max) * 100))}%`; // CSSOM: allowed by the CSP, unlike style attributes
+  return el('span', { class: `meter ${cls}` }, fill);
+}
+
+function renderPlayer(p) {
+  const L = p.live;
+  $('ps-sub').textContent = L ? `Online · ${L.gamemode || ''} · ${L.dimension || ''}`.replace(/ · $/, '') : p.stats ? 'Offline · statistics from the world files' : 'Offline';
+  const parts = [];
+  if (L) {
+    const act = (label, cmd, opts) => rowActionBtn(label, opts?.icon || 'players', cmd, opts?.confirm, opts?.danger, () => setTimeout(() => openPlayer(p.name, p.uuid), 400));
+    const tpField = el('input', { class: 'field', placeholder: 'Player or x y z', 'aria-label': 'Teleport target', maxlength: 60 });
+    const modes = el('select', { class: 'field', 'aria-label': 'Game mode' }, ...['survival', 'creative', 'adventure', 'spectator'].map((m) => el('option', { value: m, selected: m === L.gamemode || undefined }, m[0].toUpperCase() + m.slice(1))));
+    parts.push(
+      el('section', { class: 'ps-section' },
+        el('dl', { class: 'ps-facts' },
+          el('div', {}, el('dt', {}, 'Position'), el('dd', { class: 'mono' }, L.pos.map((v) => Math.round(v)).join(' '))),
+          el('div', {}, el('dt', {}, 'Health'), el('dd', {}, `${L.health ?? '–'} / 20`, meter(L.health || 0, 20, 'hp'))),
+          el('div', {}, el('dt', {}, 'Food'), el('dd', {}, `${L.food ?? '–'} / 20`, meter(L.food || 0, 20, 'food'))),
+          el('div', {}, el('dt', {}, 'Level'), el('dd', {}, String(L.xp ?? '–')))),
+        el('div', { class: 'ps-actions', 'data-min-role': 'moderator' },
+          el('form', { class: 'row', onsubmit: (e) => {
+            e.preventDefault();
+            const t = tpField.value.trim();
+            if (/^[A-Za-z0-9_]{1,16}$|^~?-?[\d.]+ ~?-?[\d.]+ ~?-?[\d.]+$/.test(t)) busy(e.submitter, () => mutate(`tp ${p.name} ${t}`)).then(() => openPlayer(p.name, p.uuid));
+            else toast('Enter a player name or three coordinates.', 'bad');
+          } }, tpField, el('button', { class: 'btn btn-sm' }, 'Teleport')),
+          el('div', { class: 'row' }, modes, el('button', { class: 'btn btn-sm', onclick: (e) => busy(e.currentTarget, () => mutate(`gamemode ${modes.value} ${p.name}`)).then(() => openPlayer(p.name, p.uuid)) }, 'Set mode')),
+          el('div', { class: 'row wrap' },
+            act('Heal', `effect give ${p.name} minecraft:instant_health 1 5`, { icon: 'add' }),
+            act('Kick', `kick ${p.name}`, { icon: 'remove', confirm: { title: `Kick ${p.name}?`, confirm: 'Kick', tone: 'danger', icon: 'remove' } }),
+            act('Clear inventory', `clear ${p.name}`, { icon: 'delete', danger: true, confirm: { title: `Clear ${p.name}'s inventory?`, body: 'Everything they carry is gone. This can\'t be undone.', confirm: 'Clear', tone: 'danger', icon: 'delete' } })))),
+      el('section', { class: 'ps-section' },
+        el('h3', {}, 'Equipment and hotbar'),
+        el('div', { class: 'slots gear' }, ...['head', 'chest', 'legs', 'feet', 'offhand'].map((k) => slot(L.gear[k], { label: k }))),
+        el('div', { class: 'slots hotbar' }, ...L.hotbar.map((it, i) => slot(it, { selected: i === L.selected }))),
+        el('h3', {}, 'Inventory'),
+        el('div', { class: 'slots' }, ...L.inventory.map((it) => slot(it)))));
+  }
+  const st = p.stats;
+  if (st) {
+    const stat = (label, value) => el('div', {}, el('dt', {}, label), el('dd', {}, value));
+    const list = (title, items) => items.length ? el('div', { class: 'ps-top' }, el('h3', {}, title), el('ol', {}, ...items.map((x) => el('li', {}, el('span', {}, itemLabel(x.id)), el('b', {}, x.count.toLocaleString()))))) : null;
+    parts.push(el('section', { class: 'ps-section' },
+      el('h3', {}, 'Statistics'),
+      el('dl', { class: 'ps-facts stats' },
+        stat('Play time', st.playTimeTicks != null ? fmt.duration(Math.round(st.playTimeTicks / 20)) : '–'),
+        stat('Deaths', st.deaths.toLocaleString()),
+        stat('Mob kills', st.mobKills.toLocaleString()),
+        stat('Player kills', st.playerKills.toLocaleString()),
+        stat('Walked', `${st.walkedKm.toLocaleString()} km`),
+        stat('Blocks mined', st.blocksMined.toLocaleString()),
+        stat('Jumps', st.jumps.toLocaleString()),
+        stat('Advancements', p.advancements ? String(p.advancements.done) : '–')),
+      el('div', { class: 'ps-tops' }, list('Most mined', st.topMined), list('Most used', st.topUsed), list('Most killed', st.topKilled))));
+  }
+  if (!parts.length) parts.push(el('p', { class: 'note ps-empty' }, `${p.name} is offline and has no statistics in this world yet.`));
+  $('ps-body').replaceChildren(...parts);
+}
+
+async function openPlayer(name, uuid) {
+  psPlayer = { name, uuid };
+  const sheet = $('player-sheet');
+  $('ps-name').textContent = name;
+  $('ps-avatar').replaceChildren(avatar(uuid || name));
+  if (!sheet.open) {
+    $('ps-sub').textContent = 'Loading…';
+    $('ps-body').replaceChildren(el('div', { class: 'ps-section' }, el('span', { class: 'skeleton w60' }), el('span', { class: 'skeleton w40' })));
+    sheet.showModal();
+  }
+  try {
+    renderPlayer(await api('GET', `/api/players/${encodeURIComponent(name)}/profile${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`));
+  } catch (e) {
+    $('ps-body').replaceChildren(el('p', { class: 'note ps-empty' }, `Can't load ${name}: ${e.message}`));
+  }
+}
+$('ps-close').addEventListener('click', () => $('player-sheet').close());
+$('ps-refresh').addEventListener('click', (e) => psPlayer && busy(e.currentTarget, () => openPlayer(psPlayer.name, psPlayer.uuid)));
+$('player-sheet').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+
+// ---------------------------------------------------------------------------
 // Players: chat (from the console's log stream)
 // ---------------------------------------------------------------------------
 
@@ -2620,6 +2716,7 @@ function historyRow(p) {
           p.uuid ? el('div', {}, el('dt', {}, 'UUID'), el('dd', { class: 'mono' }, p.uuid)) : null,
           p.ip ? el('div', {}, el('dt', {}, 'Last IP'), el('dd', { class: 'mono' }, p.ip)) : null),
         el('div', { class: 'row wrap' },
+          el('button', { class: 'btn btn-sm', onclick: () => openPlayer(p.name, p.uuid) }, icon('players'), 'Profile'),
           rowActionBtn('Whitelist', 'add', `whitelist add ${p.name}`),
           rowActionBtn('Make op', 'op', `op ${p.name}`, CONFIRM_ADD.op(p.name)),
           p.online ? rowActionBtn('Kick', 'remove', `kick ${p.name}`, { title: `Kick ${p.name}?`, confirm: 'Kick', tone: 'danger', icon: 'remove' }) : null,

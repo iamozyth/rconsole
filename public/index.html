@@ -717,6 +717,16 @@
   </form>
 </dialog>
 
+<dialog class="dialog player-sheet" id="player-sheet" aria-labelledby="ps-name">
+  <header class="ps-head">
+    <span class="ps-avatar" id="ps-avatar"></span>
+    <div class="head-text"><h2 id="ps-name">Player</h2><p class="note" id="ps-sub"></p></div>
+    <button class="btn btn-quiet btn-icon btn-sm" id="ps-refresh" aria-label="Refresh"><svg><use href="#pg-refresh"/></svg></button>
+    <button class="btn btn-quiet btn-icon btn-sm" id="ps-close" aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="ps-body" id="ps-body"></div>
+</dialog>
+
 <dialog class="more-sheet" id="more-sheet" aria-label="More areas">
   <nav class="more-list" id="more-list"></nav>
 </dialog>
