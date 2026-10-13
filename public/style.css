@@ -1576,3 +1576,5 @@ button.chat-name:hover { color: var(--accent); }
   .chat-send { grid-template-columns: minmax(0, 1fr) auto; }
   .chat-send select { grid-column: 1 / -1; }
 }
+.discord-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; align-items: center; }
+@media (max-width: 760px) { .discord-grid { grid-template-columns: minmax(0, 1fr); } }

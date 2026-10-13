@@ -81,6 +81,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 - **Log search** across `latest.log` and every rotated `.log.gz`.
 - **Audit trail** of every change and sign-in.
 - **Push notifications** through [ntfy](https://ntfy.sh): server down, lag, failed backups, updates, scanners, joins, with one-tap actions and quiet hours.
+- **Discord**: the same alerts as embeds, and an optional relay of chat, joins and leaves into a channel.
 - **Map**: squaremap or BlueMap inside rconsole, behind your sign-in.
 - **Prometheus** `/metrics` endpoint.
 
@@ -393,6 +394,15 @@ Install the ntfy app, subscribe to a topic with a long, unguessable name (anyone
 - optional **one-tap actions** add buttons that act right away: *Ban &lt;ip&gt;* on scanner alerts and *Start server* when it is down. Each button holds a single-use link that works for 24 hours without signing in, so only turn this on for a private topic or one protected by an access token. Uses are recorded in the audit log as user `ntfy`.
 
 Messages are published as JSON in plain text (the iOS app does not render Markdown). **Send test** shows what an alert looks like. Repeats of the same alert are held back for 10 minutes and there are at most 30 per hour.
+
+### Discord
+
+Under Server → Notifications → **Discord**, paste a channel webhook (channel settings → Integrations → Webhooks → Copy Webhook URL):
+
+- **Alerts**: the same alerts as ntfy (each with its on/off switch), as embeds coloured by priority and linking to rconsole. Discord works with or without ntfy.
+- **Chat**: a second webhook mirrors chat, `/say`, joins and leaves into a channel, batched every few seconds and within Discord's rate limits.
+
+Mentions are switched off, so nobody in game can ping `@everyone`. Webhook URLs are stored like the ntfy token and never sent back to the browser. Messages from Discord into Minecraft would need a bot and aren't supported.
 
 ## Prometheus
 

@@ -472,6 +472,15 @@
               <div class="row"><input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200"><button type="button" class="btn" id="ntfy-here">Use this address</button></div>
               <p class="note">Tapping a notification opens the matching page here, and buttons can act on it. Must be reachable from your phone.</p>
             </div>
+            <fieldset class="fld wide discord"><legend>Discord</legend>
+              <div class="discord-grid">
+                <label class="fld"><span>Webhook for alerts</span><input class="field mono" name="dcUrl" type="password" maxlength="200" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"></label>
+                <label class="fld"><span>Webhook for chat (optional)</span><input class="field mono" name="dcChatUrl" type="password" maxlength="200" autocomplete="off" placeholder="Another channel's webhook"></label>
+                <label class="switch"><input type="checkbox" role="switch" name="dcAlerts"><span>Send the alerts below to Discord too</span></label>
+                <label class="switch"><input type="checkbox" role="switch" name="dcChat"><span>Mirror chat, joins and leaves</span></label>
+              </div>
+              <p class="note">In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL. Works with or without ntfy; mentions are switched off.</p>
+            </fieldset>
             <fieldset class="fld wide"><legend>Notify me when</legend><div class="notify-events" id="notify-events"></div></fieldset>
             <fieldset class="fld wide quiet"><legend>Quiet hours</legend>
               <div class="row quiet-row">

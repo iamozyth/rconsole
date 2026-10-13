@@ -2967,13 +2967,20 @@ async function loadNotify() {
     f.quietFrom.value = n.quiet.from;
     f.quietTo.value = n.quiet.to;
     f.oneTap.checked = n.oneTap;
+    f.dcUrl.value = '';
+    f.dcUrl.placeholder = n.discord.hasUrl ? 'Saved; paste a new one to replace' : 'https://discord.com/api/webhooks/…';
+    f.dcChatUrl.value = '';
+    f.dcChatUrl.placeholder = n.discord.hasChatUrl ? 'Saved; paste a new one to replace' : "Another channel's webhook";
+    f.dcAlerts.checked = n.discord.alerts && n.discord.hasUrl;
+    f.dcChat.checked = n.discord.chat && n.discord.hasChatUrl;
     const prio = (key, value) => el('select', { class: 'field prio', name: `prio-${key}`, 'aria-label': 'Priority' },
       ...Object.entries(n.priorityNames).map(([v, label]) => el('option', { value: v, selected: Number(v) === value || undefined }, label)));
     $('notify-events').replaceChildren(...n.events.map((e) => el('div', { class: 'notify-event' },
       el('label', { class: 'check' }, el('input', { type: 'checkbox', name: `ev-${e.key}`, checked: e.enabled || undefined }), el('span', {}, e.label)),
       prio(e.key, e.priority))));
-    $('notify-note').textContent = n.fromEnv ? 'Topic and token come from NTFY_URL / NTFY_TOKEN in rconsole.env.' : n.url ? 'Notifications are on.' : 'Off until a topic URL is set. Pick a long, unguessable topic name: anyone who knows it can read the alerts.';
-    $('ntfy-test').disabled = !n.url;
+    const on = [n.url ? 'ntfy' : null, n.discord.hasUrl && n.discord.alerts ? 'Discord' : null].filter(Boolean);
+    $('notify-note').textContent = n.fromEnv ? 'Topic and token come from NTFY_URL / NTFY_TOKEN in rconsole.env.' : on.length ? `Alerts go to ${on.join(' and ')}.` : 'Off until an ntfy topic or a Discord webhook is set. Pick a long, unguessable topic name: anyone who knows it can read the alerts.';
+    $('ntfy-test').disabled = !on.length;
   } catch (e) {
     $('notify-note').textContent = e.message;
   }
@@ -2994,6 +3001,9 @@ notifyForm.addEventListener('submit', async (e) => {
   if (!f.publicUrl.disabled) body.publicUrl = f.publicUrl.value.trim();
   if (!f.url.disabled) body.url = f.url.value.trim();
   if (!f.token.disabled && f.token.value) body.token = f.token.value;
+  body.discord = { alerts: f.dcAlerts.checked, chat: f.dcChat.checked };
+  if (f.dcUrl.value.trim()) body.discord.url = f.dcUrl.value.trim();
+  if (f.dcChatUrl.value.trim()) body.discord.chatUrl = f.dcChatUrl.value.trim();
   await busy(notifyForm.querySelector('.btn-primary'), async () => {
     try {
       await api('POST', '/api/notify', body);

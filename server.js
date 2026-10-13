@@ -414,7 +414,7 @@ function auditRequest(req, pathname, status, error) {
 route('GET', /^\/api\/notify$/, () => notify.view());
 route('POST', /^\/api\/notify$/, async (req) => notify.update(await readJson(req)));
 route('POST', /^\/api\/notify\/test$/, async (req) => {
-  if (!notify.config.url) throw httpError(409, 'Set the ntfy topic URL first');
+  if (!notify.config.url && !notify.config.discord.url) throw httpError(409, 'Set an ntfy topic URL or a Discord webhook first');
   try {
     await notify.test(req.user);
   } catch (err) {
