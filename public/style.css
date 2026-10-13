@@ -1520,3 +1520,16 @@ kbd {
 .nav .nav-more.has-alert .tile { position: relative; }
 .nav .nav-more.has-alert .tile::after { content: ''; position: absolute; top: -2px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--c-danger); box-shadow: 0 0 0 2px var(--rail); }
 .offsite-form .quiet-row { flex-direction: row; justify-content: flex-start; flex-wrap: wrap; gap: 12px 24px; }
+.spark-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px 20px; }
+.spark-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.spark-mark svg { width: 16px; height: 16px; }
+.spark-actions { display: flex; gap: 8px; }
+.spark-links { list-style: none; margin: 0; padding: 4px 20px 12px; border-top: 1px solid var(--line); }
+.spark-links li { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; }
+.spark-links a { font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spark-links .note { margin-left: auto; white-space: nowrap; }
+@media (max-width: 760px) {
+  .spark-row { grid-template-columns: 32px minmax(0, 1fr); padding: 14px 16px; }
+  .spark-actions { grid-column: 1 / -1; }
+  .spark-actions .btn { flex: 1; }
+}

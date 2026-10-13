@@ -74,6 +74,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 
 **Insights and integrations**
 - 24-hour and 7-day **charts** of TPS, players, CPU and memory, with downtime marked.
+- **spark profiler**: one click starts a 30-second profile or a health report and links the result; rconsole offers to install spark if it's missing.
 - **Problems**: crashes, out-of-memory, a hanging server, plugins that fail to load and other errors, found in the log, grouped, with the exception line and a push alert.
 - **Log search** across `latest.log` and every rotated `.log.gz`.
 - **Audit trail** of every change and sign-in.
@@ -124,7 +125,7 @@ Not under the default license; see [License](#license) and ask for a commercial 
 
 - [What the installer does](#what-the-installer-does) · [Manual setup](#setup-on-debian-manual) · [Configuration](#configuration) · [Traefik / HTTPS](#traefik)
 - [Updating rconsole](#updating) · [Server updates](#updates) · [Offsite backups](#offsite-backups) · [Plugins](#plugins) · [Server software](#server-software)
-- [Insights](#insights) · [Problems](#problems) · [Connection attempts](#connection-attempts) · [Notifications](#notifications) · [Prometheus](#prometheus) · [Map](#map)
+- [Insights](#insights) · [spark](#spark-profiler) · [Problems](#problems) · [Connection attempts](#connection-attempts) · [Notifications](#notifications) · [Prometheus](#prometheus) · [Map](#map)
 - [Security model](#security-model) · [Upgrading from 1.x](#upgrading-from-1x-rconsole-backup--rconsole-update) · [Notes](#notes) · [License](#license)
 
 ## What the installer does
@@ -342,6 +343,10 @@ Settings live in `/var/lib/rconsole/offsite.json` (mode 600; secrets are never s
 - **Metrics** are sampled every 30 seconds while rconsole runs: TPS/MSPT, players online, host CPU and memory, and the Minecraft process's CPU and RSS (from `/proc/<MainPID>`, so it needs `MC_SERVICE` to be readable via `systemctl show`). 24 hours are kept at full resolution and 7 days as 5-minute averages, in `/var/lib/rconsole/metrics.json`.
 - **Player history** is rebuilt from `logs/latest.log` and `logs/*.log.gz`. What has been read from rotated logs is cached in `/var/lib/rconsole/players.json`, so history survives old logs being deleted. Log lines only carry a time of day; dates come from the rotated file names and the last write of `latest.log`.
 - **Log search** reads newest first and stops at 500 matches or after 8 seconds; use the date range to reach further back.
+
+## spark profiler
+
+When TPS drops, [spark](https://spark.lucko.me) shows which plugin, mod, entity or chunk the server spends its time on. Insights → Metrics has **Profile 30 s** and **Health report**; rconsole starts them over RCON and shows the viewer link when spark has uploaded it (read from spark's `activity.json`, since spark answers RCON asynchronously). Earlier results are listed too. Without spark, **Install spark** installs it from Modrinth (it loads at the next restart).
 
 ## Problems
 

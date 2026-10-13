@@ -29,6 +29,7 @@ const { searchLogs } = require('./lib/logsearch');
 const { Scanners } = require('./lib/scanners');
 const { Problems } = require('./lib/problems');
 const { Offsite } = require('./lib/offsite');
+const { Spark } = require('./lib/spark');
 const { CommandCatalog } = require('./lib/commands');
 const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
@@ -59,6 +60,7 @@ const platform = platformLib.detector(config.mcDir);
 const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon });
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform });
+const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
 const commandCatalog = new CommandCatalog({ rcon, log });
 const notify = new Notify({ stateDir: config.stateDir, log, publicUrl: config.publicUrl });
 const selfUpdate = new SelfUpdate({ dir: __dirname, stateDir: config.stateDir, runner: config.jobRunner, log });
@@ -359,6 +361,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
   ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
   ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
+  ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
   ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
   ['POST', /^\/api\/offsite\/download$/, (p, b) => ['offsite download', b.name]],
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
@@ -401,6 +404,11 @@ route('POST', /^\/api\/self-update$/, async (req) => [202, await selfUpdate.star
 route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 route('GET', /^\/api\/metrics$/, (req) => metrics.series(new URL(req.url, 'http://x').searchParams.get('range') || '24h'));
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
+route('GET', /^\/api\/spark$/, () => spark.status());
+route('POST', /^\/api\/spark$/, async (req) => {
+  const { kind, seconds } = await readJson(req);
+  return [202, await spark.start(kind === 'health' ? 'health' : 'profile', seconds)];
+});
 route('GET', /^\/api\/offsite$/, () => offsite.view());
 route('PUT', /^\/api\/offsite$/, async (req) => offsite.update(await readJson(req)));
 route('POST', /^\/api\/offsite\/test$/, () => offsite.test());

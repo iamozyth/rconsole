@@ -2218,7 +2218,7 @@ async function loadMetrics() {
     $('m-info').textContent = `Can't load metrics: ${e.message}`;
   }
 }
-viewLoaders['insights/metrics'] = loadMetrics;
+viewLoaders['insights/metrics'] = () => { loadMetrics(); loadSpark(); };
 
 $('m-range').addEventListener('click', (e) => {
   const b = e.target.closest('[data-range]');
@@ -2328,6 +2328,62 @@ async function loadProblems() {
   }
 }
 viewLoaders['insights/problems'] = loadProblems;
+
+// ---------------------------------------------------------------------------
+// Insights: spark profiler
+// ---------------------------------------------------------------------------
+
+let sparkTimer = null;
+const sparkLabel = (k) => (k === 'health' ? 'Health report' : 'Profile');
+
+async function loadSpark() {
+  clearTimeout(sparkTimer);
+  try {
+    const st = await api('GET', '/api/spark');
+    $('spark-panel').hidden = false;
+    const actions = $('spark-actions');
+    if (!st.installed) {
+      $('spark-info').textContent = 'Install spark, the standard Minecraft profiler, to see which plugin, mod or chunk causes lag. It is free and runs on Paper, Fabric and Forge.';
+      actions.replaceChildren(el('button', { class: 'btn btn-primary btn-sm', onclick: (e) => busy(e.currentTarget, async () => {
+        try {
+          await api('POST', '/api/plugins', { projectId: 'spark' });
+          toast('spark installed. It loads at the next restart.');
+          loadSpark();
+        } catch (err) {
+          toast(err.message, 'bad');
+        }
+      }) }, icon('download'), 'Install spark'));
+      $('spark-links').hidden = true;
+      return;
+    }
+    const run = st.running;
+    $('spark-info').textContent = run
+      ? `${sparkLabel(run.kind)} running${run.kind === 'profile' ? `, about ${Math.max(0, Math.round((run.endsAt - Date.now()) / 1000))} s left` : ''}. The link appears here when spark has uploaded it.`
+      : 'spark records what the server spends its time on and opens it in its web viewer.';
+    const start = (kind) => (e) => busy(e.currentTarget, async () => {
+      try {
+        await api('POST', '/api/spark', { kind, seconds: 30 });
+        loadSpark();
+      } catch (err) {
+        toast(err.message, 'bad');
+      }
+    });
+    actions.replaceChildren(
+      el('button', { class: 'btn btn-sm', disabled: run || undefined, onclick: start('health') }, 'Health report'),
+      el('button', { class: 'btn btn-primary btn-sm', disabled: run || undefined, onclick: start('profile') }, icon('insights'), run?.kind === 'profile' ? 'Profiling…' : 'Profile 30 s'));
+    const links = st.activity.slice(0, 5);
+    $('spark-links').hidden = !links.length;
+    $('spark-links').replaceChildren(...links.map((a) => el('li', {},
+      el('span', { class: 'pill' }, a.type),
+      el('a', { href: a.url, target: '_blank', rel: 'noopener' }, a.url.replace('https://', '')),
+      el('span', { class: 'note' }, a.time ? fmt.relative(new Date(a.time).toISOString()) : ''))));
+    if (st.last && Date.now() - st.last.at < 15000) toast(`spark ${sparkLabel(st.last.kind).toLowerCase()} is ready.`);
+    if (run && currentView('insights') === 'metrics') sparkTimer = setTimeout(loadSpark, 3000);
+  } catch {
+    $('spark-panel').hidden = true;
+  }
+}
+
 
 $('pr-range').addEventListener('click', (e) => {
   const b = e.target.closest('[data-days]');
@@ -2616,6 +2672,7 @@ function paletteActions() {
   act('Check for updates', 'updates', 'update upgrade version paper rconsole plugins mods self', () => { showTab('server/updates'); checkAll(true); });
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
+  act('Profile the server with spark', 'insights', 'spark profiler lag tps cause', () => showTab('insights/metrics'));
   act('Show problems and errors', 'alert', 'problems errors crash exception plugin failed', () => showTab('insights/problems'));
   act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist', () => showTab('players/security'));
   act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });
