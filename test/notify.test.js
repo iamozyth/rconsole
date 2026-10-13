@@ -174,3 +174,18 @@ test('notify: click target, icon, buttons, quiet hours and one-tap actions', asy
   assert.ok(n.inQuietHours(new Date(2026, 0, 1, 23, 0)) && n.inQuietHours(new Date(2026, 0, 1, 6, 59)) && !n.inQuietHours(new Date(2026, 0, 1, 12, 0)));
   server.close();
 });
+
+test('notify: crashes and plugin failures alert at once; plain errors grow a daily digest', async () => {
+  const { server, got, url } = await ntfyServer();
+  const n = new Notify({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-notify-')) });
+  n.update({ url });
+  n.onProblem({ key: 'a', kind: 'crash', severity: 'critical', title: 'Server crashed', message: 'This crash report has been saved to: x', plugin: null });
+  n.onProblem({ key: 'b', kind: 'plugin', severity: 'error', title: 'Plugin error', message: 'Could not pass event', plugin: 'Essentials', detail: 'java.lang.NullPointerException' });
+  n.onProblem({ key: 'c', kind: 'error', severity: 'error', title: 'Error', message: '[Votifier] Unable to bind', plugin: 'Votifier' });
+  n.onProblem({ key: 'd', kind: 'error', severity: 'error', title: 'Error', message: 'Something else', plugin: null });
+  await settle();
+  assert.deepStrictEqual(got.map((g) => g.title), ['Server crashed', 'Plugin error in Essentials', 'New error in Votifier', '2 new kinds of errors today']);
+  assert.match(got[1].message, /NullPointerException/);
+  assert.strictEqual(got[2].sequence_id, got[3].sequence_id);
+  server.close();
+});

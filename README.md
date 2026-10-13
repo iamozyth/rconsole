@@ -73,6 +73,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 
 **Insights and integrations**
 - 24-hour and 7-day **charts** of TPS, players, CPU and memory, with downtime marked.
+- **Problems**: crashes, out-of-memory, a hanging server, plugins that fail to load and other errors, found in the log, grouped, with the exception line and a push alert.
 - **Log search** across `latest.log` and every rotated `.log.gz`.
 - **Audit trail** of every change and sign-in.
 - **Push notifications** through [ntfy](https://ntfy.sh): server down, lag, failed backups, updates, scanners, joins, with one-tap actions and quiet hours.
@@ -122,7 +123,7 @@ Not under the default license; see [License](#license) and ask for a commercial 
 
 - [What the installer does](#what-the-installer-does) · [Manual setup](#setup-on-debian-manual) · [Configuration](#configuration) · [Traefik / HTTPS](#traefik)
 - [Updating rconsole](#updating) · [Server updates](#updates) · [Plugins](#plugins) · [Server software](#server-software)
-- [Insights](#insights) · [Connection attempts](#connection-attempts) · [Notifications](#notifications) · [Prometheus](#prometheus) · [Map](#map)
+- [Insights](#insights) · [Problems](#problems) · [Connection attempts](#connection-attempts) · [Notifications](#notifications) · [Prometheus](#prometheus) · [Map](#map)
 - [Security model](#security-model) · [Upgrading from 1.x](#upgrading-from-1x-rconsole-backup--rconsole-update) · [Notes](#notes) · [License](#license)
 
 ## What the installer does
@@ -329,6 +330,16 @@ If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole
 - **Metrics** are sampled every 30 seconds while rconsole runs: TPS/MSPT, players online, host CPU and memory, and the Minecraft process's CPU and RSS (from `/proc/<MainPID>`, so it needs `MC_SERVICE` to be readable via `systemctl show`). 24 hours are kept at full resolution and 7 days as 5-minute averages, in `/var/lib/rconsole/metrics.json`.
 - **Player history** is rebuilt from `logs/latest.log` and `logs/*.log.gz`. What has been read from rotated logs is cached in `/var/lib/rconsole/players.json`, so history survives old logs being deleted. Log lines only carry a time of day; dates come from the rotated file names and the last write of `latest.log`.
 - **Log search** reads newest first and stops at 500 matches or after 8 seconds; use the date range to reach further back.
+
+## Problems
+
+Insights → **Problems** lists what went wrong in the last 24 hours or 7 days, read from `latest.log` and the rotated logs:
+
+- **critical:** crashes (crash reports, exceptions in the tick loop), `OutOfMemoryError`, the watchdog's "server has stopped responding", and stops that systemd reports as failed (for example the kernel's OOM killer) even when the log shows nothing;
+- **errors:** plugins or mods that fail to load or enable, exceptions in plugin events and tasks, and any other ERROR line;
+- **warnings:** "Can't keep up", with the worst delay.
+
+Repeats are grouped (numbers, UUIDs and names don't split a group), with the plugin, the exception line from the stack trace, counts and times, and a jump into log search. New errors put a red dot on Insights until you mark them as seen. With notifications on, crashes and plugin failures alert at once, other errors arrive as one daily digest.
 
 ## Connection attempts
 

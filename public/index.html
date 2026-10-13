@@ -557,6 +557,7 @@
     <section class="area" id="tab-insights" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Insights sections">
         <button role="tab" data-view="metrics" aria-selected="true">Metrics</button>
+        <button role="tab" data-view="problems" aria-selected="false">Problems</button>
         <button role="tab" data-view="logs" aria-selected="false">Log search</button>
         <button role="tab" data-view="audit" aria-selected="false">Audit</button>
       </div>
@@ -577,6 +578,20 @@
           <section class="panel"><header class="panel-head"><h2>CPU</h2><dl class="chart-stats" id="ms-cpu"></dl></header><div class="chart" id="mc-cpu"></div></section>
           <section class="panel"><header class="panel-head"><h2>Memory</h2><dl class="chart-stats" id="ms-mem"></dl></header><div class="chart" id="mc-mem"></div></section>
         </div>
+      </div>
+
+      <div class="view" data-view="problems" hidden>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Problems</h2><p class="note" id="pr-info">Crashes, plugin failures and errors from the server log.</p></div>
+            <div class="segmented" role="radiogroup" aria-label="Time range" id="pr-range">
+              <button role="radio" aria-checked="true" data-days="1">24 h</button>
+              <button role="radio" aria-checked="false" data-days="7">7 days</button>
+            </div>
+            <button class="btn" id="pr-seen"><svg><use href="#pg-check"/></svg>Mark all as seen</button>
+          </header>
+          <ul class="problems" id="pr-list"></ul>
+        </section>
       </div>
 
       <div class="view" data-view="logs" hidden>

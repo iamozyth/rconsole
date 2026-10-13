@@ -722,6 +722,7 @@ function renderStatus(s) {
   renderUpdateState(s.update);
   renderSelfSummary(s.self);
   if (!(document.body.dataset.area === 'players' && currentView('players') === 'security')) renderSecurityBadge(s.security);
+  renderProblemsBadge(s.problems);
 }
 
 // Server software: chip in the top bar; Plugins/Mods tab follows what it loads.
@@ -2135,6 +2136,69 @@ $('ls-form').addEventListener('submit', (e) => {
   searchLogsUi();
 });
 
+// ---------------------------------------------------------------------------
+// Insights: problems
+// ---------------------------------------------------------------------------
+
+let problemDays = 1;
+
+function renderProblemsBadge(p) {
+  document.querySelector('.nav [data-tab=insights]').classList.toggle('has-alert', Boolean(p?.unseen));
+  $('nav-more').classList.toggle('has-alert', Boolean(p?.unseen)); // Insights sits under "More" on phones
+}
+
+function searchLogsFor(text) {
+  const f = $('ls-form').elements;
+  $('ls-form').reset();
+  f.q.value = text.replace(/\s+/g, ' ').slice(0, 120);
+  showTab('insights/logs');
+  searchLogsUi();
+}
+
+async function loadProblems() {
+  skeletonRows($('pr-list'), 1);
+  try {
+    const o = await api('GET', `/api/problems?days=${problemDays}`);
+    const g = o.groups;
+    const unseen = g.filter((x) => x.unseen && x.severity !== 'warning').length;
+    $('pr-info').textContent = g.length
+      ? `${g.length} kind${g.length === 1 ? '' : 's'} of problem${g.length === 1 ? '' : 's'} in the last ${problemDays === 1 ? '24 hours' : '7 days'}${unseen ? `, ${unseen} new` : ''}.${o.timedOut ? ' Older logs were skipped (time limit).' : ''}`
+      : 'Crashes, plugin failures and errors from the server log.';
+    $('pr-seen').disabled = !g.some((x) => x.unseen);
+    $('pr-list').replaceChildren(...(g.length ? g.map((x) => el('li', { class: `problem ${x.severity}${x.unseen ? ' unseen' : ''}` },
+      el('span', { class: 'problem-icon' }, icon(x.severity === 'warning' ? 'schedule' : 'alert')),
+      el('div', { class: 'problem-main' },
+        el('div', { class: 'problem-title' },
+          el('b', {}, x.kind === 'lag' && x.maxBehindMs ? `${x.title} (up to ${(x.maxBehindMs / 1000).toFixed(1)} s behind)` : x.title),
+          x.plugin ? el('span', { class: 'pill' }, x.plugin) : null,
+          x.unseen && x.severity !== 'warning' ? el('span', { class: 'pill bad' }, 'New') : null),
+        x.message ? el('code', { class: 'problem-msg' }, x.message) : null,
+        x.detail ? el('code', { class: 'problem-detail' }, x.detail) : null,
+        el('span', { class: 'problem-meta' }, `${x.count}× · last ${fmt.relative(new Date(x.last).toISOString())}${x.count > 1 ? ` · first ${fmt.relative(new Date(x.first).toISOString())}` : ''}`)),
+      x.message || x.kind === 'lag'
+        ? el('button', { class: 'btn btn-sm', onclick: () => searchLogsFor(x.kind === 'lag' ? "Can't keep up" : x.message) }, icon('search'), 'Show in logs')
+        : null))
+      : [el('li', { class: 'problems-empty' }, el('span', { class: 'problem-icon ok' }, icon('check')), el('div', {}, el('b', {}, 'No problems found. '), `Nothing went wrong in the last ${problemDays === 1 ? '24 hours' : '7 days'}.`))]));
+    if (problemDays === 1) renderProblemsBadge({ unseen });
+  } catch (e) {
+    $('pr-list').replaceChildren(el('li', { class: 'problems-empty' }, `Can't read the logs: ${e.message}`));
+  }
+}
+viewLoaders['insights/problems'] = loadProblems;
+
+$('pr-range').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-days]');
+  if (!b) return;
+  problemDays = Number(b.dataset.days);
+  for (const x of $('pr-range').children) x.setAttribute('aria-checked', String(x === b));
+  loadProblems();
+});
+$('pr-seen').addEventListener('click', async (e) => {
+  await busy(e.currentTarget, () => api('POST', '/api/problems/seen'));
+  renderProblemsBadge(null);
+  loadProblems();
+});
+
 function searchPlayerLogs(name) {
   const f = $('ls-form').elements;
   $('ls-form').reset();
@@ -2409,6 +2473,7 @@ function paletteActions() {
   act('Check for updates', 'updates', 'update upgrade version paper rconsole plugins mods self', () => { showTab('server/updates'); checkAll(true); });
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
+  act('Show problems and errors', 'alert', 'problems errors crash exception plugin failed', () => showTab('insights/problems'));
   act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist', () => showTab('players/security'));
   act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });
   act('Add a scheduled task…', 'schedule', 'cron schedule task timer', () => { showTab('schedule'); });

@@ -27,6 +27,7 @@ const { Metrics } = require('./lib/metrics');
 const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
 const { Scanners } = require('./lib/scanners');
+const { Problems } = require('./lib/problems');
 const { CommandCatalog } = require('./lib/commands');
 const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
@@ -66,6 +67,7 @@ ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });
+const problems = new Problems({ mcDir: config.mcDir, stateDir: config.stateDir, log, onProblem: (g) => notify.onProblem(g) });
 // One-tap actions from notifications (opt-in, see lib/notify.js).
 notify.handlers = {
   ban: async (ip) => {
@@ -349,6 +351,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/notify$/, (p, b) => ['notifications', Object.entries(b.events || {}).map(([k, v]) => `${k}=${v ? 'on' : 'off'}`).join(', ') || (b.url !== undefined ? 'topic' : '')]],
   ['POST', /^\/api\/notify\/test$/, () => ['notifications test', '']],
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
+  ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
   ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task edit', id]],
@@ -388,6 +391,8 @@ route('POST', /^\/api\/self-update$/, async (req) => [202, await selfUpdate.star
 route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 route('GET', /^\/api\/metrics$/, (req) => metrics.series(new URL(req.url, 'http://x').searchParams.get('range') || '24h'));
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
+route('GET', /^\/api\/problems$/, async (req) => problems.scan({ days: new URL(req.url, 'http://x').searchParams.get('days') }));
+route('POST', /^\/api\/problems\/seen$/, async () => problems.markSeen());
 route('GET', /^\/api\/logs\/search$/, async (req) => searchLogs(config.mcDir, Object.fromEntries(new URL(req.url, 'http://x').searchParams)));
 route('GET', /^\/api\/audit$/, async (req) => {
   const q = new URL(req.url, 'http://x').searchParams;
@@ -417,6 +422,7 @@ route('GET', /^\/api\/status$/, async () => ({
   pending: await pending.list(),
   self: selfUpdate.summary(),
   security: scanners.summary(),
+  problems: await problems.summary().catch(() => null),
   platform: (({ id, name, family, mcVersion, build, loaderVersion, addons, updates: auto }) => ({ id, name, family, mcVersion, build, loaderVersion, addons: addons?.kind || null, updates: Boolean(auto) }))(platform()),
 }));
 
@@ -776,6 +782,22 @@ scheduler.load().then(() => {
   logTail.start();
   metrics.start();
   metrics.onSample((sample) => notify.onSample(sample, { stats, ops, countdown, backups }));
+  // A server that goes down on its own with a failed systemd result crashed,
+  // even when the log shows nothing (killed by the OOM killer, JVM abort).
+  let wasUp = null;
+  metrics.onSample(async (sample) => {
+    const up = sample.up === 1;
+    const planned = ops.state?.running || countdown.remaining != null;
+    if (wasUp && !up && !planned) {
+      const st = await power.state().catch(() => null);
+      if (st?.available && (st.active === 'failed' || (st.result && st.result !== 'success'))) {
+        problems.record({ title: 'Server stopped unexpectedly', message: `systemd reports ${st.result || st.active}${st.result === 'oom-kill' ? ': the system ran out of memory and killed it' : ''}.` });
+      }
+    }
+    wasUp = up;
+  });
+  logTail.on('line', (line) => problems.onLogLine(line));
+  setTimeout(() => (problems.ready = true), 5000).unref(); // after the tail's first read of old lines
   logTail.on('line', (line) => notify.onLogLine(line));
   const updateCheck = () => notify.checkUpdates({ updates, plugins, selfUpdate }).catch((err) => log(`notify: ${err.message}`));
   setTimeout(updateCheck, 5 * 60 * 1000).unref();
