@@ -1728,3 +1728,7 @@ button.chat-name:hover { color: var(--accent); }
 }
 .dialog:has(.cfg-diff) { width: min(760px, calc(100vw - 32px)); }
 .dialog:has(.cfg-diff) .dialog-fields { padding-left: 20px; }
+/* The online dot breathes while the profile updates live */
+.ps-head .pill.live .dot { animation: live-pulse 2s ease-in-out infinite; }
+@keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 0%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .ps-head .pill.live .dot { animation: none; } }

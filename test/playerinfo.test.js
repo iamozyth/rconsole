@@ -186,3 +186,15 @@ test('playerinfo: truncated replies are read item by item', async () => {
   assert.strictEqual(p.live.gear.head, null);
   assert.ok(queries.length < 40, `${queries.length} queries`);
 });
+
+test('playerinfo: vitals skip the inventory and the files', async () => {
+  const sent = [];
+  const rcon = { send: async (c) => {
+    sent.push(c);
+    return c.endsWith(' Pos') ? 'Alex has the following entity data: [1.0d, 64.0d, 2.0d]' : c.endsWith(' Health') ? 'Alex has the following entity data: 12.0f' : 'Found no elements';
+  } };
+  const v = await new PlayerInfo({ mcDir: '/nonexistent', rcon }).vitals('Alex');
+  assert.deepStrictEqual([v.online, v.live.health, v.live.hotbar], [true, 12, undefined]);
+  assert.ok(!sent.some((c) => /Inventory|equipment|UUID/.test(c)), sent.join(', '));
+  assert.ok(sent.length <= 7);
+});

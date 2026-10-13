@@ -434,7 +434,10 @@ route('GET', /^\/api\/self-update$/, (req) => selfUpdate.overview({ refresh: new
 route('POST', /^\/api\/self-update$/, async (req) => [202, await selfUpdate.start()]);
 route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 route('GET', /^\/api\/metrics$/, (req) => metrics.series(new URL(req.url, 'http://x').searchParams.get('range') || '24h'));
-route('GET', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/profile$/, (req, res, [name]) => playerInfo.profile(name, { uuid: new URL(req.url, 'http://x').searchParams.get('uuid') }));
+route('GET', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/profile$/, (req, res, [name]) => {
+  const q = new URL(req.url, 'http://x').searchParams;
+  return q.get('part') === 'vitals' ? playerInfo.vitals(name) : playerInfo.profile(name, { uuid: q.get('uuid') });
+});
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
 route('GET', /^\/api\/configs$/, () => configs.list());
 route('GET', /^\/api\/configs\/file$/, (req) => configs.read(new URL(req.url, 'http://x').searchParams.get('path')));

@@ -2567,11 +2567,15 @@ function statsPanel(st, adv) {
     el('div', { class: 'ps-tops' }, list('Most mined', st.topMined), list('Most used', st.topUsed), list('Most killed', st.topKilled)));
 }
 
-function renderPlayer(p) {
+// What the open profile shows, so live updates can change parts in place
+// (the teleport field, the chosen tab and an unsaved game mode stay as they are).
+let psView = null;
+
+function headerPills(p) {
   const L = p.live;
   const pills = [];
   if (L) {
-    pills.push(el('span', { class: 'pill ok' }, el('span', { class: 'dot', 'aria-hidden': 'true' }), 'Online'));
+    pills.push(el('span', { class: 'pill ok live', title: 'Updates live while this is open' }, el('span', { class: 'dot', 'aria-hidden': 'true' }), 'Online'));
     if (L.gamemode) pills.push(el('span', { class: 'pill' }, L.gamemode[0].toUpperCase() + L.gamemode.slice(1)));
     if (L.dimension) pills.push(el('span', { class: `pill dim-${L.dimension.replace(/[^a-z_]/g, '')}` }, itemLabel(L.dimension.replace(/^the_/, 'the ')).replace(/^\w/, (c) => c.toUpperCase())));
   } else {
@@ -2579,24 +2583,43 @@ function renderPlayer(p) {
     if (p.saved?.savedAt) pills.push(el('span', { class: 'note' }, `Saved ${fmt.relative(p.saved.savedAt)}`));
   }
   $('ps-sub').replaceChildren(...pills);
+}
 
+function vitalsStrip(L) {
+  const hpLow = (L.health ?? 20) <= 6;
+  const coords = L.pos.map((v) => Math.round(v)).join(' ');
+  const copy = el('button', { class: 'ps-copy mono', type: 'button', title: 'Copy coordinates', onclick: () => copyText(coords, 'Coordinates') }, coords, icon('copy'));
+  return el('dl', { class: 'ps-strip ps-vitals' },
+    el('div', { class: 'ps-tile' }, el('dt', {}, 'Position'), el('dd', {}, copy)),
+    el('div', { class: 'ps-tile' }, el('dt', {}, 'Health'), el('dd', { class: hpLow ? 'low' : '' }, `${L.health ?? '–'}`, el('small', {}, '/ 20'), meter(L.health || 0, 20, hpLow ? 'hp low' : 'hp'))),
+    el('div', { class: 'ps-tile' }, el('dt', {}, 'Food'), el('dd', {}, `${L.food ?? '–'}`, el('small', {}, '/ 20'), meter(L.food || 0, 20, 'food'))),
+    el('div', { class: 'ps-tile' }, el('dt', {}, 'Level'), el('dd', {}, String(L.xp ?? '–'))));
+}
+
+function showPanel() {
+  const v = psView;
+  if (!v?.panelBody) return;
+  const d = v.data;
+  v.panelBody.replaceChildren(psTab === 'stats' ? statsPanel(d.stats, d.advancements) : inventoryPanel(d.inv, d.savedAt));
+  for (const b of v.tabs?.children || []) b.setAttribute('aria-checked', String(b.dataset.tab === psTab));
+}
+
+function renderPlayer(p) {
+  const L = p.live;
+  headerPills(p);
+  psView = { online: Boolean(L), data: {} };
   const parts = [];
   if (L) {
-    const hpLow = (L.health ?? 20) <= 6;
-    const coords = L.pos.map((v) => Math.round(v)).join(' ');
-    const copy = el('button', { class: 'ps-copy mono', type: 'button', title: 'Copy coordinates', onclick: () => copyText(coords, 'Coordinates') }, coords, icon('copy'));
-    parts.push(el('dl', { class: 'ps-strip ps-vitals' },
-      el('div', { class: 'ps-tile' }, el('dt', {}, 'Position'), el('dd', {}, copy)),
-      el('div', { class: 'ps-tile' }, el('dt', {}, 'Health'), el('dd', { class: hpLow ? 'low' : '' }, `${L.health ?? '–'}`, el('small', {}, '/ 20'), meter(L.health || 0, 20, hpLow ? 'hp low' : 'hp'))),
-      el('div', { class: 'ps-tile' }, el('dt', {}, 'Food'), el('dd', {}, `${L.food ?? '–'}`, el('small', {}, '/ 20'), meter(L.food || 0, 20, 'food'))),
-      el('div', { class: 'ps-tile' }, el('dt', {}, 'Level'), el('dd', {}, String(L.xp ?? '–')))));
+    psView.vitals = vitalsStrip(L);
+    parts.push(psView.vitals);
 
     const refresh = () => setTimeout(() => openPlayer(p.name, p.uuid), 400);
     const act = (label, cmd, opts) => rowActionBtn(label, opts?.icon || 'players', cmd, opts?.confirm, opts?.danger, refresh);
     const tpField = el('input', { class: 'field', placeholder: 'Player or x y z', 'aria-label': 'Teleport to a player or coordinates', maxlength: 60, autocomplete: 'off' });
     const modes = el('select', { class: 'field', 'aria-label': 'Game mode' }, ...['survival', 'creative', 'adventure', 'spectator'].map((m) => el('option', { value: m, selected: m === L.gamemode || undefined }, m[0].toUpperCase() + m.slice(1))));
     const modeBtn = el('button', { class: 'btn btn-sm', type: 'button', disabled: true, onclick: (e) => busy(e.currentTarget, () => mutate(`gamemode ${modes.value} ${p.name}`)).then(refresh) }, 'Apply');
-    modes.addEventListener('change', () => { modeBtn.disabled = modes.value === L.gamemode; });
+    modes.addEventListener('change', () => { modeBtn.disabled = modes.value === psView.gamemode; });
+    Object.assign(psView, { modes, modeBtn, gamemode: L.gamemode });
     parts.push(el('div', { class: 'ps-toolbar', 'data-min-role': 'moderator' },
       el('form', { class: 'join', onsubmit: (e) => {
         e.preventDefault();
@@ -2611,30 +2634,78 @@ function renderPlayer(p) {
         act('Clear inventory', `clear ${p.name}`, { icon: 'delete', danger: true, confirm: { title: `Clear ${p.name}'s inventory?`, body: 'Everything they carry is gone. This can\'t be undone.', confirm: 'Clear', tone: 'danger', icon: 'delete' } }))));
   }
 
-  const panels = [];
   const inv = L || p.saved;
-  if (inv) panels.push(['inventory', 'Inventory', () => inventoryPanel(inv, L ? L.inventoryFrom : p.saved.savedAt)]);
-  if (p.stats) panels.push(['stats', 'Statistics', () => statsPanel(p.stats, p.advancements)]);
+  Object.assign(psView.data, { inv, savedAt: L ? L.inventoryFrom : p.saved?.savedAt, stats: p.stats, advancements: p.advancements });
+  const panels = [...(inv ? [['inventory', 'Inventory']] : []), ...(p.stats ? [['stats', 'Statistics']] : [])];
   if (panels.length) {
     if (!panels.some(([k]) => k === psTab)) psTab = panels[0][0];
-    const body = el('div', { class: 'ps-panel', role: 'tabpanel' });
-    const show = () => {
-      body.replaceChildren(panels.find(([k]) => k === psTab)[2]());
-      for (const b of tabs.children) b.setAttribute('aria-checked', String(b.dataset.tab === psTab));
-    };
-    const tabs = el('div', { class: 'segmented ps-tabs', role: 'radiogroup', 'aria-label': 'Show' },
-      ...panels.map(([k, label]) => el('button', { role: 'radio', 'data-tab': k, onclick: () => { psTab = k; show(); } }, label)));
-    if (panels.length > 1) parts.push(tabs);
-    parts.push(body);
-    show();
+    psView.panelBody = el('div', { class: 'ps-panel', role: 'tabpanel' });
+    if (panels.length > 1) {
+      psView.tabs = el('div', { class: 'segmented ps-tabs', role: 'radiogroup', 'aria-label': 'Show' },
+        ...panels.map(([k, label]) => el('button', { role: 'radio', 'data-tab': k, onclick: () => { psTab = k; showPanel(); } }, label)));
+      parts.push(psView.tabs);
+    }
+    parts.push(psView.panelBody);
+    showPanel();
   } else parts.push(el('p', { class: 'note ps-empty' }, `${p.name} is offline and has no saved data in this world yet.`));
   $('ps-body').replaceChildren(...parts);
+}
+
+// A live update: vitals every few seconds, the whole profile now and then.
+function updatePlayer(p, full) {
+  const v = psView;
+  if (!v || Boolean(p.live) !== v.online) { // came online or went offline: rebuild from a whole profile
+    if (full) renderPlayer(p);
+    else psTick = PS_FULL_EVERY - 1;
+    return;
+  }
+  if (!p.live) return;
+  const L = p.live;
+  headerPills(p);
+  const strip = vitalsStrip(L);
+  v.vitals.replaceWith(strip);
+  v.vitals = strip;
+  if (L.gamemode && L.gamemode !== v.gamemode) {
+    if (v.modeBtn.disabled) v.modes.value = L.gamemode; // leave a choice the user is about to apply
+    v.gamemode = L.gamemode;
+    v.modeBtn.disabled = v.modes.value === L.gamemode;
+  }
+  const d = v.data;
+  if (full) Object.assign(d, { inv: L, savedAt: L.inventoryFrom, stats: p.stats || d.stats, advancements: p.advancements || d.advancements });
+  else if (d.inv && L.selected !== d.inv.selected) d.inv = { ...d.inv, selected: L.selected };
+  else return;
+  showPanel();
+}
+
+const PS_LIVE_MS = 4000;
+const PS_FULL_EVERY = 5; // the inventory every 20 s: on 26.x it takes a query per item
+let psTimer = null;
+let psTick = 0;
+
+function psSchedule() {
+  clearTimeout(psTimer);
+  if ($('player-sheet').open && !document.hidden && psPlayer) psTimer = setTimeout(psLive, PS_LIVE_MS);
+}
+
+async function psLive() {
+  const who = psPlayer;
+  if (!who || !$('player-sheet').open || document.hidden) return;
+  const full = ++psTick % PS_FULL_EVERY === 0 || !psView?.online;
+  try {
+    const p = await api('GET', `/api/players/${encodeURIComponent(who.name)}/profile${full ? (who.uuid ? `?uuid=${encodeURIComponent(who.uuid)}` : '') : '?part=vitals'}`);
+    if (psPlayer === who && $('player-sheet').open) {
+      updatePlayer(p, full);
+    }
+  } catch {} // a missed beat; the next one tries again
+  if (psPlayer === who) psSchedule();
 }
 
 async function openPlayer(name, uuid) {
   const same = psPlayer?.name === name;
   psPlayer = { name, uuid };
   if (!same) psTab = 'inventory';
+  psTick = 0;
+  clearTimeout(psTimer);
   const sheet = $('player-sheet');
   $('ps-name').textContent = name;
   const img = el('img', { class: 'avatar', src: `https://mc-heads.net/avatar/${encodeURIComponent(uuid || name)}/64`, alt: '', width: 44, height: 44 });
@@ -2651,7 +2722,17 @@ async function openPlayer(name, uuid) {
   } catch (e) {
     $('ps-body').replaceChildren(el('p', { class: 'note ps-empty' }, `Can't load ${name}: ${e.message}`));
   }
+  psSchedule();
 }
+$('player-sheet').addEventListener('close', () => {
+  clearTimeout(psTimer);
+  psPlayer = null;
+  psView = null;
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearTimeout(psTimer);
+  else if (psPlayer && $('player-sheet').open) psLive(); // catch up right away
+});
 $('ps-close').addEventListener('click', () => $('player-sheet').close());
 $('ps-refresh').addEventListener('click', (e) => psPlayer && busy(e.currentTarget, () => openPlayer(psPlayer.name, psPlayer.uuid)));
 $('player-sheet').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });

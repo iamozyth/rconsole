@@ -339,7 +339,7 @@ If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole
 
 **Profile** on a player in the console's online list or in Players → History opens their profile:
 
-- **live, while they're online** (read with `data get entity` over RCON): position, dimension, health, food, level, game mode, armor and offhand, hotbar (selected slot marked) and inventory, with counts and enchanted items highlighted;
+- **live, while they're online** (read with `data get entity` over RCON, and kept current while the profile is open: position, health, food, level and selected slot every 4 seconds, the inventory every 20; nothing is asked while it's closed or the tab is in the background): position, dimension, health, food, level, game mode, armor and offhand, hotbar (selected slot marked) and inventory, with counts and enchanted items highlighted;
 - **last saved inventory** from the player's data file, for offline players (and as a fallback when the live reply can't be read);
 - **statistics** from `<world>/players/stats/<uuid>.json` (Minecraft 26.1 and later; `<world>/stats/` before): play time, deaths, mob and player kills, distance walked, blocks mined, jumps, and the most mined, used and killed;
 - **advancements** from `<world>/players/advancements/` (or `<world>/advancements/` before 26.1);
