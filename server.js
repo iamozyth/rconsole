@@ -28,6 +28,7 @@ const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
 const { Scanners } = require('./lib/scanners');
 const { Problems } = require('./lib/problems');
+const { Offsite } = require('./lib/offsite');
 const { CommandCatalog } = require('./lib/commands');
 const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
@@ -67,6 +68,11 @@ ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });
+const offsite = new Offsite({
+  stateDir: config.stateDir, backupDir: config.backupDir, log,
+  onResult: (r) => !r.ok && notify.send('backup', { title: 'Offsite upload failed', message: `${r.file}\n\n${r.error}`, key: `offsite-${r.file}` }),
+});
+backups.onCreated = (file) => offsite.onBackup(file);
 const problems = new Problems({ mcDir: config.mcDir, stateDir: config.stateDir, log, onProblem: (g) => notify.onProblem(g) });
 // One-tap actions from notifications (opt-in, see lib/notify.js).
 notify.handlers = {
@@ -352,6 +358,10 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/notify\/test$/, () => ['notifications test', '']],
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
   ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
+  ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
+  ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
+  ['POST', /^\/api\/offsite\/download$/, (p, b) => ['offsite download', b.name]],
+  ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
   ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task edit', id]],
@@ -391,6 +401,13 @@ route('POST', /^\/api\/self-update$/, async (req) => [202, await selfUpdate.star
 route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 route('GET', /^\/api\/metrics$/, (req) => metrics.series(new URL(req.url, 'http://x').searchParams.get('range') || '24h'));
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
+route('GET', /^\/api\/offsite$/, () => offsite.view());
+route('PUT', /^\/api\/offsite$/, async (req) => offsite.update(await readJson(req)));
+route('POST', /^\/api\/offsite\/test$/, () => offsite.test());
+route('GET', /^\/api\/offsite\/list$/, () => offsite.list().then((items) => ({ items })));
+route('POST', /^\/api\/offsite\/upload$/, async (req) => [202, offsite.enqueue(String((await readJson(req)).file || ''))]);
+route('POST', /^\/api\/offsite\/download$/, async (req) => offsite.download(String((await readJson(req)).name || '')));
+route('DELETE', /^\/api\/offsite\/([^/]+)$/, (req, res, [name]) => offsite.remove(decodeURIComponent(name)));
 route('GET', /^\/api\/problems$/, async (req) => problems.scan({ days: new URL(req.url, 'http://x').searchParams.get('days') }));
 route('POST', /^\/api\/problems\/seen$/, async () => problems.markSeen());
 route('GET', /^\/api\/logs\/search$/, async (req) => searchLogs(config.mcDir, Object.fromEntries(new URL(req.url, 'http://x').searchParams)));

@@ -315,6 +315,37 @@
           <tbody id="backup-list"></tbody>
         </table>
       </section>
+
+      <section class="panel" id="os-panel">
+        <header class="panel-head">
+          <div class="head-text"><h2>Offsite copies</h2><p class="note" id="os-info">Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.</p></div>
+          <button class="btn" id="os-edit" aria-expanded="false" aria-controls="os-form"><svg><use href="#pg-settings"/></svg><span>Set up</span></button>
+        </header>
+        <div class="job" id="os-state" hidden></div>
+        <form class="panel-body offsite-form" id="os-form" hidden autocomplete="off">
+          <label class="fld wide"><span>Endpoint</span><input class="field" name="endpoint" type="url" placeholder="https://s3.eu-central-003.backblazeb2.com" maxlength="300"></label>
+          <label class="fld"><span>Bucket</span><input class="field" name="bucket" placeholder="my-minecraft-backups" maxlength="63" autocapitalize="none" spellcheck="false"></label>
+          <label class="fld"><span>Region</span><input class="field" name="region" placeholder="us-east-1" maxlength="40" autocapitalize="none" spellcheck="false"></label>
+          <label class="fld"><span>Access key ID</span><input class="field mono" name="accessKeyId" maxlength="300" autocapitalize="none" spellcheck="false"></label>
+          <label class="fld"><span>Secret access key</span><input class="field mono" name="secretAccessKey" type="password" maxlength="300" autocomplete="new-password"></label>
+          <label class="fld"><span>Folder in the bucket</span><input class="field mono" name="prefix" placeholder="rconsole/" maxlength="200" autocapitalize="none" spellcheck="false"></label>
+          <label class="fld"><span>Copies to keep per world</span><input class="field num" name="keep" type="number" min="0" max="1000" placeholder="14"></label>
+          <div class="fld wide">
+            <span>Encryption passphrase (optional)</span>
+            <input class="field" name="passphrase" type="password" maxlength="300" autocomplete="new-password" placeholder="Leave empty to upload unencrypted">
+            <p class="note">Backups are encrypted on this machine (AES-256-GCM) before they leave it. Without the passphrase they can't be restored: keep it in your password manager.</p>
+          </div>
+          <div class="fld wide row quiet-row">
+            <label class="switch"><input type="checkbox" role="switch" name="auto"><span>Upload every new backup</span></label>
+            <label class="check"><input type="checkbox" name="pathStyle"><span>Path-style URLs (needed for MinIO and most providers)</span></label>
+          </div>
+          <div class="form-actions"><p class="note" id="os-note"></p><button type="button" class="btn" id="os-test">Test connection</button><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
+        </form>
+        <table class="table" id="os-table" hidden>
+          <thead><tr><th>Copy</th><th>World</th><th class="num">Size</th><th>Uploaded</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="os-list"></tbody>
+        </table>
+      </section>
     </section>
 
     <!-- Schedule -->

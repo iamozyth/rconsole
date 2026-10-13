@@ -1083,6 +1083,7 @@ async function loadBackups() {
             el('td', { class: 'act' },
               worldButton('Restore', 'rollback', () => restoreBackup(f)),
               el('a', { class: 'btn btn-quiet btn-sm', href: `/api/backups/${encodeURIComponent(f.name)}`, download: f.name }, icon('download'), 'Download'),
+              offsiteView?.configured ? el('button', { class: 'btn btn-quiet btn-sm', title: 'Copy to the offsite bucket', onclick: (e) => uploadOffsite(f.name, e.currentTarget) }, icon('updates'), 'Upload') : null,
               deleteBackupButton(f.name)));
         })
       : [emptyRow(5, el('b', {}, 'No backups yet. '), 'A backup archives a world with its nether and end into a .tar.gz while autosave is paused. Add a nightly backup under Schedule.')]));
@@ -1135,8 +1136,150 @@ $('backup-now').addEventListener('click', async (e) => {
 
 function loadWorldsArea() {
   loadWorlds();
-  loadBackups();
+  loadOffsite().then(loadBackups);
 }
+
+// ---------------------------------------------------------------------------
+// Offsite copies
+// ---------------------------------------------------------------------------
+
+let offsiteView = null;
+let offsiteTimer = null;
+
+function renderOffsiteState(o) {
+  const st = o.state || {};
+  if (st.running) setJob($('os-state'), 'running', 'updates', `Uploading ${st.running}${st.progress != null ? ` · ${Math.round(st.progress * 100)}%` : ''}${st.queued ? ` · ${st.queued} more queued` : ''}`);
+  else if (st.error) setJob($('os-state'), 'failed', 'alert', `Last upload failed: ${st.error}`);
+  else setJob($('os-state'), null);
+  clearTimeout(offsiteTimer);
+  if ((st.running || st.queued) && document.body.dataset.area === 'worlds') offsiteTimer = setTimeout(() => loadOffsite(), 2000);
+  else if (offsiteView?.state?.running && !st.running) loadOffsiteList();
+}
+
+async function loadOffsite() {
+  try {
+    const o = await api('GET', '/api/offsite');
+    const was = offsiteView;
+    offsiteView = o;
+    const f = $('os-form').elements;
+    if (!was || $('os-form').hidden) {
+      for (const k of ['endpoint', 'bucket', 'region', 'accessKeyId', 'secretAccessKey', 'prefix', 'passphrase']) f[k].value = o[k] || '';
+      f.keep.value = o.keep;
+      f.auto.checked = o.auto;
+      f.pathStyle.checked = o.pathStyle;
+    }
+    $('os-edit').querySelector('span').textContent = o.configured ? 'Settings' : 'Set up';
+    $('os-info').textContent = o.configured
+      ? `${o.bucket} at ${new URL(o.endpoint).host}${o.encrypted ? ', encrypted' : ''}. ${o.auto ? 'Every new backup is uploaded' : 'Uploads are manual'}; the newest ${o.keep || 'all'} of each world are kept.${o.last ? ` Last upload ${fmt.relative(o.last.at)}.` : ''}`
+      : 'Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.';
+    $('os-table').hidden = !o.configured;
+    renderOffsiteState(o);
+    if (o.configured && (!was || !was.configured)) loadOffsiteList();
+  } catch (e) {
+    $('os-info').textContent = e.message;
+  }
+}
+
+async function loadOffsiteList() {
+  if (!offsiteView?.configured) return;
+  skeletonRows($('os-list'), 5);
+  try {
+    const { items } = await api('GET', '/api/offsite/list');
+    $('os-list').replaceChildren(...(items.length
+      ? items.map((x) => el('tr', {},
+          el('td', { class: 'primary-cell', 'data-label': 'Copy' }, el('span', { class: 'filename' }, x.file), x.encrypted ? el('span', { class: 'sub' }, 'Encrypted') : null),
+          el('td', { 'data-label': 'World' }, x.world),
+          el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(x.size)),
+          el('td', { 'data-label': 'Uploaded' }, x.modified ? [fmt.date(x.modified), el('span', { class: 'sub' }, fmt.relative(x.modified))] : '–'),
+          el('td', { class: 'act' },
+            el('button', { class: 'btn btn-quiet btn-sm', onclick: (e) => downloadOffsite(x, e.currentTarget) }, icon('download'), 'Bring back'),
+            el('button', { class: 'btn btn-quiet btn-sm danger', onclick: (e) => deleteOffsite(x, e.currentTarget) }, icon('delete'), 'Delete'))))
+      : [emptyRow(5, el('b', {}, 'No copies yet. '), offsiteView.auto ? 'The next backup is uploaded automatically, or use Upload on a backup above.' : 'Use Upload on a backup above, or turn on automatic uploads.')]));
+  } catch (e) {
+    $('os-list').replaceChildren(emptyRow(5, `Can't list the bucket: ${e.message}`));
+  }
+}
+
+async function uploadOffsite(name, btn) {
+  await busy(btn, async () => {
+    try {
+      renderOffsiteState(offsiteView = await api('POST', '/api/offsite/upload', { file: name }));
+      toast(`Uploading ${name}`);
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+async function downloadOffsite(x, btn) {
+  if (!(await confirmAction({ title: 'Bring this copy back?', body: `${x.file} is downloaded${x.encrypted ? ' and decrypted' : ''} into the backup folder. Restore it from the list of backups afterwards.`, confirm: 'Download', icon: 'download' }))) return;
+  await busy(btn, async () => {
+    try {
+      await api('POST', '/api/offsite/download', { name: x.name });
+      toast(`${x.file} is back in the backup folder.`);
+      loadBackups();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+async function deleteOffsite(x, btn) {
+  if (!(await confirmAction({ title: 'Delete this offsite copy?', body: `${x.name}\nThis can't be undone.`, confirm: 'Delete copy', tone: 'danger', icon: 'delete' }))) return;
+  await busy(btn, async () => {
+    try {
+      await api('DELETE', `/api/offsite/${encodeURIComponent(x.name)}`);
+      toast(`Deleted ${x.name}`);
+      loadOffsiteList();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+function offsiteBody() {
+  const f = $('os-form').elements;
+  return {
+    endpoint: f.endpoint.value, bucket: f.bucket.value.trim(), region: f.region.value.trim() || 'us-east-1', accessKeyId: f.accessKeyId.value.trim(),
+    secretAccessKey: f.secretAccessKey.value, prefix: f.prefix.value, passphrase: f.passphrase.value,
+    keep: f.keep.value === '' ? 14 : Number(f.keep.value), auto: f.auto.checked, pathStyle: f.pathStyle.checked,
+  };
+}
+
+$('os-edit').addEventListener('click', () => {
+  const open = $('os-form').hidden;
+  $('os-form').hidden = !open;
+  $('os-edit').setAttribute('aria-expanded', String(open));
+  if (open) $('os-form').elements.endpoint.focus();
+});
+$('os-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await busy(e.submitter || $('os-form').querySelector('.btn-primary'), async () => {
+    try {
+      offsiteView = await api('PUT', '/api/offsite', offsiteBody());
+      $('os-note').textContent = '';
+      $('os-form').hidden = true;
+      $('os-edit').setAttribute('aria-expanded', 'false');
+      toast('Offsite settings saved.');
+      await loadOffsite();
+      loadOffsiteList();
+      loadBackups();
+    } catch (err) {
+      $('os-note').textContent = err.message;
+    }
+  });
+});
+$('os-test').addEventListener('click', async (e) => {
+  await busy(e.currentTarget, async () => {
+    try {
+      await api('PUT', '/api/offsite', offsiteBody());
+      const r = await api('POST', '/api/offsite/test');
+      $('os-note').textContent = `Connected. ${r.objects} object${r.objects === 1 ? '' : 's'} in the folder.`;
+    } catch (err) {
+      $('os-note').textContent = `Connection failed: ${err.message}`;
+    }
+  });
+});
 tabLoaders.worlds = loadWorldsArea;
 
 // ---------------------------------------------------------------------------

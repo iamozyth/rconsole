@@ -62,6 +62,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 **Worlds and backups**
 - Switch worlds, create new ones (seed and type), delete with an automatic archive.
 - Per-world **backups** with autosave paused during the copy, retention, download, and **restore** over a world or as a new one.
+- **Offsite copies** in any S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO), optionally encrypted before they leave the machine, uploaded after every backup.
 - **Schedule** restarts, backups and commands, daily or weekly.
 
 **Updates and plugins**
@@ -122,7 +123,7 @@ Not under the default license; see [License](#license) and ask for a commercial 
 ## Documentation
 
 - [What the installer does](#what-the-installer-does) · [Manual setup](#setup-on-debian-manual) · [Configuration](#configuration) · [Traefik / HTTPS](#traefik)
-- [Updating rconsole](#updating) · [Server updates](#updates) · [Plugins](#plugins) · [Server software](#server-software)
+- [Updating rconsole](#updating) · [Server updates](#updates) · [Offsite backups](#offsite-backups) · [Plugins](#plugins) · [Server software](#server-software)
 - [Insights](#insights) · [Problems](#problems) · [Connection attempts](#connection-attempts) · [Notifications](#notifications) · [Prometheus](#prometheus) · [Map](#map)
 - [Security model](#security-model) · [Upgrading from 1.x](#upgrading-from-1x-rconsole-backup--rconsole-update) · [Notes](#notes) · [License](#license)
 
@@ -324,6 +325,17 @@ Cancelling the countdown leaves everything as it was. Without control over the M
 **Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
 
 If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-net@*'` or `journalctl -u 'rconsole-job@*'`.
+
+## Offsite backups
+
+Worlds → **Offsite copies** uploads backups to any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO and others. Enter the endpoint (for example `https://s3.eu-central-003.backblazeb2.com` or `https://<account>.r2.cloudflarestorage.com`), bucket, region and an access key that may list, read, write and delete in that bucket; **Test connection** checks it.
+
+- **Encryption:** with a passphrase, every backup is encrypted on this machine (AES-256-GCM in 1 MiB chunks, key derived with scrypt) before upload and stored as `<backup>.tar.gz.enc`. Keep the passphrase somewhere safe: without it the copies can't be restored.
+- **Automatic uploads** after every backup (scheduled or manual), one at a time with retries after 1, 5 and 30 minutes; a final failure sends a "backup" notification. Any backup can also be uploaded with **Upload**.
+- **Retention:** the newest *n* copies of each world are kept in the bucket (default 14, 0 keeps all).
+- **Restore:** **Bring back** downloads (and decrypts) a copy into the backup folder; restore it from there as usual.
+
+Settings live in `/var/lib/rconsole/offsite.json` (mode 600; secrets are never sent back to the browser). They can also come from the environment: `OFFSITE_ENDPOINT`, `OFFSITE_REGION`, `OFFSITE_BUCKET`, `OFFSITE_ACCESS_KEY_ID`, `OFFSITE_SECRET_ACCESS_KEY`, `OFFSITE_PASSPHRASE`.
 
 ## Insights
 
