@@ -338,8 +338,13 @@ function connectLogs() {
     setLogStatus(error);
     if (!lines.length) log.append(el('div', { class: 'log-empty' }, 'Waiting for the server log…'));
     lines.forEach((l) => addLine(l));
+    resetChat(lines);
   });
-  source.addEventListener('line', (e) => addLine(JSON.parse(e.data)));
+  source.addEventListener('line', (e) => {
+    const line = JSON.parse(e.data);
+    addLine(line);
+    pushChat(line);
+  });
   source.addEventListener('status', (e) => setLogStatus(JSON.parse(e.data).error));
   // EventSource retries on its own; check whether we were signed out.
   source.addEventListener('error', () => api('GET', '/api/me').catch(() => {}));
@@ -699,6 +704,7 @@ let lastStatus = null;
 
 function renderStatus(s) {
   lastStatus = s;
+  if (chatVisible()) fillChatTargets();
   const { game, host, rcon, power = {} } = s;
   const conn = $('conn');
   const stopped = power.available && power.active !== 'active';
@@ -2299,6 +2305,132 @@ $('ls-form').addEventListener('submit', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Players: chat (from the console's log stream)
+// ---------------------------------------------------------------------------
+
+const CHAT_MAX = 300;
+let chatEvents = [];
+const recentWeb = []; // own messages, to drop their echo from the log
+
+// One log line → { time, kind, name, text } or null.
+function parseChat(line) {
+  const time = line.match(/^\[(?:\d{1,2}[A-Za-z]{3}\d{4} )?(\d{2}:\d{2}):\d{2}/)?.[1];
+  const msg = line.match(/\]: (.*)$/)?.[1];
+  if (!time || msg == null) return null;
+  const body = msg.replace(/^System chat: /, '');
+  let m;
+  if ((m = body.match(/^\[Web(?: → you)?\] ([^:]{1,32}): (.*)$/))) return { time, kind: 'web', name: m[1], text: m[2] };
+  if ((m = msg.match(/^(?:\[Not Secure\] )?<([^>]{1,48})> (.*)$/))) return { time, kind: 'chat', name: m[1].replace(/§./g, ''), text: m[2] };
+  if ((m = body.match(/^\[Server\] (.*)$/))) return { time, kind: 'server', name: 'Server', text: m[1] };
+  if ((m = body.match(/^\* ([A-Za-z0-9_]{1,16}) (.*)$/))) return { time, kind: 'emote', name: m[1], text: m[2] };
+  if ((m = body.match(/^([A-Za-z0-9_]{1,16}) (joined|left) the game$/))) return { time, kind: m[2] === 'joined' ? 'join' : 'leave', name: m[1], text: '' };
+  return null;
+}
+
+function chatRow(e) {
+  if (e.kind === 'join' || e.kind === 'leave') {
+    return el('li', { class: `chat-sys ${e.kind}` }, el('time', {}, e.time), el('span', {}, el('b', {}, e.name), e.kind === 'join' ? ' joined' : ' left'));
+  }
+  const player = e.kind === 'chat' || e.kind === 'emote';
+  const nameBtn = player && /^[A-Za-z0-9_]{1,16}$/.test(e.name)
+    ? el('button', { class: 'chat-name', type: 'button', title: `Whisper to ${e.name}`, onclick: () => whisperTo(e.name) }, e.name)
+    : el('span', { class: 'chat-name' }, e.name);
+  return el('li', { class: `chat-msg ${e.kind}` },
+    player ? avatar(e.name) : el('span', { class: `chat-badge ${e.kind}` }, e.kind === 'web' ? 'Web' : 'S'),
+    el('div', { class: 'chat-body' },
+      el('div', { class: 'chat-meta' }, nameBtn, e.to ? el('span', { class: 'note' }, `→ ${e.to}`) : null, el('time', {}, e.time)),
+      el('p', { class: e.kind === 'emote' ? 'emote' : '' }, e.text)),
+    player && /^[A-Za-z0-9_]{1,16}$/.test(e.name)
+      ? el('span', { class: 'chat-acts', 'data-min-role': 'moderator' },
+          el('button', { class: 'btn btn-quiet btn-sm', type: 'button', onclick: () => whisperTo(e.name) }, 'Whisper'),
+          rowActionBtn('Kick', 'remove', `kick ${e.name}`, { title: `Kick ${e.name}?`, confirm: 'Kick', tone: 'danger', icon: 'remove' }, true))
+      : null);
+}
+
+function renderChat() {
+  const list = $('chat-list');
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  list.replaceChildren(...(chatEvents.length
+    ? chatEvents.map(chatRow)
+    : [el('li', { class: 'chat-empty' }, 'No chat yet. Messages, joins and leaves appear here as they happen.')]));
+  $('chat-count').textContent = chatEvents.filter((e) => e.kind === 'chat').length || '';
+  if (atBottom || !renderChat.done) list.scrollTop = list.scrollHeight;
+  renderChat.done = true;
+}
+
+const chatVisible = () => document.body.dataset.area === 'players' && currentView('players') === 'chat';
+
+function resetChat(lines) {
+  chatEvents = lines.map(parseChat).filter(Boolean).slice(-CHAT_MAX);
+  if (chatVisible()) renderChat();
+}
+
+function pushChat(line) {
+  const e = parseChat(line);
+  if (!e) return;
+  if (e.kind === 'web') {
+    const i = recentWeb.findIndex((w) => w.name === e.name && w.text === e.text && Date.now() - w.at < 15000);
+    if (i >= 0) return void recentWeb.splice(i, 1); // already shown when sent
+  }
+  chatEvents.push(e);
+  if (chatEvents.length > CHAT_MAX) chatEvents.shift();
+  if (!chatVisible()) return;
+  const list = $('chat-list');
+  list.querySelector('.chat-empty')?.remove();
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  list.append(chatRow(e));
+  while (list.childElementCount > CHAT_MAX) list.firstElementChild.remove();
+  if (atBottom) list.scrollTop = list.scrollHeight;
+}
+
+function fillChatTargets() {
+  const sel = $('chat-form').elements.to;
+  const current = sel.value;
+  const online = lastStatus?.game?.players?.players || [];
+  sel.replaceChildren(el('option', { value: '' }, 'Everyone'), ...online.map((n) => el('option', { value: n }, `Whisper to ${n}`)));
+  if (current && online.includes(current)) sel.value = current;
+}
+
+function whisperTo(name) {
+  if (!atLeast('moderator')) return;
+  fillChatTargets();
+  const f = $('chat-form').elements;
+  if (![...f.to.options].some((o) => o.value === name)) f.to.append(el('option', { value: name }, `Whisper to ${name}`));
+  f.to.value = name;
+  f.message.placeholder = `Whisper to ${name}…`;
+  f.message.focus();
+}
+
+$('chat-form').elements.to.addEventListener('change', (e) => {
+  $('chat-form').elements.message.placeholder = e.target.value ? `Whisper to ${e.target.value}…` : 'Message everyone…';
+});
+$('chat-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = $('chat-form').elements;
+  const message = f.message.value.trim();
+  if (!message) return;
+  await busy($('chat-form').querySelector('.btn-primary'), async () => {
+    try {
+      const r = await api('POST', '/api/chat', { message, to: f.to.value || undefined });
+      recentWeb.push({ name: r.user, text: r.text, at: Date.now() });
+      const now = new Date();
+      chatEvents.push({ time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`, kind: 'web', name: r.user, text: r.text, to: r.to });
+      renderChat();
+      f.message.value = '';
+      f.message.focus();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
+
+viewLoaders['players/chat'] = () => {
+  fillChatTargets();
+  renderChat.done = false;
+  renderChat();
+};
+
+// ---------------------------------------------------------------------------
 // Insights: problems
 // ---------------------------------------------------------------------------
 
@@ -2681,7 +2813,7 @@ function paletteActions() {
   });
   items.push(...views);
   // Actions below admin: only looking things up.
-  const SAFE = /^(Show problems|Search the logs|Review unknown connection|Sign out|Refresh the command list)/;
+  const SAFE = /^(Show problems|Search the logs|Review unknown connection|Sign out|Refresh the command list|Chat with players)/;
   const act = (label, iconName, keys, run, when = () => true) => (atLeast('admin') || SAFE.test(label)) && when() && items.push({ group: 'Actions', icon: iconName, label, keys, run });
   const p = lastStatus?.power || {};
   act('Restart the server…', 'restart', 'reboot restart power', () => { showTab('server/overview'); power('restart'); }, () => p.available && p.active === 'active');
@@ -2694,6 +2826,7 @@ function paletteActions() {
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
   act('Profile the server with spark', 'insights', 'spark profiler lag tps cause', () => showTab('insights/metrics'));
+  act('Chat with players', 'send', 'chat message say whisper tell talk', () => showTab('players/chat'));
   act('Show problems and errors', 'alert', 'problems errors crash exception plugin failed', () => showTab('insights/problems'));
   act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist', () => showTab('players/security'));
   act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });

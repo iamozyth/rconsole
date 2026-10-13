@@ -186,6 +186,7 @@
     <section class="area" id="tab-players" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Players sections">
         <button role="tab" data-view="access" aria-selected="true">Access</button>
+        <button role="tab" data-view="chat" aria-selected="false">Chat</button>
         <button role="tab" data-view="history" aria-selected="false" data-min-role="moderator">History</button>
         <button role="tab" data-view="security" aria-selected="false" data-min-role="moderator">Security</button>
       </div>
@@ -233,6 +234,21 @@
           <ul class="people" id="list-ipbans"></ul>
         </section>
       </div>
+      </div>
+
+      <div class="view" data-view="chat" hidden>
+        <section class="panel chat-panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Chat</h2><p class="note" id="chat-info">Live from the server log. What you send appears in game as <b>[Web]</b> and your name.</p></div>
+            <span class="count" id="chat-count"></span>
+          </header>
+          <ol class="chat-list" id="chat-list" aria-live="polite"></ol>
+          <form class="chat-send" id="chat-form" data-min-role="moderator" autocomplete="off">
+            <select class="field" name="to" aria-label="Send to"><option value="">Everyone</option></select>
+            <input class="field" name="message" maxlength="256" placeholder="Message everyone…" aria-label="Message">
+            <button class="btn btn-primary"><svg><use href="#pg-send"/></svg>Send</button>
+          </form>
+        </section>
       </div>
 
       <div class="view" data-view="history" hidden>

@@ -56,6 +56,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 
 **Players and security**
 - Whitelist, operators, bans and IP bans with one click.
+- **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers.
 - **Player history** from your logs: sessions, playtime, last IP, daily activity.
 - **Scanner detection**: spots bots probing your server, explains what to do, and offers a ban or a ready-made firewall rule.
@@ -327,6 +328,10 @@ Cancelling the countdown leaves everything as it was. Without control over the M
 **Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
 
 If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-net@*'` or `journalctl -u 'rconsole-job@*'`.
+
+## Chat
+
+Players → **Chat** shows chat messages, `/say` and `/me` lines, joins and leaves as they appear in the server log. Moderators and admins can write to everyone or whisper to one online player; the message appears in game as `[Web] <your name>: …` (sent with `tellraw`, so it can't run commands). Click a name to whisper; hover a message to whisper or kick. Viewers can read along.
 
 ## Offsite backups
 

@@ -361,6 +361,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
   ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
   ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
+  ['POST', /^\/api\/chat$/, (p, b) => [b.to ? `whisper to ${b.to}` : 'chat', String(b.message || '').slice(0, 120)]],
   ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
   ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
   ['POST', /^\/api\/offsite\/download$/, (p, b) => ['offsite download', b.name]],
@@ -378,6 +379,7 @@ const ROLE_RULES = [
   ['POST', /^\/api\/logout$/, 'viewer'],
   ['POST', /^\/api\/command$/, 'moderator'], // moderators: MODERATOR_COMMANDS only
   ['POST', /^\/api\/problems\/seen$/, 'moderator'],
+  ['POST', /^\/api\/chat$/, 'moderator'],
   ['GET', /^\/api\/players\/history$/, 'moderator'], // addresses of players
   ['GET', /^\/api\/audit$/, 'admin'],
   ['GET', /^\/api\/notify$/, 'admin'],
@@ -458,6 +460,25 @@ route('POST', /^\/api\/command$/, async (req) => {
   if (req.role === 'moderator' && commandName(cmd) === 'whitelist' && /^\S+\s+(on|off|reload)\b/i.test(cmd)) throw httpError(403, 'Moderators can add and remove players, not switch the whitelist');
   log(`${req.user}: /${cmd}`);
   return { output: await rcon.send(cmd) };
+});
+
+// Web chat: a message to everyone or one player, shown in game as
+// "[Web] name: text". tellraw, so the text can't run commands or click events.
+route('POST', /^\/api\/chat$/, async (req) => {
+  const { message, to } = await readJson(req);
+  const text = String(message || '').replace(/[\u0000-\u001f\u007f§]/g, ' ').trim();
+  if (!text) throw httpError(400, 'Type a message');
+  if (text.length > 256) throw httpError(400, 'Messages are limited to 256 characters');
+  if (to && !/^[A-Za-z0-9_]{1,16}$/.test(String(to))) throw httpError(400, 'Invalid player name');
+  const parts = [
+    { text: to ? '[Web → you] ' : '[Web] ', color: '#a78bfa' },
+    { text: req.user, color: 'white', bold: false },
+    { text: `: ${text}`, color: to ? 'gray' : 'white', italic: Boolean(to) },
+  ];
+  const reply = await rcon.send(`tellraw ${to || '@a'} ${JSON.stringify(parts)}`);
+  if (to && /no player was found/i.test(reply)) throw httpError(404, `${to} isn't online`);
+  log(`chat: ${req.user}${to ? ` → ${to}` : ''}: ${text}`);
+  return { ok: true, at: new Date().toISOString(), user: req.user, to: to || null, text };
 });
 
 route('GET', /^\/api\/status$/, async () => ({
