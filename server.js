@@ -31,6 +31,7 @@ const { Problems } = require('./lib/problems');
 const { Offsite } = require('./lib/offsite');
 const { Spark } = require('./lib/spark');
 const { PlayerInfo } = require('./lib/playerinfo');
+const { Configs, MAX_BYTES: CONFIG_MAX } = require('./lib/configs');
 const { CommandCatalog } = require('./lib/commands');
 const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
@@ -62,7 +63,8 @@ const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJ
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform });
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
-const playerInfo = new PlayerInfo({ mcDir: config.mcDir, rcon });
+const playerInfo = new PlayerInfo({ mcDir: config.mcDir, rcon, log });
+const configs = new Configs({ mcDir: config.mcDir });
 const commandCatalog = new CommandCatalog({ rcon, log });
 const notify = new Notify({ stateDir: config.stateDir, log, publicUrl: config.publicUrl });
 const selfUpdate = new SelfUpdate({ dir: __dirname, stateDir: config.stateDir, runner: config.jobRunner, log });
@@ -363,6 +365,8 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
   ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
   ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
+  ['PUT', /^\/api\/configs\/file$/, (p, b) => ['config edit', b.path]],
+  ['POST', /^\/api\/configs\/revert$/, (p, b) => ['config revert', b.path]],
   ['POST', /^\/api\/chat$/, (p, b) => [b.to ? `whisper to ${b.to}` : 'chat', String(b.message || '').slice(0, 120)]],
   ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
   ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
@@ -385,6 +389,7 @@ const ROLE_RULES = [
   ['GET', /^\/api\/players\/history$/, 'moderator'], // addresses of players
   ['GET', /^\/api\/audit$/, 'admin'],
   ['GET', /^\/api\/notify$/, 'admin'],
+  ['GET', /^\/api\/configs/, 'admin'], // configs often hold passwords
   ['GET', /^\/api\/offsite/, 'admin'],
   ['GET', /^\/api\/backups\/[^/]+$/, 'admin'], // downloads whole worlds
 ];
@@ -431,6 +436,22 @@ route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new UR
 route('GET', /^\/api\/metrics$/, (req) => metrics.series(new URL(req.url, 'http://x').searchParams.get('range') || '24h'));
 route('GET', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/profile$/, (req, res, [name]) => playerInfo.profile(name, { uuid: new URL(req.url, 'http://x').searchParams.get('uuid') }));
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
+route('GET', /^\/api\/configs$/, () => configs.list());
+route('GET', /^\/api\/configs\/file$/, (req) => configs.read(new URL(req.url, 'http://x').searchParams.get('path')));
+route('PUT', /^\/api\/configs\/file$/, async (req) => {
+  const { path: file, content } = await readJson(req, CONFIG_MAX * 2 + 4096);
+  configs.read(file); // same checks as the helper's, with clear errors
+  const r = await jobs.run('config-write', { file, content: String(content ?? '') });
+  pending.add(`config ${file}`);
+  return { ...r, ...configs.read(file) };
+});
+route('POST', /^\/api\/configs\/revert$/, async (req) => {
+  const { path: file } = await readJson(req);
+  configs.read(file);
+  const r = await jobs.run('config-write', { file, revert: true });
+  pending.add(`config ${file}`);
+  return { ...r, ...configs.read(file) };
+});
 route('GET', /^\/api\/spark$/, () => spark.status());
 route('POST', /^\/api\/spark$/, async (req) => {
   const { kind, seconds } = await readJson(req);

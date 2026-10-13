@@ -59,7 +59,8 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers.
 - **Player history** from your logs: sessions, playtime, last IP, daily activity.
-- **Player profiles**: position, health, food, level and game mode, equipment, hotbar and inventory live; statistics (play time, deaths, kills, distance, most mined and used) and advancements from the world files; teleport, game mode, heal, kick and clear inventory in one place.
+- **Player profiles**: position, health, food, level and game mode, equipment, hotbar and inventory live (or as last saved when offline); statistics (play time, deaths, kills, distance, most mined and used) and advancements from the world files; teleport, game mode, heal, kick and clear inventory in one place.
+- **Config editor** for plugin and mod configs: syntax checks, a diff before saving, one-click revert.
 - **Scanner detection**: spots bots probing your server, explains what to do, and offers a ban or a ready-made firewall rule.
 
 **Worlds and backups**
@@ -336,8 +337,9 @@ If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole
 **Profile** on a player in the console's online list or in Players → History opens their profile:
 
 - **live, while they're online** (read with `data get entity` over RCON): position, dimension, health, food, level, game mode, armor and offhand, hotbar (selected slot marked) and inventory, with counts and enchanted items highlighted;
-- **statistics** from `<world>/stats/<uuid>.json`: play time, deaths, mob and player kills, distance walked, blocks mined, jumps, and the most mined, used and killed;
-- **advancements** from `<world>/advancements/<uuid>.json`;
+- **last saved inventory** from the player's data file, for offline players (and as a fallback when the live reply can't be read);
+- **statistics** from `<world>/players/stats/<uuid>.json` (Minecraft 26.1 and later; `<world>/stats/` before): play time, deaths, mob and player kills, distance walked, blocks mined, jumps, and the most mined, used and killed;
+- **advancements** from `<world>/players/advancements/` (or `<world>/advancements/` before 26.1);
 - **actions** by role: teleport to a player or coordinates, set the game mode (moderators and admins), heal and clear the inventory (admins), kick.
 
 ## Chat
@@ -445,6 +447,15 @@ The **Map** area then shows it. The map displays player-controlled text, so rcon
 - Every change applies on the next start; the "Restart to apply" bar lists what is waiting.
 
 rconsole reads the jars through the `minecraft` group, so they need to be group-readable (`sudo chmod -R g+rX /srv/minecraft/plugins`).
+
+## Plugin configs
+
+**Server → Configs** (admins) lists the text config files under `plugins/` (Paper, Spigot, Purpur, Folia) or `config/` (Fabric, Quilt, Forge, NeoForge): `.yml .yaml .json .json5 .properties .toml .conf .cfg .txt`, up to 512 KB each.
+
+- The editor checks the syntax as you type (JSON must parse; YAML can't be indented with tabs) and shows a line diff before saving.
+- Saving runs in `rconsole-job@` as the `minecraft` user: it re-checks the path (no links, no `..`, only existing files), keeps the old version in `.rconsole-previous/`, and writes atomically. **Revert** puts the previous version back.
+- Most plugins pick up changes with their own reload command; otherwise restart. The change is added to the "Restart to apply" bar.
+- Saved contents never go into the audit log, only the file name.
 
 ## Upgrading from 1.x (rconsole-backup@ / rconsole-update@)
 

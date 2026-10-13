@@ -414,6 +414,7 @@
         <button role="tab" data-view="overview" aria-selected="true">Overview</button>
         <button role="tab" data-view="settings" aria-selected="false">Settings</button>
         <button role="tab" data-view="plugins" aria-selected="false">Plugins</button>
+        <button role="tab" data-view="configs" aria-selected="false" data-min-role="admin">Configs</button>
         <button role="tab" data-view="updates" aria-selected="false">Updates</button>
       </div>
 
@@ -541,6 +542,29 @@
             <thead><tr><th>Plugin</th><th>Author</th><th class="num">Downloads</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
             <tbody id="plugin-results"></tbody>
           </table>
+        </section>
+      </div>
+
+      <div class="view" data-view="configs" hidden>
+        <section class="panel cfg-panel">
+          <div class="cfg-layout">
+            <aside class="cfg-tree">
+              <div class="search"><svg><use href="#pg-search"/></svg><input id="cfg-filter" type="search" placeholder="Filter files" aria-label="Filter files" autocomplete="off"></div>
+              <ul id="cfg-list" aria-label="Config files"></ul>
+            </aside>
+            <div class="cfg-editor">
+              <header class="cfg-bar">
+                <div class="head-text"><h2 id="cfg-name">Choose a file</h2><p class="note" id="cfg-info">Plugin and mod settings, one file at a time. Saving keeps the previous version for Revert.</p></div>
+                <button class="btn btn-quiet btn-sm" id="cfg-revert" hidden><svg><use href="#pg-rollback"/></svg>Revert to previous</button>
+                <button class="btn btn-primary btn-sm" id="cfg-save" disabled><svg><use href="#pg-save"/></svg>Review and save</button>
+              </header>
+              <p class="cfg-error" id="cfg-error" role="alert" hidden></p>
+              <div class="cfg-code" id="cfg-code" hidden>
+                <pre class="cfg-lines" id="cfg-lines" aria-hidden="true"></pre>
+                <textarea id="cfg-text" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="File contents"></textarea>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
 

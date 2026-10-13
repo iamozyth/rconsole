@@ -765,6 +765,7 @@ function renderPlatform(pf) {
     pf.addons ? `loads ${pf.addons}s` : 'no plugins or mods', pf.updates ? 'updated by rconsole' : 'updated by hand'].filter(Boolean).join(' · ');
   const tab = document.querySelector('#tab-server .subnav [data-view=plugins]');
   tab.hidden = !pf.addons;
+  document.querySelector('#tab-server .subnav [data-view=configs]').hidden = !pf.addons;
   tab.textContent = pf.addons === 'mod' ? 'Mods' : 'Plugins';
   const kind = pf.addons === 'mod' ? 'mod' : 'plugin';
   $('plugins-title').textContent = `Installed ${kind}s`;
@@ -2306,6 +2307,184 @@ $('ls-form').addEventListener('submit', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Server: plugin and mod configs
+// ---------------------------------------------------------------------------
+
+let cfgFiles = [];
+let cfgOpen = null; // { path, original, hasPrevious }
+
+// Line diff (LCS) as hunks with two lines of context; [type, text] pairs.
+function diffLines(a, b) {
+  const A = a.split('\n');
+  const B = b.split('\n');
+  let start = 0;
+  while (start < A.length && start < B.length && A[start] === B[start]) start++;
+  let endA = A.length;
+  let endB = B.length;
+  while (endA > start && endB > start && A[endA - 1] === B[endB - 1]) endA--, endB--;
+  const a2 = A.slice(start, endA);
+  const b2 = B.slice(start, endB);
+  const ops = [];
+  if (a2.length * b2.length > 4e6) {
+    ops.push(...a2.map((l) => ['-', l]), ...b2.map((l) => ['+', l]));
+  } else {
+    const n = a2.length;
+    const m = b2.length;
+    const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a2[i] === b2[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    let i = 0;
+    let j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && a2[i] === b2[j]) ops.push([' ', a2[i++]]), j++;
+      else if (j < m && (i >= n || dp[i][j + 1] >= dp[i + 1][j])) ops.push(['+', b2[j++]]);
+      else ops.push(['-', a2[i++]]);
+    }
+  }
+  const all = [...A.slice(0, start).map((l) => [' ', l]), ...ops, ...A.slice(endA).map((l) => [' ', l])];
+  const keep = all.map((o, k) => o[0] !== ' ' || all.slice(Math.max(0, k - 2), k + 3).some((x) => x[0] !== ' '));
+  const out = [];
+  all.forEach((o, k) => {
+    if (keep[k]) out.push(o);
+    else if (out.length && out[out.length - 1][0] !== '…') out.push(['…', '']);
+  });
+  return out;
+}
+
+function renderCfgList() {
+  const q = $('cfg-filter').value.trim().toLowerCase();
+  const items = [];
+  for (const g of cfgFiles) {
+    const files = g.files.filter((f) => !q || f.path.toLowerCase().includes(q));
+    if (!files.length) continue;
+    items.push(el('li', { class: 'cfg-group' }, g.name === '(root)' ? 'Top level' : g.name));
+    for (const f of files) {
+      const short = f.path.split('/').slice(g.name === '(root)' ? 1 : 2).join('/');
+      items.push(el('li', {}, el('button', { class: `cfg-file${cfgOpen?.path === f.path ? ' on' : ''}`, type: 'button', title: f.path, onclick: () => openConfig(f.path) }, short)));
+    }
+  }
+  $('cfg-list').replaceChildren(...(items.length ? items : [el('li', { class: 'cfg-empty' }, q ? 'No file matches.' : 'No config files yet. Plugins create theirs on first start.')]));
+}
+
+async function loadConfigs() {
+  if (!atLeast('admin')) return;
+  try {
+    const r = await api('GET', '/api/configs');
+    cfgFiles = r.groups;
+    renderCfgList();
+  } catch (e) {
+    $('cfg-list').replaceChildren(el('li', { class: 'cfg-empty' }, e.message));
+  }
+}
+
+const cfgDirty = () => cfgOpen && $('cfg-text').value !== cfgOpen.original;
+
+function cfgCheck() {
+  const text = $('cfg-text').value;
+  let problem = null;
+  if (/\.json$/i.test(cfgOpen.path)) {
+    try {
+      JSON.parse(text);
+    } catch (err) {
+      problem = `Invalid JSON: ${err.message}`;
+    }
+  } else if (/\.ya?ml$/i.test(cfgOpen.path)) {
+    const i = text.split('\n').findIndex((l) => /^ *\t/.test(l));
+    if (i >= 0) problem = `YAML can't be indented with tabs (line ${i + 1})`;
+  }
+  $('cfg-error').textContent = problem || '';
+  $('cfg-error').hidden = !problem;
+  $('cfg-save').disabled = !cfgDirty() || Boolean(problem);
+  return problem;
+}
+
+function cfgNumbers() {
+  const n = $('cfg-text').value.split('\n').length;
+  if ($('cfg-lines').dataset.n !== String(n)) {
+    $('cfg-lines').textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n');
+    $('cfg-lines').dataset.n = n;
+  }
+  $('cfg-lines').scrollTop = $('cfg-text').scrollTop;
+}
+
+async function openConfig(path) {
+  if (cfgDirty() && !(await confirmAction({ title: 'Discard your changes?', body: `${cfgOpen.path} has unsaved changes.`, confirm: 'Discard', tone: 'danger', icon: 'delete' }))) return;
+  try {
+    const f = await api('GET', `/api/configs/file?path=${encodeURIComponent(path)}`);
+    cfgOpen = { path: f.path, original: f.content, hasPrevious: f.hasPrevious };
+    $('cfg-name').textContent = f.path.split('/').pop();
+    $('cfg-info').textContent = `${f.path} · changed ${fmt.relative(f.modified)}`;
+    $('cfg-text').value = f.content;
+    $('cfg-code').hidden = false;
+    $('cfg-revert').hidden = !f.hasPrevious;
+    cfgNumbers();
+    cfgCheck();
+    renderCfgList();
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function saveConfig() {
+  if (!cfgOpen || cfgCheck() || !cfgDirty()) return;
+  const text = $('cfg-text').value;
+  const diff = diffLines(cfgOpen.original, text);
+  const view = el('pre', { class: 'cfg-diff' }, ...diff.map(([t, l]) => el('span', { class: { '+': 'add', '-': 'del', '…': 'gap', ' ': '' }[t] }, t === '…' ? '⋯\n' : `${t} ${l}\n`)));
+  if (!(await confirmAction({ title: `Save ${cfgOpen.path.split('/').pop()}?`, body: 'The previous version is kept for Revert. Most plugins read their config at startup: reload the plugin or restart afterwards.', confirm: 'Save', icon: 'save', content: view }))) return;
+  await busy($('cfg-save'), async () => {
+    try {
+      const f = await api('PUT', '/api/configs/file', { path: cfgOpen.path, content: text });
+      cfgOpen = { path: f.path, original: f.content, hasPrevious: f.hasPrevious };
+      $('cfg-revert').hidden = !f.hasPrevious;
+      $('cfg-info').textContent = `${f.path} · saved just now`;
+      cfgCheck();
+      toast(`Saved ${f.path}. Reload the plugin or restart to apply.`);
+      refreshStatus(true);
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+$('cfg-text').addEventListener('input', () => {
+  cfgNumbers();
+  cfgCheck();
+});
+$('cfg-text').addEventListener('scroll', () => ($('cfg-lines').scrollTop = $('cfg-text').scrollTop));
+$('cfg-text').addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    const t = e.currentTarget;
+    t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end');
+    cfgNumbers();
+    cfgCheck();
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    saveConfig();
+  }
+});
+$('cfg-save').addEventListener('click', saveConfig);
+$('cfg-filter').addEventListener('input', renderCfgList);
+$('cfg-revert').addEventListener('click', async (e) => {
+  if (!cfgOpen || !(await confirmAction({ title: 'Revert to the previous version?', body: `${cfgOpen.path} goes back to how it was before the last save from rconsole.`, confirm: 'Revert', icon: 'rollback' }))) return;
+  await busy(e.currentTarget, async () => {
+    try {
+      const f = await api('POST', '/api/configs/revert', { path: cfgOpen.path });
+      cfgOpen = { path: f.path, original: f.content, hasPrevious: f.hasPrevious };
+      $('cfg-text').value = f.content;
+      cfgNumbers();
+      cfgCheck();
+      toast(`Reverted ${f.path}.`);
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
+window.addEventListener('beforeunload', (e) => {
+  if (cfgDirty()) e.preventDefault();
+});
+viewLoaders['server/configs'] = loadConfigs;
+
+// ---------------------------------------------------------------------------
 // Player profile
 // ---------------------------------------------------------------------------
 
@@ -2325,9 +2504,20 @@ function meter(value, max, cls) {
   return el('span', { class: `meter ${cls}` }, fill);
 }
 
+// Gear, hotbar and inventory; `savedAt` marks a copy from the player file.
+function inventorySection(inv, savedAt) {
+  return el('section', { class: 'ps-section' },
+    el('h3', {}, 'Equipment and hotbar'),
+    el('div', { class: 'slots gear' }, ...['head', 'chest', 'legs', 'feet', 'offhand'].map((k) => slot(inv.gear[k], { label: k }))),
+    el('div', { class: 'slots hotbar' }, ...inv.hotbar.map((it, i) => slot(it, { selected: i === inv.selected }))),
+    el('h3', {}, 'Inventory'),
+    el('div', { class: 'slots' }, ...inv.inventory.map((it) => slot(it))),
+    savedAt ? el('p', { class: 'note' }, `As last saved by the server, ${fmt.relative(savedAt)}.`) : null);
+}
+
 function renderPlayer(p) {
   const L = p.live;
-  $('ps-sub').textContent = L ? `Online · ${L.gamemode || ''} · ${L.dimension || ''}`.replace(/ · $/, '') : p.stats ? 'Offline · statistics from the world files' : 'Offline';
+  $('ps-sub').textContent = L ? `Online · ${L.gamemode || ''} · ${L.dimension || ''}`.replace(/ · $/, '') : p.saved || p.stats ? 'Offline · from the world files' : 'Offline';
   const parts = [];
   if (L) {
     const act = (label, cmd, opts) => rowActionBtn(label, opts?.icon || 'players', cmd, opts?.confirm, opts?.danger, () => setTimeout(() => openPlayer(p.name, p.uuid), 400));
@@ -2352,13 +2542,8 @@ function renderPlayer(p) {
             act('Heal', `effect give ${p.name} minecraft:instant_health 1 5`, { icon: 'add' }),
             act('Kick', `kick ${p.name}`, { icon: 'remove', confirm: { title: `Kick ${p.name}?`, confirm: 'Kick', tone: 'danger', icon: 'remove' } }),
             act('Clear inventory', `clear ${p.name}`, { icon: 'delete', danger: true, confirm: { title: `Clear ${p.name}'s inventory?`, body: 'Everything they carry is gone. This can\'t be undone.', confirm: 'Clear', tone: 'danger', icon: 'delete' } })))),
-      el('section', { class: 'ps-section' },
-        el('h3', {}, 'Equipment and hotbar'),
-        el('div', { class: 'slots gear' }, ...['head', 'chest', 'legs', 'feet', 'offhand'].map((k) => slot(L.gear[k], { label: k }))),
-        el('div', { class: 'slots hotbar' }, ...L.hotbar.map((it, i) => slot(it, { selected: i === L.selected }))),
-        el('h3', {}, 'Inventory'),
-        el('div', { class: 'slots' }, ...L.inventory.map((it) => slot(it)))));
-  }
+      inventorySection(L, L.inventoryFrom));
+  } else if (p.saved) parts.push(inventorySection(p.saved, p.saved.savedAt));
   const st = p.stats;
   if (st) {
     const stat = (label, value) => el('div', {}, el('dt', {}, label), el('dd', {}, value));
@@ -2376,7 +2561,7 @@ function renderPlayer(p) {
         stat('Advancements', p.advancements ? String(p.advancements.done) : '–')),
       el('div', { class: 'ps-tops' }, list('Most mined', st.topMined), list('Most used', st.topUsed), list('Most killed', st.topKilled))));
   }
-  if (!parts.length) parts.push(el('p', { class: 'note ps-empty' }, `${p.name} is offline and has no statistics in this world yet.`));
+  if (!parts.length) parts.push(el('p', { class: 'note ps-empty' }, `${p.name} is offline and has no saved data in this world yet.`));
   $('ps-body').replaceChildren(...parts);
 }
 
@@ -2920,6 +3105,7 @@ function paletteActions() {
   act('Back up the active world', 'backups', 'backup save snapshot', () => { showTab('worlds'); $('backup-now').click(); });
   act('Create a new world…', 'worlds', 'new world create generate', () => { showTab('worlds'); toggleWorldForm(true); });
   act('Check for updates', 'updates', 'update upgrade version paper rconsole plugins mods self', () => { showTab('server/updates'); checkAll(true); });
+  act('Edit a plugin config…', 'settings', 'config yml yaml edit plugin mod settings file', () => showTab('server/configs'));
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
   act('Profile the server with spark', 'insights', 'spark profiler lag tps cause', () => showTab('insights/metrics'));

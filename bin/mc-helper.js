@@ -25,6 +25,7 @@ const names = require('../lib/names');
 const modrinth = require('../lib/modrinth');
 const { FILE_RE: PLUGIN_FILE_RE } = require('../lib/plugins');
 const platform = require('../lib/platform');
+const configs = require('../lib/configs');
 
 const MC = config.mcDir;
 const BK = config.backupDir;
@@ -382,6 +383,42 @@ async function pluginRollback({ file }) {
 
 // --- dispatch -----------------------------------------------------------------
 
+// --- plugin and mod configs ---------------------------------------------------
+
+// Writes a config file atomically, keeping the old one in
+// <root>/.rconsole-previous/… for "Revert". Paths are checked again here:
+// under the config root, allowed extension, no links on the way.
+async function configWrite({ file, content, revert = false }) {
+  const root = configs.rootOf(MC);
+  const parts = configs.checkPath(file, root);
+  const target = configs.noLinks(MC, parts);
+  const prevParts = [root, '.rconsole-previous', ...parts.slice(1)];
+  const prevFile = path.join(MC, ...prevParts);
+  let next;
+  if (revert) {
+    configs.noLinks(MC, prevParts);
+    next = fs.readFileSync(prevFile);
+  } else {
+    if (typeof content !== 'string') fail('Missing content');
+    const problem = configs.validate(file, content);
+    if (problem) fail(problem);
+    next = Buffer.from(content, 'utf8');
+  }
+  // Read the current file through a no-follow descriptor before replacing it.
+  const fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  let current;
+  try {
+    current = fs.readFileSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  let dir = MC;
+  for (const p of prevParts.slice(0, -1)) dir = realDir(path.join(dir, p));
+  writeExclusive(prevFile, current);
+  writeExclusive(target, next, fs.statSync(target).mode & 0o777);
+  return { file, bytes: next.length, reverted: Boolean(revert) };
+}
+
 const TASKS = {
   backup,
   restore,
@@ -392,6 +429,7 @@ const TASKS = {
   'plugin-toggle': pluginToggle,
   'plugin-remove': pluginRemove,
   'plugin-rollback': pluginRollback,
+  'config-write': configWrite,
 };
 
 function writeResult(file, result) {
