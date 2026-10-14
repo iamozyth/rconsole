@@ -478,6 +478,8 @@ const ROLE_RULES = [
   ['GET', /^\/api\/notify$/, 'admin'],
   ['GET', /^\/api\/configs/, 'admin'], // configs often hold passwords
   ['GET', /^\/api\/offsite/, 'admin'],
+  ['GET', /^\/api\/users$/, 'admin'], // who has access, and how
+  ['GET', /^\/api\/about$/, 'admin'], // paths and settings of this install
   ['GET', /^\/api\/backups\/[^/]+$/, 'admin'], // downloads whole worlds
 ];
 const requiredRole = (method, pathname) => ROLE_RULES.find(([m, re]) => m === method && re.test(pathname))?.[2] || (method === 'GET' || method === 'HEAD' ? 'viewer' : 'admin');
@@ -561,6 +563,37 @@ route('GET', /^\/api\/audit$/, async (req) => {
   const q = new URL(req.url, 'http://x').searchParams;
   return audit.query({ user: q.get('user') || '', action: q.get('action') || '', q: q.get('q') || '', failed: q.has('failed'), limit: Math.min(Number(q.get('limit')) || 200, 1000) });
 });
+
+// Settings → Sign-in: the accounts (read-only; managed with cli.js or the provider).
+route('GET', /^\/api\/users$/, () => ({
+  users: Object.entries(users.load()).map(([name, u]) => ({
+    name,
+    role: users.roleOf(name),
+    source: u.sso ? 'sso' : 'local',
+    totp: Boolean(u.totp),
+    email: u.sso?.email || null,
+    displayName: u.sso?.name || null,
+    created: u.created || null,
+    lastLogin: u.lastLogin || null,
+  })).sort((a, b) => a.name.localeCompare(b.name)),
+}));
+
+// Settings → About: version and the settings that live in /etc/rconsole.env.
+route('GET', /^\/api\/about$/, () => ({
+  version: require('./package.json').version,
+  commit: selfUpdate.summary().current,
+  node: process.version,
+  mcDir: config.mcDir,
+  mcService: config.mcService,
+  backupDir: config.backupDir,
+  backupKeep: config.backupKeep,
+  stateDir: config.stateDir,
+  publicUrl: config.publicUrl || null,
+  mapUrl: config.mapUrl || null,
+  metrics: Boolean(config.metricsToken),
+  trustProxy: config.trustProxy,
+  jobRunner: config.jobRunner,
+}));
 
 route('GET', /^\/api\/me$/, (req) => {
   const s = sessions.get(cookies(req)[COOKIE]);

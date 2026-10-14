@@ -75,6 +75,7 @@
     <button role="tab" data-tab="schedule" aria-selected="false" aria-controls="tab-schedule"><span class="tile"><svg><use href="#pg-schedule"/></svg></span><span class="label">Schedule</span></button>
     <button role="tab" data-tab="insights" aria-selected="false" aria-controls="tab-insights"><span class="tile"><svg><use href="#pg-insights"/></svg></span><span class="label">Insights</span></button>
     <button role="tab" data-tab="map" aria-selected="false" aria-controls="tab-map"><span class="tile"><svg><use href="#pg-map"/></svg></span><span class="label">Map</span></button>
+    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings"><span class="tile"><svg><use href="#pg-settings"/></svg></span><span class="label">Settings</span></button>
     <button class="nav-more mobile-only" id="nav-more" aria-haspopup="true" aria-expanded="false"><span class="tile"><svg><use href="#pg-more"/></svg></span><span class="label">More</span></button>
   </nav>
   <button class="palette-btn" id="palette-open" aria-keyshortcuts="Control+K Meta+K"><svg><use href="#pg-search"/></svg><span>Search &amp; run</span><kbd id="palette-key">Ctrl K</kbd></button>
@@ -84,7 +85,7 @@
     <div class="rail-user">
       <span class="avatar-initial" id="me-initial" aria-hidden="true"></span>
       <div class="rail-user-text">
-        <span class="who"><span id="me"></span><svg class="via-sso" id="me-via" role="img" aria-label="Signed in with single sign-on" hidden><use href="#pg-key"/></svg> <span class="role-tag" id="me-role"></span></span>
+        <a class="who" href="#settings/account"><span id="me"></span><svg class="via-sso" id="me-via" role="img" aria-label="Signed in with single sign-on" hidden><use href="#pg-key"/></svg> <span class="role-tag" id="me-role"></span></a>
         <span class="rail-meta"><span class="ver" id="rail-ver"></span> · <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Preview</a></span>
       </div>
       <button class="btn btn-quiet btn-icon btn-sm" id="logout" aria-label="Sign out" title="Sign out"><svg><use href="#pg-signout"/></svg></button>
@@ -336,28 +337,9 @@
       <section class="panel" id="os-panel" data-min-role="admin">
         <header class="panel-head">
           <div class="head-text"><h2>Offsite copies</h2><p class="note" id="os-info">Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.</p></div>
-          <button class="btn" id="os-edit" aria-expanded="false" aria-controls="os-form"><svg><use href="#pg-settings"/></svg><span>Set up</span></button>
+          <a class="btn" id="os-edit" href="#settings/backups"><svg><use href="#pg-settings"/></svg><span>Set up</span></a>
         </header>
         <div class="job" id="os-state" hidden></div>
-        <form class="panel-body offsite-form" id="os-form" hidden autocomplete="off">
-          <label class="fld wide"><span>Endpoint</span><input class="field" name="endpoint" type="url" placeholder="https://s3.eu-central-003.backblazeb2.com" maxlength="300"></label>
-          <label class="fld"><span>Bucket</span><input class="field" name="bucket" placeholder="my-minecraft-backups" maxlength="63" autocapitalize="none" spellcheck="false"></label>
-          <label class="fld"><span>Region</span><input class="field" name="region" placeholder="us-east-1" maxlength="40" autocapitalize="none" spellcheck="false"></label>
-          <label class="fld"><span>Access key ID</span><input class="field mono" name="accessKeyId" maxlength="300" autocapitalize="none" spellcheck="false"></label>
-          <label class="fld"><span>Secret access key</span><input class="field mono" name="secretAccessKey" type="password" maxlength="300" autocomplete="new-password"></label>
-          <label class="fld"><span>Folder in the bucket</span><input class="field mono" name="prefix" placeholder="rconsole/" maxlength="200" autocapitalize="none" spellcheck="false"></label>
-          <label class="fld"><span>Copies to keep per world</span><input class="field num" name="keep" type="number" min="0" max="1000" placeholder="14"></label>
-          <div class="fld wide">
-            <span>Encryption passphrase (optional)</span>
-            <input class="field" name="passphrase" type="password" maxlength="300" autocomplete="new-password" placeholder="Leave empty to upload unencrypted">
-            <p class="note">Backups are encrypted on this machine (AES-256-GCM) before they leave it. Without the passphrase they can't be restored: keep it in your password manager.</p>
-          </div>
-          <div class="fld wide row quiet-row">
-            <label class="switch"><input type="checkbox" role="switch" name="auto"><span>Upload every new backup</span></label>
-            <label class="check"><input type="checkbox" name="pathStyle"><span>Path-style URLs (needed for MinIO and most providers)</span></label>
-          </div>
-          <div class="form-actions"><p class="note" id="os-note"></p><button type="button" class="btn" id="os-test">Test connection</button><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
-        </form>
         <table class="table" id="os-table" hidden>
           <thead><tr><th>Copy</th><th>World</th><th class="num">Size</th><th>Uploaded</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
           <tbody id="os-list"></tbody>
@@ -413,7 +395,7 @@
     <section class="area" id="tab-server" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Server sections">
         <button role="tab" data-view="overview" aria-selected="true">Overview</button>
-        <button role="tab" data-view="settings" aria-selected="false">Settings</button>
+        <button role="tab" data-view="properties" aria-selected="false">Properties</button>
         <button role="tab" data-view="plugins" aria-selected="false">Plugins</button>
         <button role="tab" data-view="configs" aria-selected="false" data-min-role="admin">Configs</button>
         <button role="tab" data-view="updates" aria-selected="false">Updates</button>
@@ -461,49 +443,9 @@
           </section>
         </div>
 
-        <section class="panel" data-min-role="admin">
-          <header class="panel-head">
-            <div class="head-text"><h2>Notifications</h2><p class="note">Push alerts to your phone through <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a>: install the app, subscribe to a topic, paste its URL here.</p></div>
-            <button class="btn" id="ntfy-test"><svg><use href="#pg-bell"/></svg>Send test</button>
-          </header>
-          <form class="panel-body notify-form" id="notify-form" autocomplete="off">
-            <label class="fld"><span>Topic URL</span><input class="field" name="url" type="url" placeholder="https://ntfy.sh/your-secret-topic" maxlength="200"></label>
-            <label class="fld"><span>Access token (optional)</span><input class="field" name="token" type="password" placeholder="tk_…" maxlength="200" autocomplete="new-password"></label>
-            <div class="fld wide">
-              <span>rconsole URL</span>
-              <div class="row"><input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200"><button type="button" class="btn" id="ntfy-here">Use this address</button></div>
-              <p class="note">Tapping a notification opens the matching page here, and buttons can act on it. Must be reachable from your phone.</p>
-            </div>
-            <fieldset class="fld wide discord"><legend>Discord</legend>
-              <div class="discord-grid">
-                <label class="fld"><span>Webhook for alerts</span><input class="field mono" name="dcUrl" type="password" maxlength="200" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"></label>
-                <label class="fld"><span>Webhook for chat (optional)</span><input class="field mono" name="dcChatUrl" type="password" maxlength="200" autocomplete="off" placeholder="Another channel's webhook"></label>
-                <label class="switch"><input type="checkbox" role="switch" name="dcAlerts"><span>Send the alerts below to Discord too</span></label>
-                <label class="switch"><input type="checkbox" role="switch" name="dcChat"><span>Mirror chat, joins and leaves</span></label>
-              </div>
-              <p class="note">In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL. Works with or without ntfy; mentions are switched off.</p>
-            </fieldset>
-            <fieldset class="fld wide"><legend>Notify me when</legend><div class="notify-events" id="notify-events"></div></fieldset>
-            <fieldset class="fld wide quiet"><legend>Quiet hours</legend>
-              <div class="row quiet-row">
-                <label class="switch"><input type="checkbox" role="switch" name="quietOn"><span>Deliver silently</span></label>
-                <label class="inline-fld"><span>from</span><input class="field" name="quietFrom" type="time"></label>
-                <label class="inline-fld"><span>to</span><input class="field" name="quietTo" type="time"></label>
-              </div>
-              <p class="note">Everything but urgent alerts (server down) arrives without sound during these hours.</p>
-            </fieldset>
-            <fieldset class="fld wide"><legend>One-tap actions</legend>
-              <label class="check"><input type="checkbox" name="oneTap"><span>Add buttons that act right away: <b>Ban IP</b> on scanner alerts, <b>Start server</b> when it's down</span></label>
-              <p class="note warn-note">Each button carries a single-use link that works for 24 hours without signing in. Anyone who can read your topic could press it, so use a private topic or an access token.</p>
-            </fieldset>
-            <label class="fld"><span>Lag alert below TPS</span><input class="field num" name="tpsBelow" type="number" min="1" max="20" step="0.5"></label>
-            <label class="fld"><span>…for at least (minutes)</span><input class="field num" name="tpsMinutes" type="number" min="1" max="60"></label>
-            <div class="form-actions"><p class="note" id="notify-note"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
-          </form>
-        </section>
       </div>
 
-      <div class="view" data-view="settings" hidden>
+      <div class="view" data-view="properties" hidden>
         <form class="settings" id="settings-form" novalidate>
           <div class="grid-2" id="settings-groups"></div>
           <div class="savebar" id="settings-bar" hidden>
@@ -698,10 +640,6 @@
       </div>
 
       <div class="view" data-view="audit" hidden>
-        <section class="panel signin-panel" id="signin-panel" hidden>
-          <header class="panel-head"><div class="head-text"><h2>Sign-in</h2><p class="note" id="signin-note"></p></div></header>
-          <dl class="signin-facts" id="signin-facts"></dl>
-        </section>
         <section class="panel">
           <form class="panel-body audit-filters" id="au-form">
             <label class="fld"><span>User</span><select class="field" name="user"><option value="">Everyone</option></select></label>
@@ -727,6 +665,128 @@
           <li><b>Point rconsole at it.</b> Add <code>MAP_URL=http://127.0.0.1:8100</code> to <code>/etc/rconsole.env</code> and restart rconsole.</li>
         </ol>
       </section>
+    </section>
+
+    <!-- Settings: rconsole itself (the Minecraft server's own settings are under Server) -->
+    <section class="area" id="tab-settings" role="tabpanel" hidden>
+      <div class="subnav segmented" role="tablist" aria-label="Settings sections">
+        <button role="tab" data-view="account" aria-selected="true">Account</button>
+        <button role="tab" data-view="notifications" aria-selected="false" data-min-role="admin">Notifications</button>
+        <button role="tab" data-view="backups" aria-selected="false" data-min-role="admin">Backups</button>
+        <button role="tab" data-view="about" aria-selected="false" data-min-role="admin">About</button>
+      </div>
+
+      <div class="view" data-view="account">
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Your account</h2><p class="note" id="acct-note"></p></div>
+            <button class="btn" id="acct-signout"><svg><use href="#pg-signout"/></svg>Sign out</button>
+          </header>
+          <dl class="set-facts" id="acct-facts"></dl>
+        </section>
+        <section class="panel" data-min-role="admin">
+          <header class="panel-head"><div class="head-text"><h2>Sign-in</h2><p class="note" id="signin-note"></p></div></header>
+          <dl class="set-facts" id="signin-facts"></dl>
+        </section>
+        <section class="panel" data-min-role="admin">
+          <header class="panel-head"><div class="head-text"><h2>Accounts</h2><p class="note" id="users-note">Local accounts are managed on the server with <code>node cli.js user …</code>; single sign-on accounts appear after their first sign-in.</p></div><span class="count" id="n-users"></span></header>
+          <table class="table">
+            <thead><tr><th>Account</th><th>Role</th><th>Sign-in</th><th>Last seen</th></tr></thead>
+            <tbody id="users-list"></tbody>
+          </table>
+        </section>
+      </div>
+
+      <div class="view" data-view="notifications" hidden>
+        <section class="panel" data-min-role="admin">
+          <header class="panel-head">
+            <div class="head-text"><h2>Notifications</h2><p class="note">Push alerts to your phone through <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a>: install the app, subscribe to a topic, paste its URL here.</p></div>
+            <button class="btn" id="ntfy-test"><svg><use href="#pg-bell"/></svg>Send test</button>
+          </header>
+          <form class="panel-body notify-form" id="notify-form" autocomplete="off">
+            <label class="fld"><span>Topic URL</span><input class="field" name="url" type="url" placeholder="https://ntfy.sh/your-secret-topic" maxlength="200"></label>
+            <label class="fld"><span>Access token (optional)</span><input class="field" name="token" type="password" placeholder="tk_…" maxlength="200" autocomplete="new-password"></label>
+            <div class="fld wide">
+              <span>rconsole URL</span>
+              <div class="row"><input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200"><button type="button" class="btn" id="ntfy-here">Use this address</button></div>
+              <p class="note">Tapping a notification opens the matching page here, and buttons can act on it. Must be reachable from your phone.</p>
+            </div>
+            <fieldset class="fld wide discord"><legend>Discord</legend>
+              <div class="discord-grid">
+                <label class="fld"><span>Webhook for alerts</span><input class="field mono" name="dcUrl" type="password" maxlength="200" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"></label>
+                <label class="fld"><span>Webhook for chat (optional)</span><input class="field mono" name="dcChatUrl" type="password" maxlength="200" autocomplete="off" placeholder="Another channel's webhook"></label>
+                <label class="switch"><input type="checkbox" role="switch" name="dcAlerts"><span>Send the alerts below to Discord too</span></label>
+                <label class="switch"><input type="checkbox" role="switch" name="dcChat"><span>Mirror chat, joins and leaves</span></label>
+              </div>
+              <p class="note">In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL. Works with or without ntfy; mentions are switched off.</p>
+            </fieldset>
+            <fieldset class="fld wide"><legend>Notify me when</legend><div class="notify-events" id="notify-events"></div></fieldset>
+            <fieldset class="fld wide quiet"><legend>Quiet hours</legend>
+              <div class="row quiet-row">
+                <label class="switch"><input type="checkbox" role="switch" name="quietOn"><span>Deliver silently</span></label>
+                <label class="inline-fld"><span>from</span><input class="field" name="quietFrom" type="time"></label>
+                <label class="inline-fld"><span>to</span><input class="field" name="quietTo" type="time"></label>
+              </div>
+              <p class="note">Everything but urgent alerts (server down) arrives without sound during these hours.</p>
+            </fieldset>
+            <fieldset class="fld wide"><legend>One-tap actions</legend>
+              <label class="check"><input type="checkbox" name="oneTap"><span>Add buttons that act right away: <b>Ban IP</b> on scanner alerts, <b>Start server</b> when it's down</span></label>
+              <p class="note warn-note">Each button carries a single-use link that works for 24 hours without signing in. Anyone who can read your topic could press it, so use a private topic or an access token.</p>
+            </fieldset>
+            <label class="fld"><span>Lag alert below TPS</span><input class="field num" name="tpsBelow" type="number" min="1" max="20" step="0.5"></label>
+            <label class="fld"><span>…for at least (minutes)</span><input class="field num" name="tpsMinutes" type="number" min="1" max="60"></label>
+            <div class="form-actions"><p class="note" id="notify-note"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
+          </form>
+        </section>
+      </div>
+
+      <div class="view" data-view="backups" hidden>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Backups on this machine</h2><p class="note">Made before updates and world changes, on demand under Worlds, and on a timetable under Schedule.</p></div>
+            <a class="btn" href="#schedule"><svg><use href="#pg-schedule"/></svg>Schedule backups</a>
+          </header>
+          <dl class="set-facts" id="bk-facts"></dl>
+        </section>
+        <section class="panel" id="os-setup">
+          <header class="panel-head">
+            <div class="head-text"><h2>Offsite copies</h2><p class="note" id="os-setup-note">Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO. The copies themselves are listed under Worlds.</p></div>
+          </header>
+        <form class="panel-body offsite-form" id="os-form" autocomplete="off">
+          <label class="fld wide"><span>Endpoint</span><input class="field" name="endpoint" type="url" placeholder="https://s3.eu-central-003.backblazeb2.com" maxlength="300"></label>
+          <label class="fld"><span>Bucket</span><input class="field" name="bucket" placeholder="my-minecraft-backups" maxlength="63" autocapitalize="none" spellcheck="false"></label>
+          <label class="fld"><span>Region</span><input class="field" name="region" placeholder="us-east-1" maxlength="40" autocapitalize="none" spellcheck="false"></label>
+          <label class="fld"><span>Access key ID</span><input class="field mono" name="accessKeyId" maxlength="300" autocapitalize="none" spellcheck="false"></label>
+          <label class="fld"><span>Secret access key</span><input class="field mono" name="secretAccessKey" type="password" maxlength="300" autocomplete="new-password"></label>
+          <label class="fld"><span>Folder in the bucket</span><input class="field mono" name="prefix" placeholder="rconsole/" maxlength="200" autocapitalize="none" spellcheck="false"></label>
+          <label class="fld"><span>Copies to keep per world</span><input class="field num" name="keep" type="number" min="0" max="1000" placeholder="14"></label>
+          <div class="fld wide">
+            <span>Encryption passphrase (optional)</span>
+            <input class="field" name="passphrase" type="password" maxlength="300" autocomplete="new-password" placeholder="Leave empty to upload unencrypted">
+            <p class="note">Backups are encrypted on this machine (AES-256-GCM) before they leave it. Without the passphrase they can't be restored: keep it in your password manager.</p>
+          </div>
+          <div class="fld wide row quiet-row">
+            <label class="switch"><input type="checkbox" role="switch" name="auto"><span>Upload every new backup</span></label>
+            <label class="check"><input type="checkbox" name="pathStyle"><span>Path-style URLs (needed for MinIO and most providers)</span></label>
+          </div>
+          <div class="form-actions"><p class="note" id="os-note"></p><button type="button" class="btn" id="os-test">Test connection</button><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
+        </form>
+        </section>
+      </div>
+
+      <div class="view" data-view="about" hidden>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>rconsole</h2><p class="note" id="about-note"></p></div>
+            <a class="btn" href="#server/updates"><svg><use href="#pg-updates"/></svg>Check for updates</a>
+          </header>
+          <dl class="set-facts" id="about-facts"></dl>
+        </section>
+        <section class="panel">
+          <header class="panel-head"><div class="head-text"><h2>Set on the server</h2><p class="note">These come from <code>/etc/rconsole.env</code>; change them there and restart rconsole (<code>sudo systemctl restart rconsole</code>).</p></div></header>
+          <dl class="set-facts" id="env-facts"></dl>
+        </section>
+      </div>
     </section>
   </main>
 </div>

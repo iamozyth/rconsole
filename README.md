@@ -74,7 +74,8 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 - **One check for everything**: rconsole itself, the server software and your plugins or mods.
 - **Server updates** for Paper and Folia, SHA-256 verified. Players are warned, then disconnected; the world is backed up while nobody plays; the server starts on the new build. One-click rollback.
 - **Plugins and mods from Modrinth**: identify installed jars, update with rollback, enable, disable, search and install, SHA-512 verified.
-- **Settings editor** for `server.properties` with a review step; live where Minecraft allows it.
+- **Properties editor** (Server → Properties) for `server.properties` with a review step; live where Minecraft allows it.
+- **Settings** for rconsole itself in one place: your account and everyone's access, notifications, backups, and what's configured on the server.
 - **Self-update** with automatic rollback if the new version doesn't start.
 
 **Insights and integrations**
@@ -98,7 +99,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 |---|---|
 | <img src="docs/screenshots/updates.webp" alt="One check for rconsole, server software and plugin updates"><br><sub>**Updates**: one check for rconsole, the server and plugins</sub> | <img src="docs/screenshots/insights.webp" alt="TPS, players, CPU and memory charts"><br><sub>**Insights**: TPS, players, CPU and memory over 24 h or 7 days</sub> |
 | <img src="docs/screenshots/security.webp" alt="Unknown connection attempts with ban and firewall options"><br><sub>**Security**: scanners spotted, with advice and one-click bans</sub> | <img src="docs/screenshots/worlds.webp" alt="Worlds and backups"><br><sub>**Worlds**: switch, create, back up and restore</sub> |
-| <img src="docs/screenshots/settings.webp" alt="server.properties editor"><br><sub>**Settings**: `server.properties` as a typed form</sub> | <img src="docs/screenshots/palette.webp" alt="Command palette"><br><sub>**Command palette**: Ctrl/⌘ K for everything</sub> |
+| <img src="docs/screenshots/settings.webp" alt="server.properties editor"><br><sub>**Properties**: `server.properties` as a typed form</sub> | <img src="docs/screenshots/palette.webp" alt="Command palette"><br><sub>**Command palette**: Ctrl/⌘ K for everything</sub> |
 | <img src="docs/screenshots/players-light.webp" alt="Player history in the light theme"><br><sub>**Player history**, in the light theme</sub> | <img src="docs/screenshots/login.webp" alt="Sign-in page"><br><sub>**Sign-in** with optional two-step verification</sub> |
 
 <p align="center">
@@ -260,7 +261,7 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user r
 | `BACKUP_KEEP`   | `10`                     | Newest backups to keep, `0` keeps all                |
 | `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
 | `MC_SERVICE`    | `minecraft.service`      | systemd unit rconsole starts, stops and restarts     |
-| `NTFY_URL` / `NTFY_TOKEN` | (none) | ntfy topic and token; otherwise set them in the UI (Server → Overview) |
+| `NTFY_URL` / `NTFY_TOKEN` | (none) | ntfy topic and token; otherwise set them in the UI (Settings → Notifications) |
 | `PUBLIC_URL`    | (none)                   | rconsole's own URL, e.g. `https://rconsole.example.com`: notification links and the single sign-on redirect |
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | (none) | [Single sign-on](#single-sign-on-authentik) with an OpenID Connect provider; the secret can also come from `OIDC_CLIENT_SECRET_FILE` |
 | `OIDC_NAME`     | `SSO`                    | Button label: "Continue with authentik"              |
@@ -298,7 +299,7 @@ OIDC_CLIENT_SECRET=…
 OIDC_NAME=authentik
 ```
 
-`journalctl -u rconsole` shows `sso: authentik via …` when it's on, or which setting is missing. Insights → Audit shows the active settings and every SSO sign-in.
+`journalctl -u rconsole` shows `sso: authentik via …` when it's on, or which setting is missing. Settings → Account shows the active settings and every account; Insights → Audit lists every SSO sign-in.
 
 - **Groups decide**: someone in none of the three groups is refused (and no account is created). Moving someone to another group changes their role at their next sign-in and ends their sessions with the old role. SSO sessions end after `OIDC_SESSION_HOURS` (12), so removing someone at the provider takes effect within that time at most.
 - **Accounts**: the first sign-in creates an rconsole account named after the provider username (`node cli.js user list` shows them as SSO). It is tied to the provider's user ID, has no password, and never takes over a local account of the same name; that one gets a `-2` suffix instead.
@@ -390,7 +391,7 @@ Players → **Chat** shows chat messages, `/say` and `/me` lines, joins and leav
 
 ## Offsite backups
 
-Worlds → **Offsite copies** uploads backups to any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO and others. Enter the endpoint (for example `https://s3.eu-central-003.backblazeb2.com` or `https://<account>.r2.cloudflarestorage.com`), bucket, region and an access key that may list, read, write and delete in that bucket; **Test connection** checks it.
+**Settings → Backups → Offsite copies** uploads backups to any S3-compatible bucket (the copies are listed under Worlds): Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO and others. Enter the endpoint (for example `https://s3.eu-central-003.backblazeb2.com` or `https://<account>.r2.cloudflarestorage.com`), bucket, region and an access key that may list, read, write and delete in that bucket; **Test connection** checks it.
 
 - **Encryption:** with a passphrase, every backup is encrypted on this machine (AES-256-GCM in 1 MiB chunks, key derived with scrypt) before upload and stored as `<backup>.tar.gz.enc`. Keep the passphrase somewhere safe: without it the copies can't be restored.
 - **Automatic uploads** after every backup (scheduled or manual), one at a time with retries after 1, 5 and 30 minutes; a final failure sends a "backup" notification. Any backup can also be uploaded with **Upload**.
@@ -440,7 +441,7 @@ Mods are matched on Modrinth with the right loader, and their names come from `f
 
 ## Notifications
 
-Install the ntfy app, subscribe to a topic with a long, unguessable name (anyone who knows it can read it, or use a self-hosted ntfy with an access token), and paste the topic URL under **Server → Overview → Notifications**. Also set the **rconsole URL** (one click: *Use this address*); then:
+Install the ntfy app, subscribe to a topic with a long, unguessable name (anyone who knows it can read it, or use a self-hosted ntfy with an access token), and paste the topic URL under **Settings → Notifications**. Also set the **rconsole URL** (one click: *Use this address*); then:
 
 - tapping a notification opens the matching page in rconsole, and an **Open rconsole** button is added; Android shows the rconsole icon,
 - follow-ups replace the original notification instead of piling up: *server down* becomes *back up after 4 min*, *lagging* becomes *lag is over*, a player's *joined* becomes *left after 35 min*, and scanner sightings collect in one notification per day,

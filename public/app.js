@@ -159,6 +159,7 @@ const AREAS = {
   schedule: { name: 'Schedule', icon: 'schedule' },
   insights: { name: 'Insights', icon: 'insights' },
   map: { name: 'Map', icon: 'map' },
+  settings: { name: 'Settings', icon: 'settings' },
 };
 // Roles: what the signed-in account may do. The server enforces it; the UI
 // hides what would only fail. Mirrors MODERATOR_COMMANDS in server.js.
@@ -181,7 +182,13 @@ function applyRole(role) {
 // On phones the tab bar shows the first four; the rest live under "More".
 const PHONE_TABS = 4;
 // Old bookmarks keep working.
-const ALIASES = { backups: 'worlds', updates: 'server/updates' };
+const ALIASES = {
+  backups: 'worlds',
+  updates: 'server/updates',
+  notifications: 'settings/notifications',
+  'server/settings': 'server/properties', // renamed: it edits server.properties
+  account: 'settings/account',
+};
 const tabLoaders = {};
 const viewLoaders = {};
 
@@ -1175,6 +1182,7 @@ function loadWorldsArea() {
 
 let offsiteView = null;
 let offsiteTimer = null;
+let osDirty = false;
 
 function renderOffsiteState(o) {
   const st = o.state || {};
@@ -1193,13 +1201,16 @@ async function loadOffsite() {
     const was = offsiteView;
     offsiteView = o;
     const f = $('os-form').elements;
-    if (!was || $('os-form').hidden) {
+    if (!was || !osDirty) { // don't overwrite what someone is typing
       for (const k of ['endpoint', 'bucket', 'region', 'accessKeyId', 'secretAccessKey', 'prefix', 'passphrase']) f[k].value = o[k] || '';
       f.keep.value = o.keep;
       f.auto.checked = o.auto;
       f.pathStyle.checked = o.pathStyle;
     }
     $('os-edit').querySelector('span').textContent = o.configured ? 'Settings' : 'Set up';
+    $('os-setup-note').textContent = o.configured
+      ? `Uploading to ${o.bucket} at ${new URL(o.endpoint).host}${o.encrypted ? ', encrypted' : ''}. The copies are listed under Worlds.`
+      : 'Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO. The copies themselves are listed under Worlds.';
     $('os-info').textContent = o.configured
       ? `${o.bucket} at ${new URL(o.endpoint).host}${o.encrypted ? ', encrypted' : ''}. ${o.auto ? 'Every new backup is uploaded' : 'Uploads are manual'}; the newest ${o.keep || 'all'} of each world are kept.${o.last ? ` Last upload ${fmt.relative(o.last.at)}.` : ''}`
       : 'Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.';
@@ -1277,20 +1288,14 @@ function offsiteBody() {
   };
 }
 
-$('os-edit').addEventListener('click', () => {
-  const open = $('os-form').hidden;
-  $('os-form').hidden = !open;
-  $('os-edit').setAttribute('aria-expanded', String(open));
-  if (open) $('os-form').elements.endpoint.focus();
-});
+$('os-form').addEventListener('input', () => { osDirty = true; });
 $('os-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   await busy(e.submitter || $('os-form').querySelector('.btn-primary'), async () => {
     try {
       offsiteView = await api('PUT', '/api/offsite', offsiteBody());
       $('os-note').textContent = '';
-      $('os-form').hidden = true;
-      $('os-edit').setAttribute('aria-expanded', 'false');
+      osDirty = false;
       toast('Offsite settings saved.');
       await loadOffsite();
       loadOffsiteList();
@@ -1452,7 +1457,7 @@ async function loadSettings() {
     $('settings-groups').replaceChildren(el('section', { class: 'panel' }, el('div', { class: 'panel-body note' }, `Can't read server.properties: ${e.message}`)));
   }
 }
-viewLoaders['server/settings'] = loadSettings;
+viewLoaders['server/properties'] = loadSettings;
 
 settingsForm.addEventListener('input', syncSettingsBar);
 settingsForm.addEventListener('change', syncSettingsBar);
@@ -3177,7 +3182,7 @@ async function loadSecurity({ quiet = false } = {}) {
     const advice = [];
     if (prop('online-mode') === 'false') {
       advice.push(adviceItem('bad', 'Online mode is off', 'Anyone can join under any name, an operator’s included. Turn it on unless a proxy such as Velocity handles sign-ins.',
-        el('button', { class: 'btn btn-sm', onclick: () => showTab('server/settings') }, 'Open settings')));
+        el('button', { class: 'btn btn-sm', onclick: () => showTab('server/properties') }, 'Open properties')));
     }
     if (!access.whitelistEnabled) {
       advice.push(adviceItem(pub.length ? 'bad' : 'warn', 'The whitelist is off',
@@ -3420,7 +3425,7 @@ async function loadNotify() {
     $('notify-note').textContent = e.message;
   }
 }
-viewLoaders['server/overview'] = loadNotify;
+viewLoaders['settings/notifications'] = loadNotify;
 
 notifyForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -3507,6 +3512,8 @@ $('logout').addEventListener('click', signOut);
 $('logout-m').addEventListener('click', signOut);
 api('GET', '/api/me').then(({ user, role, via, name, auth }) => {
   applyRole(role);
+  me = { user, role, via, name, auth };
+  if (document.body.dataset.area === 'settings') renderAccount();
   const sso = via === 'sso' ? auth?.sso?.name || 'SSO' : null;
   $('me-role').textContent = role && role !== 'admin' ? role : '';
   $('me').textContent = user;
@@ -3522,7 +3529,80 @@ api('GET', '/api/me').then(({ user, role, via, name, auth }) => {
   renderSignin(auth);
 }).catch(() => {});
 
-// Insights → Audit: how people sign in (read-only; set in /etc/rconsole.env).
+// Settings → Account: who you are here, and (admins) how everyone signs in.
+const ROLE_TEXT = {
+  admin: 'Admins can do everything, including settings, updates and the audit log.',
+  moderator: 'Moderators see what admins see and handle players: chat, kick, ban, whitelist, teleport and game mode.',
+  viewer: 'Viewers can look at everything but change nothing.',
+};
+let me = null;
+function renderAccount() {
+  if (!me) return;
+  const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
+  const sso = me.via === 'sso' ? me.auth?.sso?.name || 'SSO' : null;
+  $('acct-note').textContent = ROLE_TEXT[me.role] || '';
+  $('acct-facts').replaceChildren(
+    row('Account', me.name ? `${me.name} (${me.user})` : me.user),
+    row('Role', me.role[0].toUpperCase() + me.role.slice(1)),
+    row('Signed in with', sso || 'Username and password'),
+    row(sso ? 'Password and 2FA' : 'Change password or 2FA', sso ? `Managed in ${sso}` : el('span', {}, 'On the server: ', el('code', {}, `node cli.js user passwd ${me.user}`))),
+  );
+}
+
+async function loadUsers() {
+  if (!atLeast('admin')) return;
+  skeletonRows($('users-list'), 4);
+  try {
+    const { users: list } = await api('GET', '/api/users');
+    $('n-users').textContent = list.length;
+    const ssoName = me?.auth?.sso?.name || 'SSO';
+    $('users-list').replaceChildren(...list.map((u) => el('tr', {},
+      el('td', { class: 'primary-cell', 'data-label': 'Account' }, u.name, u.displayName || u.email ? el('span', { class: 'sub' }, [u.displayName, u.email].filter(Boolean).join(' · ')) : null),
+      el('td', { 'data-label': 'Role' }, el('span', { class: `pill${u.role === 'admin' ? ' own' : ''}` }, u.role)),
+      el('td', { 'data-label': 'Sign-in' }, u.source === 'sso' ? ssoName : `Password${u.totp ? ' + 2FA' : ''}`),
+      el('td', { 'data-label': 'Last seen' }, u.lastLogin ? fmt.relative(u.lastLogin) : u.source === 'sso' ? '–' : el('span', { class: 'sub' }, `created ${fmt.relative(u.created)}`)))));
+  } catch (e) {
+    $('users-list').replaceChildren(emptyRow(4, `Can't list accounts: ${e.message}`));
+  }
+}
+
+async function loadAbout() {
+  if (!atLeast('admin')) return;
+  const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
+  const mono = (v) => el('span', { class: 'mono' }, v);
+  const off = (v) => el('span', { class: 'sub' }, v);
+  try {
+    const a = await api('GET', '/api/about');
+    $('about-note').textContent = `Version ${a.version}${a.commit ? ` (${a.commit})` : ''}, running on Node.js ${a.node}.`;
+    $('about-facts').replaceChildren(
+      row('Version', `${a.version}${a.commit ? ` · ${a.commit}` : ''}`),
+      row('Documentation', el('a', { href: 'https://github.com/iamozyth/rconsole#readme', target: '_blank', rel: 'noopener' }, 'README')),
+      row('Release notes', el('a', { href: `https://github.com/iamozyth/rconsole/releases/tag/v${a.version}`, target: '_blank', rel: 'noopener' }, `rconsole ${a.version}`)),
+      row('License', el('a', { href: 'https://github.com/iamozyth/rconsole/blob/main/LICENSE', target: '_blank', rel: 'noopener' }, 'PolyForm Strict 1.0.0')));
+    $('env-facts').replaceChildren(
+      row('rconsole URL (PUBLIC_URL)', a.publicUrl ? mono(a.publicUrl) : off('Not set; can be set under Notifications')),
+      row('Server folder (MC_DIR)', mono(a.mcDir)),
+      row('Server service (MC_SERVICE)', mono(a.mcService)),
+      row('Backup folder (BACKUP_DIR)', mono(a.backupDir)),
+      row('rconsole data', mono(a.stateDir)),
+      row('Live map (MAP_URL)', a.mapUrl ? mono(a.mapUrl) : off('Off')),
+      row('Prometheus (METRICS_TOKEN)', a.metrics ? 'On at /metrics' : off('Off')),
+      row('Trusted proxy (TRUST_PROXY)', a.trustProxy.length ? mono(a.trustProxy.join(', ')) : off('None')));
+    $('bk-facts').replaceChildren(
+      row('Folder', mono(a.backupDir)),
+      row('Kept per world', a.backupKeep ? `Newest ${a.backupKeep} (BACKUP_KEEP)` : 'All (BACKUP_KEEP=0)'),
+      row('Offsite', offsiteView?.configured ? `${offsiteView.auto ? 'Every new backup' : 'Manual uploads'} to ${offsiteView.bucket}` : off('Not set up: see below')));
+  } catch (e) {
+    $('about-note').textContent = e.message;
+  }
+}
+
+viewLoaders['settings/account'] = () => { renderAccount(); loadUsers(); };
+viewLoaders['settings/backups'] = () => loadOffsite().then(loadAbout);
+viewLoaders['settings/about'] = loadAbout;
+$('acct-signout').addEventListener('click', () => signOut());
+
+// How people sign in (read-only; set in /etc/rconsole.env).
 function renderSignin(auth) {
   if (!auth) return;
   const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
@@ -3538,7 +3618,6 @@ function renderSignin(auth) {
     row('SSO sessions end after', `${sso.sessionHours} h`),
     row('Local accounts', auth.local ? 'Allowed (fallback)' : 'Off'),
   ] : [row('Local accounts', 'Allowed')]));
-  $('signin-panel').hidden = false;
 }
 
 connectLogs();
