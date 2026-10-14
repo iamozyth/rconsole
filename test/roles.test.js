@@ -85,7 +85,8 @@ test('roles: admins can do everything, moderators moderate, viewers only read', 
     const as = { admin: call(await login('alice')), moderator: call(await login('mo')), viewer: call(await login('vic')) };
 
     const me = async (role) => (await fetch(`${base}/api/me`, { headers: { cookie: await login({ admin: 'alice', moderator: 'mo', viewer: 'vic' }[role]) } })).json();
-    assert.deepStrictEqual(await me('moderator'), { user: 'mo', role: 'moderator' });
+    const mo = await me('moderator');
+    assert.deepStrictEqual([mo.user, mo.role, mo.via], ['mo', 'moderator', 'password']);
 
     // [method, url, body, expected status for admin, moderator, viewer]; 2xx/4xx other than 403 count as allowed
     const cases = [

@@ -38,6 +38,7 @@ const { Notify } = require('./lib/notify');
 const prom = require('./lib/prom');
 const crypto = require('crypto');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast } = require('./lib/auth');
+const { Oidc, roleFor } = require('./lib/oidc');
 
 if (!config.rconPassword) {
   console.error('Missing required environment variable RCON_PASSWORD');
@@ -104,6 +105,27 @@ const lastTotpStep = new Map(); // user -> last accepted TOTP step, blocks code 
 
 const COOKIE = 'rconsole_session';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
+const OIDC_COOKIE = 'rconsole_oidc';
+
+// Single sign-on, when OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and
+// PUBLIC_URL are all set.
+const oidc = (() => {
+  const o = config.oidc;
+  if (!o.issuer && !o.clientId) return null;
+  const missing = [['OIDC_ISSUER', o.issuer], ['OIDC_CLIENT_ID', o.clientId], ['OIDC_CLIENT_SECRET', o.clientSecret], ['PUBLIC_URL', config.publicUrl]].filter(([, v]) => !v).map(([k]) => k);
+  if (missing.length) {
+    log(`sso: off, missing ${missing.join(', ')}`);
+    return null;
+  }
+  try {
+    const client = new Oidc({ ...o, redirectUri: `${config.publicUrl}/auth/oidc/callback`, postLogoutUri: `${config.publicUrl}/login` });
+    log(`sso: ${o.name} via ${o.issuer}`);
+    return client;
+  } catch (err) {
+    log(`sso: off, ${err.message}`);
+    return null;
+  }
+})();
 
 // ---------------------------------------------------------------------------
 // Static files (loaded once, served from memory)
@@ -270,7 +292,8 @@ async function login(req, res) {
   const ip = clientIp(req);
   const keys = [`ip:${ip}`, `user:${name}`];
 
-  if (!users.count) throw httpError(503, 'No users configured yet. On the server run: node cli.js user add <name>');
+  if (!config.localLogin) throw httpError(403, `Sign in with ${config.oidc.name}`);
+  if (!Object.values(users.load()).some((u) => u.hash)) throw httpError(503, 'No users configured yet. On the server run: node cli.js user add <name>');
 
   const wait = throttle.blocked(...keys);
   if (wait) {
@@ -322,15 +345,77 @@ async function login(req, res) {
   return { user: name };
 }
 
-function logout(req, res) {
+async function logout(req, res) {
   const user = currentUser(req);
+  const s = sessions.get(cookies(req)[COOKIE]);
   sessions.destroy(cookies(req)[COOKIE]);
   if (user) {
     log(`auth: ${user} signed out`);
     audit.record({ user, ip: clientIp(req), action: 'logout' });
   }
   res.setHeader('Set-Cookie', sessionCookie(req, '', 0));
-  return { ok: true };
+  // Ends the provider session too, so "sign out" doesn't sign straight back in.
+  const redirect = s?.via === 'sso' && oidc ? await oidc.logoutUrl(s.idToken).catch(() => null) : null;
+  return { ok: true, redirect };
+}
+
+// ---------------------------------------------------------------------------
+// Single sign-on (OpenID Connect)
+// ---------------------------------------------------------------------------
+
+function oidcCookie(req, value, maxAge) {
+  // Lax: it must come back on the provider's cross-site redirect to the callback.
+  return `${OIDC_COOKIE}=${value}; Path=/auth/oidc; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`;
+}
+
+const toLogin = (res, error, extra = {}) => send(res, 302, '', 'text/plain', { Location: `/login?error=${error}`, ...extra });
+
+async function ssoStart(req, res) {
+  if (!oidc) return toLogin(res, 'sso_off');
+  const ip = clientIp(req);
+  if (throttle.blocked(`ip:${ip}`)) return toLogin(res, 'sso_locked');
+  try {
+    const { url, cookie } = await oidc.begin();
+    send(res, 302, '', 'text/plain', { Location: url, 'Set-Cookie': oidcCookie(req, cookie, 600) });
+  } catch (err) {
+    log(`sso: can't start sign-in: ${err.message}`);
+    toLogin(res, 'sso_unavailable');
+  }
+}
+
+async function ssoCallback(req, res) {
+  const ip = clientIp(req);
+  const clear = { 'Set-Cookie': oidcCookie(req, '', 0) };
+  if (!oidc) return toLogin(res, 'sso_off', clear);
+  if (throttle.blocked(`ip:${ip}`)) return toLogin(res, 'sso_locked', clear);
+  const q = new URL(req.url, 'http://x').searchParams;
+  let result;
+  try {
+    result = await oidc.finish({ code: q.get('code'), state: q.get('state'), error: q.get('error'), cookie: cookies(req)[OIDC_COOKIE] });
+  } catch (err) {
+    throttle.fail(`ip:${ip}`);
+    log(`sso: sign-in failed from ${ip}: ${err.message}`);
+    audit.record({ user: '?', ip, action: 'login', ok: false, target: config.oidc.name, error: err.message.slice(0, 200) });
+    return toLogin(res, err.code === 'state' ? 'sso_state' : 'sso_failed', clear);
+  }
+  const { claims, idToken, groups } = result;
+  const label = claims.preferred_username || claims.email || claims.sub;
+  const role = roleFor(groups, config.oidc.groups);
+  if (!role) {
+    log(`sso: ${label} has none of the rconsole groups (has: ${groups.join(', ') || 'none'})`);
+    audit.record({ user: String(label), ip, action: 'login', ok: false, target: config.oidc.name, error: 'not in an rconsole group' });
+    return toLogin(res, 'sso_denied', clear);
+  }
+  const name = users.upsertSso({ iss: claims.iss, sub: claims.sub, username: claims.preferred_username, name: claims.name, email: claims.email, role });
+  throttle.reset(`ip:${ip}`);
+  const token = sessions.create(name, { via: 'sso', idToken, maxAge: config.oidc.sessionHours * 3600 * 1000 });
+  log(`auth: ${name} signed in with ${config.oidc.name} from ${ip} as ${role}`);
+  audit.record({ user: name, ip, action: 'login', target: `${config.oidc.name} · ${role}` });
+  // A page, not a redirect: the browser treats a redirect chain that began
+  // at the provider as cross-site and would hold back the SameSite=Strict
+  // session cookie on the way to /.
+  const page = '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Signing in…</title><p><a href="/">Continue to rconsole</a></p>';
+  send(res, 200, page, 'text/html; charset=utf-8', { 'Set-Cookie': [sessionCookie(req, token, Math.round(config.oidc.sessionHours * 3600)), oidcCookie(req, '', 0)] });
 }
 
 // ---------------------------------------------------------------------------
@@ -475,7 +560,20 @@ route('GET', /^\/api\/audit$/, async (req) => {
   return audit.query({ user: q.get('user') || '', action: q.get('action') || '', q: q.get('q') || '', failed: q.has('failed'), limit: Math.min(Number(q.get('limit')) || 200, 1000) });
 });
 
-route('GET', /^\/api\/me$/, (req) => ({ user: req.user, role: req.role }));
+route('GET', /^\/api\/me$/, (req) => {
+  const s = sessions.get(cookies(req)[COOKIE]);
+  const u = users.get(req.user);
+  return {
+    user: req.user,
+    role: req.role,
+    via: s?.via || 'password',
+    name: u?.sso?.name || null,
+    auth: {
+      sso: oidc ? { name: config.oidc.name, issuer: config.oidc.issuer, groups: config.oidc.groups, sessionHours: config.oidc.sessionHours } : null,
+      local: config.localLogin,
+    },
+  };
+});
 route('POST', /^\/api\/logout$/, logout, false);
 
 route('POST', /^\/api\/command$/, async (req) => {
@@ -854,6 +952,9 @@ const server = http.createServer(async (req, res) => {
 
   if (isRead && PUBLIC_FILES[pathname]) return send(res, 200, ...PUBLIC_FILES[pathname]);
   if (req.method === 'POST' && pathname === '/api/login') return handle(req, res, login);
+  if (req.method === 'GET' && pathname === '/api/auth-config') return send(res, 200, { sso: oidc ? { name: config.oidc.name } : null, local: config.localLogin });
+  if (req.method === 'GET' && pathname === '/auth/oidc/start') return ssoStart(req, res);
+  if (req.method === 'GET' && pathname === '/auth/oidc/callback') return ssoCallback(req, res);
   if (req.method === 'GET' && pathname === '/healthz') return send(res, 200, { ok: true });
   if (req.method === 'GET' && pathname === '/metrics') return serveMetrics(req, res);
   if (pathname.startsWith('/map/')) return proxyMap(req, res, pathname);
@@ -916,7 +1017,7 @@ scheduler.load().then(() => {
     log(`rconsole listening on http://${config.webHost}:${config.webPort}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
     if (config.trustProxy.length) log(`trusting X-Forwarded-* from ${config.trustProxy.join(', ')}`);
-    if (!users.count) log('WARNING: no users yet. Create one with: node cli.js user add <name>');
+    if (!users.count && !oidc) log('WARNING: no users yet. Create one with: node cli.js user add <name>');
     if (process.env.WEB_PASSWORD) log('NOTE: WEB_USER/WEB_PASSWORD are no longer used; manage users with cli.js');
   });
 });

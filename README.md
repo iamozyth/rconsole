@@ -58,6 +58,7 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 - Whitelist, operators, bans and IP bans with one click.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers.
+- **Single sign-on** with authentik, Keycloak, Auth0 or any OpenID Connect provider; roles from its groups, local accounts as a fallback.
 - **Player history** from your logs: sessions, playtime, last IP, daily activity.
 - **Player profiles**: position, health, food, level and game mode, equipment, hotbar and inventory live (or as last saved when offline); statistics (play time, deaths, kills, distance, most mined and used) and advancements from the world files; teleport, game mode, heal, kick and clear inventory in one place.
 - **Config editor** for plugin and mod configs: syntax checks, a diff before saving, one-click revert.
@@ -260,11 +261,49 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user r
 | `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
 | `MC_SERVICE`    | `minecraft.service`      | systemd unit rconsole starts, stops and restarts     |
 | `NTFY_URL` / `NTFY_TOKEN` | (none) | ntfy topic and token; otherwise set them in the UI (Server → Overview) |
-| `PUBLIC_URL`    | (none)                   | rconsole's own URL for notification links (otherwise set in the UI) |
+| `PUBLIC_URL`    | (none)                   | rconsole's own URL, e.g. `https://rconsole.example.com`: notification links and the single sign-on redirect |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | (none) | [Single sign-on](#single-sign-on-authentik) with an OpenID Connect provider; the secret can also come from `OIDC_CLIENT_SECRET_FILE` |
+| `OIDC_NAME`     | `SSO`                    | Button label: "Continue with authentik"              |
+| `OIDC_ADMIN_GROUPS` / `OIDC_MODERATOR_GROUPS` / `OIDC_VIEWER_GROUPS` | `rconsole-admins` / `rconsole-moderators` / `rconsole-viewers` | Provider groups (comma-separated) that map to each role |
+| `OIDC_GROUPS_CLAIM` | `groups`             | ID token or userinfo claim that lists the groups     |
+| `OIDC_SCOPES`   | `openid profile email`   | Scopes to ask for                                    |
+| `OIDC_SESSION_HOURS` | `12`                | SSO sessions end after this long; losing access at the provider takes effect by then |
+| `LOCAL_LOGIN`   | `on`                     | `off` hides the username/password form (SSO only)    |
 | `METRICS_TOKEN` | (none)                   | Enables `/metrics` for Prometheus with this bearer token |
 | `MAP_URL`       | (none)                   | squaremap/BlueMap web server, e.g. `http://127.0.0.1:8100` |
 | `SELF_UPDATE_CHECK` | `1`                  | `0` turns off the background check for rconsole updates |
 | `MODRINTH_API`  | `https://api.modrinth.com/v2` | Modrinth API for the plugin manager             |
+
+## Single sign-on (authentik)
+
+rconsole can hand sign-in to an OpenID Connect provider: [authentik](https://goauthentik.io), Keycloak, Auth0, Pocket ID, Zitadel and others. The login page then shows **Continue with authentik**, your provider handles passwords, passkeys and MFA, and rconsole's role (admin, moderator or viewer) comes from the person's groups on every sign-in. Local accounts keep working as a fallback for when the provider is down, unless you set `LOCAL_LOGIN=off`.
+
+**In authentik** (Admin interface):
+
+1. **Applications → Providers → Create → OAuth2/OpenID Provider**
+   - Client type **Confidential**; note the Client ID and Client Secret.
+   - Redirect URIs: **Strict**, `https://rconsole.example.com/auth/oidc/callback` (your `PUBLIC_URL` + `/auth/oidc/callback`).
+   - **Signing Key**: pick a certificate (the built-in self-signed one is fine). Without one, authentik signs tokens with the client secret (HS256), which rconsole refuses.
+   - Scopes: the defaults (`openid`, `email`, `profile`). authentik's `profile` scope already includes `groups`.
+2. **Applications → Applications → Create**: name `rconsole`, slug `rconsole`, provider from step 1. Optionally bind a policy so only the groups below see the application.
+3. **Directory → Groups**: create `rconsole-admins`, `rconsole-moderators` and `rconsole-viewers`, and add people.
+
+**In `/etc/rconsole.env`**, then `sudo systemctl restart rconsole`:
+
+```sh
+PUBLIC_URL=https://rconsole.example.com
+OIDC_ISSUER=https://auth.example.com/application/o/rconsole/
+OIDC_CLIENT_ID=…
+OIDC_CLIENT_SECRET=…
+OIDC_NAME=authentik
+```
+
+`journalctl -u rconsole` shows `sso: authentik via …` when it's on, or which setting is missing. Insights → Audit shows the active settings and every SSO sign-in.
+
+- **Groups decide**: someone in none of the three groups is refused (and no account is created). Moving someone to another group changes their role at their next sign-in and ends their sessions with the old role. SSO sessions end after `OIDC_SESSION_HOURS` (12), so removing someone at the provider takes effect within that time at most.
+- **Accounts**: the first sign-in creates an rconsole account named after the provider username (`node cli.js user list` shows them as SSO). It is tied to the provider's user ID, has no password, and never takes over a local account of the same name; that one gets a `-2` suffix instead.
+- **Sign out** also ends the provider session, so the next visit asks the provider again.
+- **Other providers**: Keycloak needs a *Group Membership* mapper named `groups` (full group path off). Auth0 has no groups claim by default: add a post-login Action such as `api.idToken.setCustomClaim('https://rconsole/groups', event.authorization.roles)` and set `OIDC_GROUPS_CLAIM=https://rconsole/groups`; also add `PUBLIC_URL/login` to Allowed Logout URLs.
 
 ## Traefik
 
@@ -475,8 +514,9 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 ## Security model
 
 - **Accounts** live in `/var/lib/rconsole/users.json` with scrypt password hashes. They're managed with `cli.js` on the server only; there is no web signup.
+- **Single sign-on** (optional): OpenID Connect authorization code flow with PKCE, a single-use `state` bound to the browser by a short-lived cookie, and a `nonce`. ID tokens are verified locally against the provider's published keys (RS256, PS256 or ES256 only; unsigned and HMAC tokens are refused) along with issuer, audience and expiry. The provider must use HTTPS. Roles come from groups at every sign-in; SSO accounts have no password and are matched by the provider's subject ID, never by name.
 - **Roles**: `admin` (everything; accounts from before roles existed are admins), `moderator` (sees everything an admin sees except the audit log and notification and offsite settings; runs only moderation commands: say, tell, kick, ban and pardon, whitelist add and remove, tp, gamemode, spectate and common mute or warn plugin commands) and `viewer` (read-only: console, charts, settings, no player addresses). The server enforces the role on every request; the interface hides what a role can't do. `node cli.js user add <name> --role moderator`, `node cli.js user role <name> viewer`; changing a role signs that user out.
-- **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days, and are revoked when the password changes or the user is removed. Sessions are kept in memory, so restarting rconsole signs everyone out.
+- **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days (SSO sessions after `OIDC_SESSION_HOURS`), and are revoked when the password or role changes or the user is removed. Sessions are kept in memory, so restarting rconsole signs everyone out.
 - **2FA**: optional TOTP per user, with replay protection.
 - **Brute force**: 5 failed logins per client IP or per username within 15 minutes lock that IP or name for 15 minutes.
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.

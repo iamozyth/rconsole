@@ -107,3 +107,55 @@ form.addEventListener('submit', async (e) => {
 });
 
 setBusy('');
+
+// Single sign-on: shown first when configured; the password form becomes the
+// fallback behind "or use a local account", or disappears when switched off.
+const SSO_ERRORS = {
+  sso_denied: (n) => `Your ${n} account doesn't have access to rconsole. Ask an admin to add you to one of its groups.`,
+  sso_state: () => 'That sign-in expired or was started in another browser. Try again.',
+  sso_failed: (n) => `Signing in with ${n} didn't work. Try again; if it keeps failing, the rconsole log says why.`,
+  sso_unavailable: (n) => `Can't reach ${n} right now. Try again in a moment.`,
+  sso_locked: () => 'Too many failed sign-ins from this address. Try again in 15 minutes.',
+  sso_off: () => 'Single sign-on isn\'t set up on this server.',
+};
+
+function showLocal(open) {
+  $('step-password').hidden = !open;
+  submit.hidden = !open;
+  $('local-toggle').hidden = open;
+  $('local-toggle').setAttribute('aria-expanded', String(open));
+  if (open) f.username.focus();
+}
+
+(async () => {
+  const error = new URLSearchParams(location.search).get('error');
+  if (error) history.replaceState(null, '', '/login');
+  let cfg = { sso: null, local: true };
+  try {
+    cfg = await (await fetch('/api/auth-config')).json();
+  } catch {}
+  const name = cfg.sso?.name || 'SSO';
+  if (cfg.sso) {
+    $('sso').hidden = false;
+    $('sso-text').textContent = `Continue with ${name}`;
+    form.dataset.sso = 'on';
+    submit.classList.remove('btn-primary'); // one primary action on the page
+    $('foot-text').textContent = cfg.local ? `Access is managed in ${name}. Local accounts live on the server (cli.js).` : `Access is managed in ${name}.`;
+    showLocal(false);
+    $('local-toggle').hidden = !cfg.local;
+    $('sso-btn').addEventListener('click', () => {
+      $('sso-btn').dataset.state = 'busy';
+      $('sso-text').textContent = `Opening ${name}…`;
+    });
+    $('local-toggle').addEventListener('click', () => showLocal(true));
+  }
+  if (error) showError((SSO_ERRORS[error] || SSO_ERRORS.sso_failed)(name));
+})();
+
+// Back from the provider with the browser's back button: the button is live again.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && $('sso-btn').dataset.state) {
+    delete $('sso-btn').dataset.state;
+    $('sso-text').textContent = $('sso-text').textContent.replace(/^Opening (.*)…$/, 'Continue with $1');
+  }
+});

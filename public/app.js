@@ -3500,17 +3500,46 @@ moreSheet.addEventListener('close', () => $('nav-more').setAttribute('aria-expan
 moreSheet.addEventListener('click', (e) => { if (e.target === moreSheet) moreSheet.close(); });
 
 async function signOut() {
-  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
-  location.replace('/login');
+  const r = await fetch('/api/logout', { method: 'POST' }).then((x) => x.json()).catch(() => ({}));
+  location.replace(r.redirect || '/login'); // SSO: end the provider session too
 }
 $('logout').addEventListener('click', signOut);
 $('logout-m').addEventListener('click', signOut);
-api('GET', '/api/me').then(({ user, role }) => {
+api('GET', '/api/me').then(({ user, role, via, name, auth }) => {
   applyRole(role);
+  const sso = via === 'sso' ? auth?.sso?.name || 'SSO' : null;
   $('me-role').textContent = role && role !== 'admin' ? role : '';
   $('me').textContent = user;
-  $('me-initial').textContent = (user || '?').slice(0, 1).toUpperCase();
+  $('me').title = sso ? `${name || user}, signed in with ${sso}` : 'Local account';
+  $('me-via').toggleAttribute('hidden', !sso); // SVG elements have no .hidden property
+  if (sso) {
+    $('me-via').setAttribute('aria-label', `Signed in with ${sso}`);
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'title'); // a tooltip inside SVG
+    t.textContent = `Signed in with ${sso}`;
+    $('me-via').prepend(t);
+  }
+  $('me-initial').textContent = (name || user || '?').slice(0, 1).toUpperCase();
+  renderSignin(auth);
 }).catch(() => {});
+
+// Insights → Audit: how people sign in (read-only; set in /etc/rconsole.env).
+function renderSignin(auth) {
+  if (!auth) return;
+  const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
+  const sso = auth.sso;
+  $('signin-note').textContent = sso
+    ? `Single sign-on with ${sso.name}; roles come from its groups on every sign-in.${auth.local ? ' Local accounts still work as a fallback.' : ''}`
+    : 'Local accounts only. Single sign-on (authentik, Keycloak, Auth0…) is set up with OIDC_* settings; see the README.';
+  $('signin-facts').replaceChildren(...(sso ? [
+    row('Provider', el('span', { class: 'mono' }, sso.issuer)),
+    row('Admins', sso.groups.admin.join(', ') || '–'),
+    row('Moderators', sso.groups.moderator.join(', ') || '–'),
+    row('Viewers', sso.groups.viewer.join(', ') || '–'),
+    row('SSO sessions end after', `${sso.sessionHours} h`),
+    row('Local accounts', auth.local ? 'Allowed (fallback)' : 'Off'),
+  ] : [row('Local accounts', 'Allowed')]));
+  $('signin-panel').hidden = false;
+}
 
 connectLogs();
 refreshStatus();

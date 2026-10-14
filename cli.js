@@ -71,11 +71,17 @@ const commands = {
     const all = users.load();
     const names = Object.keys(all);
     if (!names.length) return console.log('No users. Create one with: user add <name>');
-    for (const n of names) console.log(`${n.padEnd(20)} ${users.roleOf(n).padEnd(10)} 2FA: ${all[n].totp ? 'on ' : 'off'}  created ${all[n].created}`);
+    for (const n of names) {
+      const u = all[n];
+      const how = u.sso ? `SSO ${u.sso.email || u.sso.name || u.sso.sub}`.slice(0, 40) : `local, 2FA ${u.totp ? 'on' : 'off'}`;
+      console.log(`${n.padEnd(20)} ${users.roleOf(n).padEnd(10)} ${how.padEnd(42)} ${u.sso ? `last sign-in ${u.lastLogin || '–'}` : `created ${u.created}`}`);
+    }
+    if (names.some((n) => all[n].sso)) console.log('\nSSO accounts get their role from the provider\'s groups at each sign-in; removing one only lasts until their next sign-in.');
   },
   async totp(name) {
     name = need(name);
     if (!users.get(name)) throw new Error(`No such user: ${name}`);
+    if (users.get(name).sso) throw new Error(`${name} signs in through single sign-on; set up 2FA at the provider`);
     const secret = newTotpSecret();
     console.log('\nAdd this to your authenticator app (1Password, Aegis, Google Authenticator, …):\n');
     console.log(`  Secret: ${secret.match(/.{1,4}/g).join(' ')}`);
@@ -91,6 +97,7 @@ const commands = {
     if (!role) return console.log(`${name} is ${users.roleOf(name)}. Change with: user role ${name} <${ROLES.join('|')}>`);
     users.setRole(name, role);
     console.log(`${name} is now ${role}. Their sessions were signed out.`);
+    if (users.get(name)?.sso) console.log('Note: this is an SSO account; its next sign-in sets the role from the provider\'s groups again.');
   },
   async 'totp-off'(name) {
     users.setTotp(need(name), null);
