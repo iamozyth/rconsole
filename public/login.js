@@ -119,12 +119,12 @@ const SSO_ERRORS = {
   sso_off: () => 'Single sign-on isn\'t set up on this server.',
 };
 
-function showLocal(open) {
-  $('step-password').hidden = !open;
-  submit.hidden = !open;
-  $('local-toggle').hidden = open;
-  $('local-toggle').setAttribute('aria-expanded', String(open));
-  if (open) f.username.focus();
+// The password form stays visible below the SSO button: password managers
+// (1Password, Bitwarden…) only fill fields that are on screen at load.
+function showLocal(on) {
+  $('step-password').hidden = !on;
+  submit.hidden = !on;
+  $('local-or').hidden = !on;
 }
 
 (async () => {
@@ -141,13 +141,11 @@ function showLocal(open) {
     form.dataset.sso = 'on';
     submit.classList.remove('btn-primary'); // one primary action on the page
     $('foot-text').textContent = cfg.local ? `Access is managed in ${name}. Local accounts live on the server (cli.js).` : `Access is managed in ${name}.`;
-    showLocal(false);
-    $('local-toggle').hidden = !cfg.local;
+    showLocal(cfg.local);
     $('sso-btn').addEventListener('click', () => {
       $('sso-btn').dataset.state = 'busy';
       $('sso-text').textContent = `Opening ${name}…`;
     });
-    $('local-toggle').addEventListener('click', () => showLocal(true));
   }
   if (error) showError((SSO_ERRORS[error] || SSO_ERRORS.sso_failed)(name));
 })();
