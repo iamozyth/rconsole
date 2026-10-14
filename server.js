@@ -40,6 +40,7 @@ const crypto = require('crypto');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast } = require('./lib/auth');
 const { Oidc, roleFor } = require('./lib/oidc');
 const { SsoSettings } = require('./lib/sso');
+const properties = require('./lib/properties');
 
 if (!config.rconPassword) {
   console.error('Missing required environment variable RCON_PASSWORD');
@@ -612,6 +613,30 @@ route('GET', /^\/api\/logs\/search$/, async (req) => searchLogs(config.mcDir, Ob
 route('GET', /^\/api\/audit$/, async (req) => {
   const q = new URL(req.url, 'http://x').searchParams;
   return audit.query({ user: q.get('user') || '', action: q.get('action') || '', q: q.get('q') || '', failed: q.has('failed'), limit: Math.min(Number(q.get('limit')) || 200, 1000) });
+});
+
+// Server → Overview: the facts about this server in one place.
+route('GET', /^\/api\/server\/summary$/, async () => {
+  let p = {};
+  try {
+    p = properties.toObject(properties.parse(fs.readFileSync(path.join(config.mcDir, 'server.properties'), 'utf8')));
+  } catch {}
+  const st = await power.state().catch(() => ({}));
+  const game = (await stats.get().catch(() => null))?.game; // cached: no extra RCON
+  return {
+    players: game?.players ? { online: game.players.online, max: game.players.max } : null,
+    platform: (({ name, mcVersion, build, loaderVersion, addons }) => ({ name, mcVersion, build, loaderVersion, addons: addons?.kind || null }))(platform()),
+    state: { active: st.active || null, since: st.since || null, available: Boolean(st.available) },
+    process: await power.processStats().catch(() => null),
+    world: p['level-name'] || 'world',
+    port: Number(p['server-port']) || 25565,
+    motd: p.motd || '',
+    maxPlayers: Number(p['max-players']) || null,
+    whitelist: p['white-list'] === 'true',
+    onlineMode: p['online-mode'] !== 'false',
+    difficulty: p.difficulty || null,
+    gamemode: p.gamemode || null,
+  };
 });
 
 // Settings → Sign-in: the accounts (read-only; managed with cli.js or the provider).

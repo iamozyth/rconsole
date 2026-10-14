@@ -69,13 +69,17 @@
   <div class="wordmark"><svg class="mark" aria-hidden="true"><use href="#pg-mark"/></svg><span>rconsole</span></div>
   <nav class="nav" role="tablist" aria-label="Areas">
     <button role="tab" data-tab="console" aria-selected="true" aria-controls="tab-console"><span class="tile"><svg><use href="#pg-console"/></svg></span><span class="label">Console</span></button>
+    <span class="nav-group" role="presentation">Community</span>
     <button role="tab" data-tab="players" aria-selected="false" aria-controls="tab-players"><span class="tile"><svg><use href="#pg-players"/></svg></span><span class="label">Players</span></button>
+    <button role="tab" data-phone="more" data-tab="map" aria-selected="false" aria-controls="tab-map"><span class="tile"><svg><use href="#pg-map"/></svg></span><span class="label">Map</span></button>
+    <span class="nav-group" role="presentation">Manage</span>
     <button role="tab" data-tab="worlds" aria-selected="false" aria-controls="tab-worlds"><span class="tile"><svg><use href="#pg-worlds"/></svg></span><span class="label">Worlds</span></button>
     <button role="tab" data-tab="server" aria-selected="false" aria-controls="tab-server"><span class="tile"><svg><use href="#pg-server"/></svg></span><span class="label">Server</span></button>
-    <button role="tab" data-tab="schedule" aria-selected="false" aria-controls="tab-schedule"><span class="tile"><svg><use href="#pg-schedule"/></svg></span><span class="label">Schedule</span></button>
-    <button role="tab" data-tab="insights" aria-selected="false" aria-controls="tab-insights"><span class="tile"><svg><use href="#pg-insights"/></svg></span><span class="label">Insights</span></button>
-    <button role="tab" data-tab="map" aria-selected="false" aria-controls="tab-map"><span class="tile"><svg><use href="#pg-map"/></svg></span><span class="label">Map</span></button>
-    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings"><span class="tile"><svg><use href="#pg-settings"/></svg></span><span class="label">Settings</span></button>
+    <button role="tab" data-phone="more" data-tab="schedule" aria-selected="false" aria-controls="tab-schedule"><span class="tile"><svg><use href="#pg-schedule"/></svg></span><span class="label">Schedule</span></button>
+    <span class="nav-group" role="presentation">Monitor</span>
+    <button role="tab" data-phone="more" data-tab="insights" aria-selected="false" aria-controls="tab-insights"><span class="tile"><svg><use href="#pg-insights"/></svg></span><span class="label">Insights</span></button>
+    <span class="nav-sep" role="presentation"></span>
+    <button role="tab" data-phone="more" data-tab="settings" aria-selected="false" aria-controls="tab-settings"><span class="tile"><svg><use href="#pg-settings"/></svg></span><span class="label">Settings</span></button>
     <button class="nav-more mobile-only" id="nav-more" aria-haspopup="true" aria-expanded="false"><span class="tile"><svg><use href="#pg-more"/></svg></span><span class="label">More</span></button>
   </nav>
   <button class="palette-btn" id="palette-open" aria-keyshortcuts="Control+K Meta+K"><svg><use href="#pg-search"/></svg><span>Search &amp; run</span><kbd id="palette-key">Ctrl K</kbd></button>
@@ -167,7 +171,7 @@
           </div>
         </section>
         <section class="panel" data-min-role="admin">
-          <header class="panel-head"><h2>Restart</h2></header>
+          <header class="panel-head"><h2>Restart with countdown</h2></header>
           <div class="panel-body stack">
             <div class="row">
               <select class="field" id="restart-delay" aria-label="Restart delay">
@@ -178,7 +182,7 @@
               </select>
               <button class="btn btn-primary" id="restart-start"><svg><use href="#pg-restart"/></svg>Restart</button>
             </div>
-            <p class="note">Players get countdown warnings in chat. The server comes back on its own.</p>
+            <p class="note">Players get countdown warnings in chat; the server comes back on its own. Start, stop and maintenance are under <a href="#server/overview">Server</a>.</p>
           </div>
         </section>
       </div>
@@ -408,6 +412,13 @@
       </div>
 
       <div class="view" data-view="overview">
+        <section class="panel srv-summary">
+          <header class="panel-head">
+            <div class="head-text"><h2 id="srv-title">This server</h2><p class="note" id="srv-note"></p></div>
+            <a class="btn" href="#server/properties" data-min-role="admin"><svg><use href="#pg-settings"/></svg>Edit properties</a>
+          </header>
+          <dl class="set-facts" id="srv-facts"></dl>
+        </section>
         <div class="grid-2">
           <section class="panel">
             <header class="panel-head"><h2>Power</h2></header>

@@ -151,14 +151,16 @@ const emptyItem = (...content) => el('li', { class: 'empty-state' }, ...content)
 // Areas
 // ---------------------------------------------------------------------------
 
+// In sidebar order: Console; Community (players, map); Manage (worlds,
+// server, schedule); Monitor (insights); then rconsole's own settings.
 const AREAS = {
   console: { name: 'Console', icon: 'console' },
   players: { name: 'Players', icon: 'players' },
+  map: { name: 'Map', icon: 'map' },
   worlds: { name: 'Worlds', icon: 'worlds' },
   server: { name: 'Server', icon: 'server' },
   schedule: { name: 'Schedule', icon: 'schedule' },
   insights: { name: 'Insights', icon: 'insights' },
-  map: { name: 'Map', icon: 'map' },
   settings: { name: 'Settings', icon: 'settings' },
 };
 // Roles: what the signed-in account may do. The server enforces it; the UI
@@ -179,8 +181,8 @@ function applyRole(role) {
   if (!atLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
 }
 
-// On phones the tab bar shows the first four; the rest live under "More".
-const PHONE_TABS = 4;
+// On phones the tab bar shows these four; the rest live under "More".
+const PHONE_TABS = ['console', 'players', 'worlds', 'server'];
 // Old bookmarks keep working.
 const ALIASES = {
   backups: 'worlds',
@@ -220,7 +222,7 @@ function showTab(route) {
     b.tabIndex = on ? 0 : -1;
   }
   for (const s of document.querySelectorAll('.area')) s.hidden = s.id !== `tab-${name}`;
-  $('nav-more').classList.toggle('on', Object.keys(AREAS).indexOf(name) >= PHONE_TABS);
+  $('nav-more').classList.toggle('on', !PHONE_TABS.includes(name));
   $('main').scrollTop = 0;
   tabLoaders[name]?.();
   showView(name, view);
@@ -796,6 +798,35 @@ function tickCountdown() {
   $('restart-verb').textContent = countdownVerb === 'stopping' ? 'Server stops in' : 'Server restarts in';
   $('restart-cancel').textContent = countdownVerb === 'stopping' ? 'Cancel stop' : 'Cancel restart';
 }
+
+// --- Server → Overview: what this server is, at a glance ---
+async function loadServerSummary() {
+  const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
+  const sub = (v) => el('span', { class: 'sub' }, v);
+  try {
+    const s = await api('GET', '/api/server/summary');
+    const pf = s.platform || {};
+    const players = s.players || lastStatus?.game?.players;
+    const running = s.state.available ? s.state.active === 'active' : Boolean(lastStatus?.rcon?.ok);
+    $('srv-title').textContent = `${pf.name || 'Minecraft'}${pf.mcVersion ? ` ${pf.mcVersion}` : ''}`;
+    $('srv-note').textContent = running
+      ? `Running${s.state.since ? ` since ${fmt.date(s.state.since)} (${fmt.relative(s.state.since)})` : ''}.`
+      : 'Stopped.';
+    $('srv-facts').replaceChildren(
+      row('Software', [pf.name || '–', pf.build ? sub(` build ${pf.build}`) : null, pf.loaderVersion ? sub(` · loader ${pf.loaderVersion}`) : null]),
+      row('World', el('a', { href: '#worlds' }, s.world)),
+      row('Port', el('span', { class: 'mono' }, String(s.port))),
+      row('Players', players ? `${players.online} of ${players.max} online` : s.maxPlayers ? `up to ${s.maxPlayers}` : '–'),
+      row('Access', [s.whitelist ? 'Whitelist on' : 'Anyone can join', sub(s.onlineMode ? ' · online mode' : ' · offline mode')]),
+      row('Gameplay', [s.difficulty ? s.difficulty[0].toUpperCase() + s.difficulty.slice(1) : '–', s.gamemode ? sub(` · ${s.gamemode}`) : null]),
+      row('Memory', s.process?.rss ? fmt.bytes(s.process.rss) : sub('–')),
+      row(pf.addons === 'mod' ? 'Mods' : 'Plugins', pf.addons ? el('a', { href: '#server/plugins' }, 'Manage') : sub('None')),
+      row('Message of the day', s.motd ? s.motd.replace(/§./g, '') : sub('–')));
+  } catch (e) {
+    $('srv-note').textContent = e.message;
+  }
+}
+viewLoaders['server/overview'] = loadServerSummary;
 
 // --- running operation (world switch, restore, power) ---
 let opWasRunning = false;
@@ -3189,7 +3220,7 @@ async function loadSecurity({ quiet = false } = {}) {
         `Anyone who finds the server can join.${pub.length ? ` ${pub.length} unknown internet address${pub.length === 1 ? '' : 'es'} already tried.` : ''}`,
         el('button', { class: 'btn btn-primary btn-sm', onclick: async (e) => { await busy(e.currentTarget, () => mutate('whitelist on')); loadSecurity({ quiet: true }); } }, 'Turn on whitelist')));
     } else {
-      advice.push(adviceItem('ok', 'Whitelist is on', `Unknown visitors are turned away at sign-in.${prop('enforce-whitelist') === 'true' ? '' : ' Tip: also turn on “Kick players removed from the whitelist” in Settings.'}`));
+      advice.push(adviceItem('ok', 'Whitelist is on', `Unknown visitors are turned away at sign-in.${prop('enforce-whitelist') === 'true' ? '' : ' Tip: also turn on “Kick players removed from the whitelist” under Server → Properties.'}`));
     }
     if (pub.length) {
       advice.push(adviceItem('warn', 'Your server is reachable from the internet',
@@ -3493,7 +3524,7 @@ $('map-install').addEventListener('click', () => {
 const moreSheet = $('more-sheet');
 $('nav-more').addEventListener('click', () => {
   const current = document.body.dataset.area;
-  $('more-list').replaceChildren(...Object.entries(AREAS).slice(PHONE_TABS).map(([key, a]) =>
+  $('more-list').replaceChildren(...Object.entries(AREAS).filter(([key]) => !PHONE_TABS.includes(key)).map(([key, a]) =>
     el('button', { class: `more-item${key === current ? ' on' : ''}`, 'data-tab': key, onclick: () => { moreSheet.close(); showTab(key); } },
       el('span', { class: 'tile' }, icon(a.icon)), a.name)),
     el('button', { class: 'more-item', onclick: () => { moreSheet.close(); openPalette(); } }, el('span', { class: 'tile' }, icon('search')), 'Search & run'),
