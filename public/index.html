@@ -685,8 +685,48 @@
           <dl class="set-facts" id="acct-facts"></dl>
         </section>
         <section class="panel" data-min-role="admin">
-          <header class="panel-head"><div class="head-text"><h2>Sign-in</h2><p class="note" id="signin-note"></p></div></header>
-          <dl class="set-facts" id="signin-facts"></dl>
+          <header class="panel-head">
+            <div class="head-text"><h2>Single sign-on</h2><p class="note" id="sso-note">Let people sign in with authentik, Keycloak, Auth0 or another OpenID Connect provider. Their groups there decide their role here.</p></div>
+            <span class="pill" id="sso-state"></span>
+          </header>
+          <form class="panel-body sso-form" id="sso-form" autocomplete="off" novalidate>
+            <label class="switch wide"><input type="checkbox" role="switch" name="enabled"><span>Use single sign-on</span></label>
+            <div class="sso-fields" id="sso-fields">
+              <ol class="sso-steps wide">
+                <li>In authentik: <b>Applications → Providers → Create → OAuth2/OpenID Provider</b>, client type <b>Confidential</b>, a <b>Signing Key</b> selected, and this redirect URI (Strict):</li>
+              </ol>
+              <div class="fld wide">
+                <span>Redirect URI</span>
+                <div class="row"><input class="field mono" id="sso-redirect" readonly aria-label="Redirect URI"><button type="button" class="btn" id="sso-copy"><svg><use href="#pg-copy"/></svg>Copy</button></div>
+              </div>
+              <div class="fld wide" id="sso-url-row" hidden>
+                <span>rconsole URL</span>
+                <div class="row"><input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200"><button type="button" class="btn" id="sso-here">Use this address</button></div>
+                <p class="note">The address people open rconsole at. The provider sends them back here.</p>
+              </div>
+              <ol class="sso-steps wide" start="2">
+                <li>Create an <b>Application</b> with that provider, then the groups below, and paste the provider's details here:</li>
+              </ol>
+              <label class="fld wide"><span>Issuer URL</span><input class="field mono" name="issuer" type="url" placeholder="https://auth.example.com/application/o/rconsole/" maxlength="300" spellcheck="false"></label>
+              <label class="fld"><span>Client ID</span><input class="field mono" name="clientId" maxlength="200" spellcheck="false" autocapitalize="none"></label>
+              <label class="fld"><span>Client secret</span><input class="field mono" name="clientSecret" type="password" maxlength="500" autocomplete="new-password"></label>
+              <label class="fld"><span>Button label</span><input class="field" name="name" maxlength="40" placeholder="authentik"></label>
+              <label class="fld"><span>Sessions end after (hours)</span><input class="field num" name="sessionHours" type="number" min="1" max="168"></label>
+              <fieldset class="fld wide"><legend>Groups at the provider for each role (comma-separated)</legend>
+                <div class="sso-groups">
+                  <label class="fld"><span>Admins</span><input class="field" name="admin" maxlength="300" spellcheck="false"></label>
+                  <label class="fld"><span>Moderators</span><input class="field" name="moderator" maxlength="300" spellcheck="false"></label>
+                  <label class="fld"><span>Viewers</span><input class="field" name="viewer" maxlength="300" spellcheck="false"></label>
+                </div>
+                <p class="note">Someone in none of these groups is turned away. A changed group applies at their next sign-in.</p>
+              </fieldset>
+              <div class="fld wide">
+                <label class="switch"><input type="checkbox" role="switch" name="localLogin"><span>Also allow local accounts (username and password)</span></label>
+                <p class="note" id="sso-local-note">Keep this on as a way in when the provider is down. You can turn it off after you've signed in with single sign-on once.</p>
+              </div>
+            </div>
+            <div class="form-actions"><p class="note" id="sso-msg"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save and test</button></div>
+          </form>
         </section>
         <section class="panel" data-min-role="admin">
           <header class="panel-head"><div class="head-text"><h2>Accounts</h2><p class="note" id="users-note">Local accounts are managed on the server with <code>node cli.js user …</code>; single sign-on accounts appear after their first sign-in.</p></div><span class="count" id="n-users"></span></header>

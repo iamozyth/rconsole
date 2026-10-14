@@ -39,6 +39,7 @@ const prom = require('./lib/prom');
 const crypto = require('crypto');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast } = require('./lib/auth');
 const { Oidc, roleFor } = require('./lib/oidc');
+const { SsoSettings } = require('./lib/sso');
 
 if (!config.rconPassword) {
   console.error('Missing required environment variable RCON_PASSWORD');
@@ -107,25 +108,32 @@ const COOKIE = 'rconsole_session';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
 const OIDC_COOKIE = 'rconsole_oidc';
 
-// Single sign-on, when OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and
-// PUBLIC_URL are all set.
-const oidc = (() => {
-  const o = config.oidc;
-  if (!o.issuer && !o.clientId) return null;
-  const missing = [['OIDC_ISSUER', o.issuer], ['OIDC_CLIENT_ID', o.clientId], ['OIDC_CLIENT_SECRET', o.clientSecret], ['PUBLIC_URL', config.publicUrl]].filter(([, v]) => !v).map(([k]) => k);
-  if (missing.length) {
-    log(`sso: off, missing ${missing.join(', ')}`);
-    return null;
-  }
+// Single sign-on: set in Settings → Account (STATE_DIR/sso.json) or with
+// OIDC_* in /etc/rconsole.env. Rebuilt whenever the settings or the
+// rconsole URL change, without a restart.
+const ssoSettings = new SsoSettings({ stateDir: config.stateDir, envConfig: config });
+let sso = ssoSettings.get();
+let oidc = null;
+let ssoError = null;
+
+function buildOidc(s) {
+  if (!s.enabled) return { client: null, error: null };
+  const missing = [['issuer', s.issuer], ['client ID', s.clientId], ['client secret', s.clientSecret], ['rconsole URL', notify.publicUrl]].filter(([, v]) => !v).map(([k]) => k);
+  if (missing.length) return { client: null, error: `missing ${missing.join(', ')}` };
   try {
-    const client = new Oidc({ ...o, redirectUri: `${config.publicUrl}/auth/oidc/callback`, postLogoutUri: `${config.publicUrl}/login` });
-    log(`sso: ${o.name} via ${o.issuer}`);
-    return client;
+    return { client: new Oidc({ ...s, redirectUri: `${notify.publicUrl}/auth/oidc/callback`, postLogoutUri: `${notify.publicUrl}/login` }), error: null };
   } catch (err) {
-    log(`sso: off, ${err.message}`);
-    return null;
+    return { client: null, error: err.message };
   }
-})();
+}
+
+function applySso() {
+  sso = ssoSettings.get();
+  ({ client: oidc, error: ssoError } = buildOidc(sso));
+  if (oidc) log(`sso: ${sso.name} via ${sso.issuer}${sso.localLogin ? '' : ' (local accounts off)'}`);
+  else if (ssoError) log(`sso: off, ${ssoError}`);
+}
+applySso();
 
 // ---------------------------------------------------------------------------
 // Static files (loaded once, served from memory)
@@ -292,7 +300,7 @@ async function login(req, res) {
   const ip = clientIp(req);
   const keys = [`ip:${ip}`, `user:${name}`];
 
-  if (!config.localLogin) throw httpError(403, `Sign in with ${config.oidc.name}`);
+  if (!sso.localLogin) throw httpError(403, `Sign in with ${sso.name}`);
   if (!Object.values(users.load()).some((u) => u.hash)) throw httpError(503, 'No users configured yet. On the server run: node cli.js user add <name>');
 
   const wait = throttle.blocked(...keys);
@@ -396,28 +404,28 @@ async function ssoCallback(req, res) {
     // A stale or foreign attempt (back button, two tabs) isn't guessing anything: no lockout for it.
     if (err.code !== 'state') throttle.fail(`ip:${ip}`);
     log(`sso: sign-in failed from ${ip}: ${JSON.stringify(err.message)}`);
-    audit.record({ user: '?', ip, action: 'login', ok: false, target: config.oidc.name, error: err.message.slice(0, 200) });
+    audit.record({ user: '?', ip, action: 'login', ok: false, target: sso.name, error: err.message.slice(0, 200) });
     return toLogin(res, err.code === 'state' ? 'sso_state' : 'sso_failed', clear);
   }
   const { claims, idToken, groups } = result;
   const label = claims.preferred_username || claims.email || claims.sub;
-  const role = roleFor(groups, config.oidc.groups);
+  const role = roleFor(groups, sso.groups);
   if (!role) {
     log(`sso: ${JSON.stringify(String(label))} has none of the rconsole groups (has: ${JSON.stringify(groups)})`); // provider values, quoted: no forged log lines
-    audit.record({ user: String(label), ip, action: 'login', ok: false, target: config.oidc.name, error: 'not in an rconsole group' });
+    audit.record({ user: String(label), ip, action: 'login', ok: false, target: sso.name, error: 'not in an rconsole group' });
     return toLogin(res, 'sso_denied', clear);
   }
   const name = users.upsertSso({ iss: claims.iss, sub: claims.sub, username: claims.preferred_username, name: claims.name, email: claims.email, role });
   throttle.reset(`ip:${ip}`);
   sessions.destroy(cookies(req)[COOKIE]); // whoever was signed in on this browser before is signed out
-  const token = sessions.create(name, { via: 'sso', idToken, maxAge: config.oidc.sessionHours * 3600 * 1000 });
-  log(`auth: ${name} signed in with ${config.oidc.name} from ${ip} as ${role}`);
-  audit.record({ user: name, ip, action: 'login', target: `${config.oidc.name} · ${role}` });
+  const token = sessions.create(name, { via: 'sso', idToken, maxAge: sso.sessionHours * 3600 * 1000 });
+  log(`auth: ${name} signed in with ${sso.name} from ${ip} as ${role}`);
+  audit.record({ user: name, ip, action: 'login', target: `${sso.name} · ${role}` });
   // A page, not a redirect: the browser treats a redirect chain that began
   // at the provider as cross-site and would hold back the SameSite=Strict
   // session cookie on the way to /.
   const page = '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Signing in…</title><p><a href="/">Continue to rconsole</a></p>';
-  send(res, 200, page, 'text/html; charset=utf-8', { 'Set-Cookie': [sessionCookie(req, token, Math.round(config.oidc.sessionHours * 3600)), oidcCookie(req, '', 0)] });
+  send(res, 200, page, 'text/html; charset=utf-8', { 'Set-Cookie': [sessionCookie(req, token, Math.round(sso.sessionHours * 3600)), oidcCookie(req, '', 0)] });
 }
 
 // ---------------------------------------------------------------------------
@@ -449,6 +457,7 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/restart$/, () => ['countdown cancel', '']],
   ['POST', /^\/api\/notify$/, (p, b) => ['notifications', Object.entries(b.events || {}).map(([k, v]) => `${k}=${v ? 'on' : 'off'}`).join(', ') || (b.url !== undefined ? 'topic' : '')]],
   ['POST', /^\/api\/notify\/test$/, () => ['notifications test', '']],
+  ['PUT', /^\/api\/sso$/, (p, b) => ['sso settings', b.enabled === false ? 'off' : `${b.name || 'on'}${b.localLogin === false ? ', local accounts off' : ''}`]],
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
   ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
   ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
@@ -480,6 +489,7 @@ const ROLE_RULES = [
   ['GET', /^\/api\/offsite/, 'admin'],
   ['GET', /^\/api\/users$/, 'admin'], // who has access, and how
   ['GET', /^\/api\/about$/, 'admin'], // paths and settings of this install
+  ['GET', /^\/api\/sso$/, 'admin'],
   ['GET', /^\/api\/backups\/[^/]+$/, 'admin'], // downloads whole worlds
 ];
 const requiredRole = (method, pathname) => ROLE_RULES.find(([m, re]) => m === method && re.test(pathname))?.[2] || (method === 'GET' || method === 'HEAD' ? 'viewer' : 'admin');
@@ -508,7 +518,47 @@ function auditRequest(req, pathname, status, error) {
 }
 
 route('GET', /^\/api\/notify$/, () => notify.view());
-route('POST', /^\/api\/notify$/, async (req) => notify.update(await readJson(req)));
+route('POST', /^\/api\/notify$/, async (req) => {
+  const r = notify.update(await readJson(req));
+  applySso(); // the rconsole URL is also the sign-in redirect
+  return r;
+});
+
+// Settings → Account → Single sign-on.
+function ssoView(req) {
+  return {
+    ...ssoSettings.view(),
+    active: Boolean(oidc),
+    error: ssoError,
+    publicUrl: notify.publicUrl || null,
+    publicUrlFromEnv: Boolean(config.publicUrl),
+    redirectUri: notify.publicUrl ? `${notify.publicUrl}/auth/oidc/callback` : null,
+    youUseSso: sessions.get(cookies(req)[COOKIE])?.via === 'sso',
+  };
+}
+route('GET', /^\/api\/sso$/, (req) => ssoView(req));
+route('PUT', /^\/api\/sso$/, async (req) => {
+  const body = await readJson(req);
+  if (body.publicUrl !== undefined && !config.publicUrl) notify.update({ publicUrl: body.publicUrl });
+  const next = ssoSettings.next(body);
+  const eff = ssoSettings.get(next);
+  if (eff.enabled) {
+    const { client, error } = buildOidc(eff);
+    if (error) throw httpError(400, `Can't turn on single sign-on: ${error}`);
+    try {
+      await client.discover(); // reachable, and it is who it says it is
+    } catch (err) {
+      throw httpError(400, `Can't reach the provider: ${err.message}`);
+    }
+  }
+  // Turning local accounts off is only safe once SSO has worked for you.
+  if (!eff.localLogin && !(oidc && sessions.get(cookies(req)[COOKIE])?.via === 'sso')) {
+    throw httpError(400, `Sign in with ${eff.name} once before turning off local accounts, so you know it works.`);
+  }
+  ssoSettings.save(next);
+  applySso();
+  return ssoView(req);
+});
 route('POST', /^\/api\/notify\/test$/, async (req) => {
   if (!notify.config.url && !notify.config.discord.url) throw httpError(409, 'Set an ntfy topic URL or a Discord webhook first');
   try {
@@ -604,8 +654,8 @@ route('GET', /^\/api\/me$/, (req) => {
     via: s?.via || 'password',
     name: u?.sso?.name || null,
     auth: {
-      sso: oidc ? { name: config.oidc.name, issuer: config.oidc.issuer, groups: config.oidc.groups, sessionHours: config.oidc.sessionHours } : null,
-      local: config.localLogin,
+      sso: oidc ? { name: sso.name, issuer: sso.issuer, groups: sso.groups, sessionHours: sso.sessionHours } : null,
+      local: sso.localLogin,
     },
   };
 });
@@ -987,7 +1037,7 @@ const server = http.createServer(async (req, res) => {
 
   if (isRead && PUBLIC_FILES[pathname]) return send(res, 200, ...PUBLIC_FILES[pathname]);
   if (req.method === 'POST' && pathname === '/api/login') return handle(req, res, login);
-  if (req.method === 'GET' && pathname === '/api/auth-config') return send(res, 200, { sso: oidc ? { name: config.oidc.name } : null, local: config.localLogin });
+  if (req.method === 'GET' && pathname === '/api/auth-config') return send(res, 200, { sso: oidc ? { name: sso.name } : null, local: sso.localLogin });
   if (req.method === 'GET' && pathname === '/auth/oidc/start') return ssoStart(req, res);
   if (req.method === 'GET' && pathname === '/auth/oidc/callback') return ssoCallback(req, res);
   if (req.method === 'GET' && pathname === '/healthz') return send(res, 200, { ok: true });
@@ -1053,7 +1103,7 @@ scheduler.load().then(() => {
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
     if (config.trustProxy.length) log(`trusting X-Forwarded-* from ${config.trustProxy.join(', ')}`);
     if (!users.count && !oidc) log('WARNING: no users yet. Create one with: node cli.js user add <name>');
-    if (!config.localLogin && !oidc) log('WARNING: LOCAL_LOGIN=off but single sign-on is not working: nobody can sign in. Fix the OIDC_* settings or set LOCAL_LOGIN=on.');
+    if (!sso.localLogin && !oidc) log('WARNING: LOCAL_LOGIN=off but single sign-on is not working: nobody can sign in. Fix the single sign-on settings or set LOCAL_LOGIN=on.');
     if (process.env.WEB_PASSWORD) log('NOTE: WEB_USER/WEB_PASSWORD are no longer used; manage users with cli.js');
   });
 });

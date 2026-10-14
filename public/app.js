@@ -3526,7 +3526,6 @@ api('GET', '/api/me').then(({ user, role, via, name, auth }) => {
     $('me-via').prepend(t);
   }
   $('me-initial').textContent = (name || user || '?').slice(0, 1).toUpperCase();
-  renderSignin(auth);
 }).catch(() => {});
 
 // Settings → Account: who you are here, and (admins) how everyone signs in.
@@ -3597,28 +3596,106 @@ async function loadAbout() {
   }
 }
 
-viewLoaders['settings/account'] = () => { renderAccount(); loadUsers(); };
+viewLoaders['settings/account'] = () => { renderAccount(); loadSso(); loadUsers(); };
 viewLoaders['settings/backups'] = () => loadOffsite().then(loadAbout);
 viewLoaders['settings/about'] = loadAbout;
 $('acct-signout').addEventListener('click', () => signOut());
 
-// How people sign in (read-only; set in /etc/rconsole.env).
-function renderSignin(auth) {
-  if (!auth) return;
-  const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
-  const sso = auth.sso;
-  $('signin-note').textContent = sso
-    ? `Single sign-on with ${sso.name}; roles come from its groups on every sign-in.${auth.local ? ' Local accounts still work as a fallback.' : ''}`
-    : 'Local accounts only. Single sign-on (authentik, Keycloak, Auth0…) is set up with OIDC_* settings; see the README.';
-  $('signin-facts').replaceChildren(...(sso ? [
-    row('Provider', el('span', { class: 'mono' }, sso.issuer)),
-    row('Admins', sso.groups.admin.join(', ') || '–'),
-    row('Moderators', sso.groups.moderator.join(', ') || '–'),
-    row('Viewers', sso.groups.viewer.join(', ') || '–'),
-    row('SSO sessions end after', `${sso.sessionHours} h`),
-    row('Local accounts', auth.local ? 'Allowed (fallback)' : 'Off'),
-  ] : [row('Local accounts', 'Allowed')]));
+// Settings → Account → Single sign-on: set up, test and switch on, no restart.
+const ssoForm = $('sso-form');
+let ssoDirty = false;
+
+function showSsoFields() {
+  $('sso-fields').hidden = !ssoForm.elements.enabled.checked;
 }
+
+async function loadSso() {
+  if (!atLeast('admin')) return;
+  try {
+    const v = await api('GET', '/api/sso');
+    renderSsoState(v);
+    if (ssoDirty) return;
+    const f = ssoForm.elements;
+    f.enabled.checked = v.enabled;
+    f.issuer.value = v.issuer || '';
+    f.clientId.value = v.clientId || '';
+    f.clientSecret.value = '';
+    f.clientSecret.placeholder = v.hasSecret ? 'Saved; leave empty to keep' : '';
+    f.name.value = v.name === 'SSO' ? '' : v.name;
+    f.sessionHours.value = v.sessionHours;
+    for (const r of ['admin', 'moderator', 'viewer']) f[r].value = v.groups[r].join(', ');
+    f.localLogin.checked = v.localLogin;
+    f.publicUrl.value = v.publicUrl || '';
+    // Set in /etc/rconsole.env: shown, locked.
+    const lock = { issuer: 'issuer', clientId: 'clientId', clientSecret: 'clientSecret', name: 'name', sessionHours: 'sessionHours', admin: 'admin', moderator: 'moderator', viewer: 'viewer', localLogin: 'localLogin' };
+    for (const [field, key] of Object.entries(lock)) {
+      f[field].disabled = Boolean(v.fromEnv[key]);
+      f[field].title = v.fromEnv[key] ? 'Set in /etc/rconsole.env' : '';
+    }
+    f.enabled.disabled = Boolean(v.fromEnv.issuer);
+    showSsoFields();
+  } catch (e) {
+    $('sso-msg').textContent = e.message;
+  }
+}
+
+function renderSsoState(v) {
+  $('sso-state').textContent = v.active ? 'On' : v.enabled ? 'Not working' : 'Off';
+  $('sso-state').className = `pill${v.active ? ' ok' : v.enabled ? ' bad' : ''}`;
+  $('sso-note').textContent = v.active
+    ? `People sign in with ${v.name}; their groups there decide their role here.${v.localLogin ? ' Local accounts still work as a fallback.' : ' Local accounts are off.'}`
+    : v.enabled && v.error
+      ? `Single sign-on is set up but not working: ${v.error}.`
+      : 'Let people sign in with authentik, Keycloak, Auth0 or another OpenID Connect provider. Their groups there decide their role here.';
+  $('sso-redirect').value = v.redirectUri || 'Set the rconsole URL first';
+  $('sso-copy').disabled = !v.redirectUri;
+  $('sso-url-row').hidden = Boolean(v.publicUrlFromEnv); // set on the server: nothing to edit here
+  ssoForm.elements.localLogin.closest('.fld').querySelector('.note').textContent = v.youUseSso
+    ? 'Keep this on as a way in when the provider is down.'
+    : `Keep this on as a way in when the provider is down. It can only be turned off from a session signed in with ${v.name || 'single sign-on'}.`;
+}
+
+ssoForm.addEventListener('input', () => { ssoDirty = true; });
+ssoForm.elements.enabled.addEventListener('change', showSsoFields);
+$('sso-here').addEventListener('click', () => {
+  ssoForm.elements.publicUrl.value = location.origin;
+  ssoDirty = true;
+  $('sso-redirect').value = `${location.origin}/auth/oidc/callback`;
+  $('sso-copy').disabled = false;
+});
+ssoForm.elements.publicUrl.addEventListener('input', (e) => {
+  const u = e.target.value.trim().replace(/\/+$/, '');
+  $('sso-redirect').value = /^https?:\/\/\S+$/.test(u) ? `${u}/auth/oidc/callback` : 'Set the rconsole URL first';
+  $('sso-copy').disabled = !/^https?:\/\/\S+$/.test(u);
+});
+$('sso-copy').addEventListener('click', () => copyText($('sso-redirect').value, 'Redirect URI'));
+ssoForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = ssoForm.elements;
+  const body = { enabled: f.enabled.checked };
+  if (f.enabled.checked) {
+    Object.assign(body, {
+      issuer: f.issuer.value.trim(), clientId: f.clientId.value.trim(), name: f.name.value.trim(), sessionHours: Number(f.sessionHours.value) || 12,
+      groups: { admin: f.admin.value, moderator: f.moderator.value, viewer: f.viewer.value }, localLogin: f.localLogin.checked,
+    });
+    if (f.clientSecret.value) body.clientSecret = f.clientSecret.value;
+    if (!$('sso-url-row').hidden && f.publicUrl.value.trim()) body.publicUrl = f.publicUrl.value.trim();
+    for (const k of Object.keys(body)) if (f[k]?.disabled) delete body[k]; // set on the server
+  }
+  $('sso-msg').textContent = f.enabled.checked ? 'Checking the provider…' : '';
+  await busy(e.submitter || ssoForm.querySelector('.btn-primary'), async () => {
+    try {
+      const v = await api('PUT', '/api/sso', body);
+      ssoDirty = false;
+      $('sso-msg').textContent = '';
+      toast(v.active ? `Single sign-on with ${v.name} is on. Try it in a private window before you sign out.` : 'Single sign-on is off.');
+      await loadSso();
+      api('GET', '/api/me').then((m) => { me = m; renderAccount(); }).catch(() => {});
+    } catch (err) {
+      $('sso-msg').textContent = err.message;
+    }
+  });
+});
 
 connectLogs();
 refreshStatus();

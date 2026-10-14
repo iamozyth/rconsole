@@ -273,9 +273,59 @@ test('sso: incomplete settings leave it off with a clear log line', { timeout: 6
   const srv = await startServer({ OIDC_ISSUER: 'https://auth.example.com/application/o/rconsole/', OIDC_CLIENT_ID: 'rconsole' });
   try {
     assert.deepStrictEqual(await (await fetch(`${srv.base}/api/auth-config`)).json(), { sso: null, local: true });
-    assert.match(srv.log(), /sso: off, missing OIDC_CLIENT_SECRET/);
+    assert.match(srv.log(), /sso: off, missing client secret/);
     assert.strictEqual((await fetch(`${srv.base}/auth/oidc/start`, { redirect: 'manual' })).headers.get('location'), '/login?error=sso_off');
   } finally {
     srv.stop();
+  }
+});
+
+test('sso: set up from Settings without a restart; local accounts only go off after SSO worked', { timeout: 60000 }, async () => {
+  const idp = await fakeIdp();
+  const srv = await startServer({});
+  const json = { 'content-type': 'application/json', origin: srv.base };
+  try {
+    await new Users(srv.state).setPassword('mo', 'password-1234');
+    new Users(srv.state).setRole('mo', 'moderator');
+    const signIn = async (username) => (await fetch(`${srv.base}/api/login`, { method: 'POST', headers: json, body: JSON.stringify({ username, password: 'password-1234' }) }));
+    const admin = (await signIn('masseo')).headers.get('set-cookie').split(';')[0];
+    const put = (cookie, body) => fetch(`${srv.base}/api/sso`, { method: 'PUT', headers: { ...json, cookie }, body: JSON.stringify(body) });
+    assert.deepStrictEqual(await (await fetch(`${srv.base}/api/auth-config`)).json(), { sso: null, local: true });
+
+    // Moderators can't touch it.
+    const mo = (await signIn('mo')).headers.get('set-cookie').split(';')[0];
+    assert.strictEqual((await put(mo, { enabled: true })).status, 403);
+    assert.strictEqual((await fetch(`${srv.base}/api/sso`, { headers: { cookie: mo } })).status, 403);
+
+    // A wrong issuer is refused and nothing is saved.
+    const wrong = await put(admin, { enabled: true, issuer: 'http://127.0.0.1:1/application/o/nope/', clientId: 'rconsole', clientSecret: 'idp-secret' });
+    assert.strictEqual(wrong.status, 400);
+    assert.match((await wrong.json()).error, /Can't reach the provider/);
+    assert.ok(!fs.existsSync(path.join(srv.state, 'sso.json')));
+
+    const ok = await put(admin, { enabled: true, issuer: idp.issuer, clientId: 'rconsole', clientSecret: 'idp-secret', name: 'authentik' });
+    const view = await ok.json();
+    assert.strictEqual(ok.status, 200, JSON.stringify(view));
+    assert.deepStrictEqual([view.active, view.hasSecret, view.clientSecret, view.redirectUri], [true, true, undefined, `${srv.base}/auth/oidc/callback`]);
+    assert.strictEqual(fs.statSync(path.join(srv.state, 'sso.json')).mode & 0o777, 0o600);
+    assert.deepStrictEqual(await (await fetch(`${srv.base}/api/auth-config`)).json(), { sso: { name: 'authentik' }, local: true });
+
+    // Local accounts can't be switched off from a password session...
+    const early = await put(admin, { localLogin: false });
+    assert.strictEqual(early.status, 400);
+    assert.match((await early.json()).error, /Sign in with authentik once/);
+    // ...but can from an SSO session.
+    const { session } = await browserSignIn(srv.base);
+    const off = await put(session, { localLogin: false });
+    assert.strictEqual(off.status, 200);
+    assert.strictEqual((await signIn('masseo')).status, 403);
+
+    // Switching SSO off always brings local accounts back.
+    assert.strictEqual((await put(session, { enabled: false })).status, 200);
+    assert.deepStrictEqual(await (await fetch(`${srv.base}/api/auth-config`)).json(), { sso: null, local: true });
+    assert.strictEqual((await signIn('masseo')).status, 200);
+  } finally {
+    srv.stop();
+    await idp.close();
   }
 });

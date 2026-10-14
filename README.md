@@ -289,7 +289,9 @@ rconsole can hand sign-in to an OpenID Connect provider: [authentik](https://goa
 2. **Applications → Applications → Create**: name `rconsole`, slug `rconsole`, provider from step 1. Optionally bind a policy so only the groups below see the application.
 3. **Directory → Groups**: create `rconsole-admins`, `rconsole-moderators` and `rconsole-viewers`, and add people.
 
-**In `/etc/rconsole.env`**, then `sudo systemctl restart rconsole`:
+**In rconsole**: **Settings → Account → Single sign-on**. Switch on *Use single sign-on*, copy the redirect URI into authentik, paste the issuer URL, client ID and secret, and press **Save and test**: rconsole checks it can reach the provider and switches it on right away, no restart. Try it in a private window before you sign out. Local accounts stay on as a fallback; you can turn them off from a session signed in with single sign-on (so you know it works).
+
+**Or in `/etc/rconsole.env`** (then `sudo systemctl restart rconsole`; values set here show as locked in Settings):
 
 ```sh
 PUBLIC_URL=https://rconsole.example.com
@@ -302,6 +304,7 @@ OIDC_NAME=authentik
 `journalctl -u rconsole` shows `sso: authentik via …` when it's on, or which setting is missing. Settings → Account shows the active settings and every account; Insights → Audit lists every SSO sign-in.
 
 - **Groups decide**: someone in none of the three groups is refused (and no account is created). Moving someone to another group changes their role at their next sign-in and ends their sessions with the old role. SSO sessions end after `OIDC_SESSION_HOURS` (12), so removing someone at the provider takes effect within that time at most.
+- **Where the settings live**: saved from Settings in `/var/lib/rconsole/sso.json` (mode 600); `OIDC_*` and `LOCAL_LOGIN` in `/etc/rconsole.env` win over it.
 - **Accounts**: the first sign-in creates an rconsole account named after the provider username (`node cli.js user list` shows them as SSO). It is tied to the provider's user ID, has no password, and never takes over a local account of the same name; that one gets a `-2` suffix instead.
 - **Sign out** also ends the provider session, so the next visit asks the provider again.
 - **Other providers**: Keycloak needs a *Group Membership* mapper named `groups` (full group path off). Auth0 has no groups claim by default: add a post-login Action such as `api.idToken.setCustomClaim('https://rconsole/groups', event.authorization.roles)` and set `OIDC_GROUPS_CLAIM=https://rconsole/groups`; also add `PUBLIC_URL/login` to Allowed Logout URLs.
