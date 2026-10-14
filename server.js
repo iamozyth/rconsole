@@ -393,8 +393,9 @@ async function ssoCallback(req, res) {
   try {
     result = await oidc.finish({ code: q.get('code'), state: q.get('state'), error: q.get('error'), cookie: cookies(req)[OIDC_COOKIE] });
   } catch (err) {
-    throttle.fail(`ip:${ip}`);
-    log(`sso: sign-in failed from ${ip}: ${err.message}`);
+    // A stale or foreign attempt (back button, two tabs) isn't guessing anything: no lockout for it.
+    if (err.code !== 'state') throttle.fail(`ip:${ip}`);
+    log(`sso: sign-in failed from ${ip}: ${JSON.stringify(err.message)}`);
     audit.record({ user: '?', ip, action: 'login', ok: false, target: config.oidc.name, error: err.message.slice(0, 200) });
     return toLogin(res, err.code === 'state' ? 'sso_state' : 'sso_failed', clear);
   }
@@ -402,12 +403,13 @@ async function ssoCallback(req, res) {
   const label = claims.preferred_username || claims.email || claims.sub;
   const role = roleFor(groups, config.oidc.groups);
   if (!role) {
-    log(`sso: ${label} has none of the rconsole groups (has: ${groups.join(', ') || 'none'})`);
+    log(`sso: ${JSON.stringify(String(label))} has none of the rconsole groups (has: ${JSON.stringify(groups)})`); // provider values, quoted: no forged log lines
     audit.record({ user: String(label), ip, action: 'login', ok: false, target: config.oidc.name, error: 'not in an rconsole group' });
     return toLogin(res, 'sso_denied', clear);
   }
   const name = users.upsertSso({ iss: claims.iss, sub: claims.sub, username: claims.preferred_username, name: claims.name, email: claims.email, role });
   throttle.reset(`ip:${ip}`);
+  sessions.destroy(cookies(req)[COOKIE]); // whoever was signed in on this browser before is signed out
   const token = sessions.create(name, { via: 'sso', idToken, maxAge: config.oidc.sessionHours * 3600 * 1000 });
   log(`auth: ${name} signed in with ${config.oidc.name} from ${ip} as ${role}`);
   audit.record({ user: name, ip, action: 'login', target: `${config.oidc.name} · ${role}` });
@@ -1018,6 +1020,7 @@ scheduler.load().then(() => {
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
     if (config.trustProxy.length) log(`trusting X-Forwarded-* from ${config.trustProxy.join(', ')}`);
     if (!users.count && !oidc) log('WARNING: no users yet. Create one with: node cli.js user add <name>');
+    if (!config.localLogin && !oidc) log('WARNING: LOCAL_LOGIN=off but single sign-on is not working: nobody can sign in. Fix the OIDC_* settings or set LOCAL_LOGIN=on.');
     if (process.env.WEB_PASSWORD) log('NOTE: WEB_USER/WEB_PASSWORD are no longer used; manage users with cli.js');
   });
 });

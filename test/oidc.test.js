@@ -89,6 +89,25 @@ test('oidc: state is single-use and bound to the browser', async () => {
   }
 });
 
+test('oidc: a flood of sign-in starts doesn\'t push out anyone\'s pending sign-in', async () => {
+  const idp = await fakeIdp();
+  try {
+    const client = new Oidc({ issuer: idp.issuer, clientId: 'rconsole', clientSecret: 'idp-secret', redirectUri: 'http://127.0.0.1:1/cb' });
+    const victim = await client.begin();
+    for (let i = 0; i < 500; i++) await client.begin(); // an attacker hammering /auth/oidc/start
+    const back = new URL((await fetch(victim.url, { redirect: 'manual' })).headers.get('location'));
+    const { claims } = await client.finish({ code: back.searchParams.get('code'), state: back.searchParams.get('state'), cookie: victim.cookie });
+    assert.strictEqual(claims.sub, 'u-1');
+    // A cookie signed by another rconsole (or edited) is worthless.
+    const other = new Oidc({ issuer: idp.issuer, clientId: 'rconsole', clientSecret: 'idp-secret', redirectUri: 'http://127.0.0.1:1/cb' });
+    const start = await other.begin();
+    const back2 = new URL((await fetch(start.url, { redirect: 'manual' })).headers.get('location'));
+    await assert.rejects(client.finish({ code: back2.searchParams.get('code'), state: back2.searchParams.get('state'), cookie: start.cookie }), (e) => e.code === 'state');
+  } finally {
+    await idp.close();
+  }
+});
+
 test('oidc: a rotated signing key is fetched once; groups come from userinfo when missing', async () => {
   let clock = Date.now();
   const idp = await fakeIdp();
@@ -219,9 +238,15 @@ test('sso: through rconsole, roles from groups, denied without one, local fallba
     const atIdp = await fetch(start.headers.get('location'), { redirect: 'manual' });
     const forged = await fetch(atIdp.headers.get('location'), { redirect: 'manual' });
     assert.strictEqual(forged.headers.get('location'), '/login?error=sso_state');
+    // Stale or foreign callbacks (back button, two tabs, forgeries) don't lock this address out.
+    for (let i = 0; i < 6; i++) await fetch(atIdp.headers.get('location'), { redirect: 'manual' });
+    const fresh = await browserSignIn(srv.base); // back to admin: this also ends the moderator session above
+    assert.ok(fresh.session, 'SSO still works');
+    const pw = await fetch(`${srv.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json', origin: srv.base }, body: JSON.stringify({ username: 'masseo', password: 'password-1234' }) });
+    assert.strictEqual(pw.status, 200, 'password login still works');
 
     // Signing out of an SSO session also ends the provider session.
-    const out = await (await fetch(`${srv.base}/api/logout`, { method: 'POST', headers: { cookie: again.session, origin: srv.base } })).json();
+    const out = await (await fetch(`${srv.base}/api/logout`, { method: 'POST', headers: { cookie: fresh.session, origin: srv.base } })).json();
     assert.ok(out.redirect.startsWith(`${idp.origin}/end-session?id_token_hint=`));
     assert.match(out.redirect, /post_logout_redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A\d+%2Flogin/);
   } finally {
