@@ -89,6 +89,7 @@ form.addEventListener('submit', async (e) => {
     if (res.ok) {
       setBusy('done');
       form.classList.add('success');
+      remember('local'); // next time this browser opens with the form ready to fill
       return setTimeout(() => location.replace('/'), 350);
     }
     if (data.needCode && step !== 'code') return showStep('code');
@@ -119,17 +120,36 @@ const SSO_ERRORS = {
   sso_off: () => 'Single sign-on isn\'t set up on this server.',
 };
 
-// The password form stays visible below the SSO button: password managers
-// (1Password, Bitwarden…) only fill fields that are on screen at load.
-function showLocal(on) {
-  $('step-password').hidden = !on;
-  submit.hidden = !on;
-  $('local-or').hidden = !on;
+// With SSO on, the password form waits behind "Use a local account". Password
+// managers only fill fields on screen, so a browser that last signed in
+// locally (or /login?local) gets the form open at once; otherwise one click
+// opens it and focuses the username, where 1Password offers to fill.
+const remember = (how) => {
+  try {
+    localStorage.setItem('rconsole.login', how);
+  } catch {}
+};
+const remembered = () => {
+  try {
+    return localStorage.getItem('rconsole.login');
+  } catch {
+    return null;
+  }
+};
+
+function showLocal(open) {
+  $('step-password').hidden = !open;
+  submit.hidden = !open;
+  $('local-or').setAttribute('aria-expanded', String(open));
+  $('local-or').classList.toggle('open', open);
+  $('local-or-text').textContent = open ? 'or use a local account' : 'Use a local account';
 }
 
 (async () => {
-  const error = new URLSearchParams(location.search).get('error');
-  if (error) history.replaceState(null, '', '/login');
+  const params = new URLSearchParams(location.search);
+  const error = params.get('error');
+  const openLocal = params.has('local');
+  if (error || openLocal) history.replaceState(null, '', '/login');
   let cfg = { sso: null, local: true };
   try {
     cfg = await (await fetch('/api/auth-config')).json();
@@ -141,8 +161,20 @@ function showLocal(on) {
     form.dataset.sso = 'on';
     submit.classList.remove('btn-primary'); // one primary action on the page
     $('foot-text').textContent = cfg.local ? `Access is managed in ${name}. Local accounts live on the server (cli.js).` : `Access is managed in ${name}.`;
-    showLocal(cfg.local);
+    if (cfg.local) {
+      $('local-or').hidden = false;
+      showLocal(openLocal || remembered() === 'local');
+      $('local-or').addEventListener('click', () => {
+        if ($('local-or').classList.contains('open')) return;
+        showLocal(true);
+        f.username.focus();
+      });
+    } else {
+      $('step-password').hidden = true;
+      submit.hidden = true;
+    }
     $('sso-btn').addEventListener('click', () => {
+      remember('sso');
       $('sso-btn').dataset.state = 'busy';
       $('sso-text').textContent = `Opening ${name}…`;
     });

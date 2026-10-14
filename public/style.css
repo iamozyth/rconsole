@@ -1324,9 +1324,16 @@ kbd {
 .sso-btn .key { width: 16px; height: 16px; }
 .sso-btn[data-state='busy'] .key { display: none; }
 .login-submit:not(.btn-primary)[data-state='busy'] .spinner { border-color: color-mix(in srgb, var(--text) 25%, transparent); border-top-color: var(--text); }
-/* "or use a local account" between the SSO button and the password form */
-.login-or { display: flex; align-items: center; gap: 12px; width: 100%; color: var(--text-3); font: 500 12.5px var(--font); }
+/* "Use a local account": opens the password form; a plain divider once open */
+.login-or { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; padding: 4px 0; border: 0; background: none; color: var(--text-3); font: 500 12.5px var(--font); cursor: pointer; }
 .login-or::before, .login-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.login-or .chev { order: 1; width: 14px; height: 14px; margin-left: -8px; transition: transform 160ms ease-out; }
+.login-or::after { order: 2; }
+.login-or:hover, .login-or:focus-visible { color: var(--text); outline: none; }
+.login-or:focus-visible span { text-decoration: underline; text-underline-offset: 3px; }
+.login-or.open { cursor: default; }
+.login-or.open:hover { color: var(--text-3); }
+.login-or.open .chev { display: none; }
 .login .foot { text-align: center; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
 .preview-tag { display: inline-block; margin-left: 4px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; white-space: nowrap; }
 

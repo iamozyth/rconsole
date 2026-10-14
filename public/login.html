@@ -26,6 +26,7 @@
   <symbol id="pg-shield" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2 20.5 5v6.4c0 5-3.6 9.2-8.5 10.6-4.9-1.4-8.5-5.6-8.5-10.6V5zm3.9 6.6-5.3 5.3-2.5-2.5-1.6 1.6 4.1 4.1 6.9-6.9z"/></symbol>
   <symbol id="pg-check" viewBox="0 0 24 24"><path d="M9.4 15.6 19.2 5.8l1.8 1.8L9.4 19.2 3 12.8l1.8-1.8z"/></symbol>
   <symbol id="pg-key" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M15.5 2.5a6 6 0 1 1-1.9 11.7l-1.4 1.4H10v2.2H7.8v2.2H5.6L4 21.6H2.5V18l7.3-7.3A6 6 0 0 1 15.5 2.5zm1.6 3.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z"/></symbol>
+  <symbol id="pg-chev" viewBox="0 0 24 24"><path d="M6.7 8.6 12 13.9l5.3-5.3 1.7 1.7-7 7-7-7z"/></symbol>
   <symbol id="pg-alert" viewBox="0 0 24 24"><path d="M12 2.5 22.5 21h-21zm-1.2 6.2v6.1h2.4V8.7zm0 7.6v2.4h2.4v-2.4z" fill-rule="evenodd"/></symbol>
 </svg>
 <main class="login">
@@ -43,7 +44,7 @@
 
       <div class="sso" id="sso" hidden>
         <a class="btn btn-primary login-submit sso-btn" id="sso-btn" href="/auth/oidc/start"><span class="spinner" aria-hidden="true"></span><svg class="key" aria-hidden="true"><use href="#pg-key"/></svg><span id="sso-text">Continue with SSO</span></a>
-        <div class="login-or" id="local-or" hidden><span>or use a local account</span></div>
+        <button class="login-or" type="button" id="local-or" aria-expanded="false" aria-controls="step-password" hidden><span id="local-or-text">Use a local account</span><svg class="chev" aria-hidden="true"><use href="#pg-chev"/></svg></button>
       </div>
 
       <div class="login-step" id="step-password">
