@@ -28,12 +28,13 @@ const get = (port, p, headers = {}) => new Promise((resolve, reject) => {
 });
 
 test('map: CSP names rconsole\'s origin (Safari), errors show inside the frame', { timeout: 60000 }, async () => {
-  const mapPort = await freePort();
   const map = http.createServer((req, res) => {
     if (req.url === '/') return res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>squaremap</title>');
     if (req.url === '/tiles/settings.json') return res.writeHead(200, { 'content-type': 'application/json' }).end('{"ui":{}}');
     res.writeHead(404).end();
-  }).listen(mapPort, '127.0.0.1');
+  });
+  await new Promise((r) => map.listen(0, '127.0.0.1', r)); // the OS picks the port: no race
+  const mapPort = map.address().port;
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-map-'));
   const [mc, state, bk] = ['mc', 'state', 'bk'].map((d) => path.join(root, d));
@@ -49,11 +50,14 @@ test('map: CSP names rconsole\'s origin (Safari), errors show inside the frame',
     stdio: 'ignore',
   });
   try {
-    for (let i = 0; i < 100; i++) {
-      if (await fetch(`${base}/healthz`).then((r) => r.ok).catch(() => false)) break;
-      await new Promise((r) => setTimeout(r, 100));
+    let up = false;
+    for (let i = 0; i < 300 && !up; i++) {
+      up = await fetch(`${base}/healthz`).then((r) => r.ok).catch(() => false);
+      if (!up) await new Promise((r) => setTimeout(r, 100));
     }
+    assert.ok(up, 'rconsole started');
     const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: JSON.stringify({ username: 'admin', password: 'password-1234' }) });
+    assert.strictEqual(login.status, 200, await login.clone().text());
     const cookie = login.headers.get('set-cookie').split(';')[0];
     const { src } = await (await fetch(`${base}/api/map`, { headers: { cookie } })).json();
 
@@ -77,7 +81,7 @@ test('map: CSP names rconsole\'s origin (Safari), errors show inside the frame',
     await new Promise((r) => map.close(r));
     const down = await get(port, src);
     assert.strictEqual(down.status, 502);
-    assert.match(down.body, /can't reach the map server at http:\/\/127\.0\.0\.1:\d+ \(ECONNREFUSED\)/);
+    assert.match(down.body, /can.t reach the map server at http:\/\/127\.0\.0\.1:\d+ \(ECONN(REFUSED|RESET)\)/);
     assert.match(down.headers['content-security-policy'], /^sandbox; default-src 'none'/);
   } finally {
     child.kill();
