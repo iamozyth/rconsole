@@ -965,7 +965,34 @@ async function serveMetrics(req, res) {
 // path instead of the cookie. squaremap uses relative URLs, so the token rides
 // along on every tile and script request.
 // `sandbox` keeps the map in an opaque origin even when opened in its own tab.
-const MAP_CSP = "sandbox allow-scripts allow-popups; default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'none'";
+// rconsole's own origin, spelled out: in a sandboxed (opaque-origin) page
+// Safari matches 'self' against nothing, which blocks the map's own requests
+// and even the framing. Falls back to 'self' if the host header looks odd.
+function selfOrigin(req) {
+  const host = fromTrustedProxy(req) && req.headers['x-forwarded-host'] ? req.headers['x-forwarded-host'] : req.headers.host;
+  if (!/^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:\d{1,5})?$/.test(String(host || ''))) return "'self'";
+  return `'self' ${isHttps(req) ? 'https' : 'http'}://${host}`;
+}
+const mapCsp = (req) => {
+  const me = selfOrigin(req);
+  return `sandbox allow-scripts allow-popups; default-src ${me} 'unsafe-inline' 'unsafe-eval' data: blob:; img-src ${me} data: blob:; connect-src ${me}; frame-ancestors ${me}; base-uri ${me}; form-action 'none'`;
+};
+
+// Errors show inside the Map tab's frame as a short page (a JSON reply with
+// rconsole's frame-ancestors 'none' would only leave a white frame).
+function mapError(req, res, status, message) {
+  const esc = String(message).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const page = `<!doctype html><meta charset="utf-8"><title>Map</title><style>body{margin:0;display:grid;place-items:center;height:100vh;font:14px/1.5 system-ui,sans-serif;background:#111;color:#bbb}p{max-width:34em;padding:0 24px;text-align:center}b{color:#eee}</style><p><b>The map isn't available.</b><br>${esc}</p>`;
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Content-Security-Policy': `sandbox; default-src 'none'; style-src 'unsafe-inline'; frame-ancestors ${selfOrigin(req)}`,
+  });
+  res.end(page);
+}
 const HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'set-cookie', 'content-security-policy', 'x-frame-options', 'strict-transport-security', 'access-control-allow-origin', 'access-control-allow-credentials']);
 const mapTokens = new Map(); // token -> session cookie token
 const MAP_TOKEN_RE = /^\/map\/([A-Za-z0-9_-]{32})(\/.*)$/;
@@ -988,11 +1015,11 @@ function mapSessionUser(token) {
 }
 
 function proxyMap(req, res, pathname) {
-  if (!config.mapUrl) return send(res, 404, { error: 'No map configured (MAP_URL)' });
+  if (!config.mapUrl) return mapError(req, res, 404, 'No map is configured: set MAP_URL in /etc/rconsole.env.');
   const m = pathname.match(MAP_TOKEN_RE);
-  if (!m || !mapSessionUser(m[1])) return send(res, 401, { error: 'Map link expired; reopen the Map tab' });
+  if (!m || !mapSessionUser(m[1])) return mapError(req, res, 401, 'This map link has expired. Reopen the Map tab in rconsole.');
   pathname = `/map${m[2]}`;
-  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Read-only' });
+  if (req.method !== 'GET' && req.method !== 'HEAD') return mapError(req, res, 405, 'The map is read-only.');
   const target = new URL(config.mapUrl);
   const search = new URL(req.url, 'http://x').search;
   const upstream = http.request({
@@ -1010,7 +1037,7 @@ function proxyMap(req, res, pathname) {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       'X-Frame-Options': 'SAMEORIGIN',
-      'Content-Security-Policy': MAP_CSP,
+      'Content-Security-Policy': mapCsp(req),
       // The sandboxed frame has an opaque origin; its fetch()es are CORS.
       'Access-Control-Allow-Origin': '*',
       'Cache-Control': up.headers['cache-control'] || 'private, max-age=60',
@@ -1019,7 +1046,7 @@ function proxyMap(req, res, pathname) {
   });
   upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
   upstream.on('error', (err) => {
-    if (!res.headersSent) send(res, 502, { error: `Map server unreachable at ${config.mapUrl}: ${err.message}` });
+    if (!res.headersSent) mapError(req, res, 502, `rconsole can't reach the map server at ${config.mapUrl} (${err.code || err.message}). Is squaremap running, and does MAP_URL match its port?`);
     else res.destroy();
   });
   upstream.end();
