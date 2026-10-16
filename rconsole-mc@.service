@@ -1,0 +1,64 @@
+# A Minecraft server (or proxy) that rconsole installed and runs:
+# /srv/minecraft-servers/%i, described by its instance.json.
+#
+# ExecStartPre checks instance.json again and writes the java command line
+# from validated fields only; Java then runs as the main process, so systemd
+# stops it with SIGTERM (Minecraft saves and shuts down cleanly) and
+# rconsole reads its memory and CPU from /proc/<MainPID>.
+#
+# No EnvironmentFile: the server and its plugins never see rconsole's secrets.
+[Unit]
+Description=Minecraft server %i (rconsole)
+After=network-online.target rconsole-mc@%i.socket
+Wants=network-online.target
+# The console: rconsole writes commands into this FIFO, the server reads them as stdin.
+Requires=rconsole-mc@%i.socket
+
+[Service]
+User=minecraft
+Group=minecraft
+UMask=0027
+WorkingDirectory=/srv/minecraft-servers/%i
+RuntimeDirectory=rconsole-mc/%i
+RuntimeDirectoryMode=0750
+ExecStartPre=/usr/bin/node /opt/rconsole/bin/mc-launch.js /srv/minecraft-servers %i
+EnvironmentFile=-/run/rconsole-mc/%i/launch.env
+ExecStart=/usr/bin/env ${JAVA} $JAVA_ARGS
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+# Minecraft handles SIGTERM like "stop": it saves the worlds, then exits.
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=3min
+SuccessExitStatus=143
+# rconsole restarts the server by stopping it; crashes come back on their own.
+Restart=on-failure
+RestartSec=10
+# The server comes second to nothing but the host; rconsole and its jobs
+# already run with lower weights.
+LimitNOFILE=65536
+
+# Sandbox: only the instance folder is writable; Java comes from
+# /srv/minecraft-servers/.java, read-only.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/minecraft-servers/%i
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# Not set: MemoryDenyWriteExecute (the JIT compiler needs it).

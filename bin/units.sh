@@ -12,7 +12,7 @@ load_rconsole_env() {
   [ -r "$file" ] || return 0
   while IFS='=' read -r key value; do
     case "$key" in
-      MC_DIR|BACKUP_DIR|MC_USER|MC_GROUP|MC_SERVICE|RCONSOLE_DIR|NODE_BIN)
+      MC_DIR|BACKUP_DIR|SERVERS_DIR|MC_USER|MC_GROUP|MC_SERVICE|RCONSOLE_DIR|NODE_BIN)
         value="${value%\"}"; value="${value#\"}"
         printf -v "$key" '%s' "$value"
         export "${key?}"
@@ -23,19 +23,22 @@ load_rconsole_env() {
 
 # render_unit < template > rendered
 render_unit() {
-  local mc="${MC_DIR:-/srv/minecraft}" bk="${BACKUP_DIR:-/srv/minecraft-backups}"
+  local mc="${MC_DIR:-/srv/minecraft}" bk="${BACKUP_DIR:-/srv/minecraft-backups}" sv="${SERVERS_DIR:-/srv/minecraft-servers}"
   local user="${MC_USER:-minecraft}" group="${MC_GROUP:-minecraft}" svc="${MC_SERVICE:-minecraft.service}" dir="${RCONSOLE_DIR:-/opt/rconsole}"
   local node="${NODE_BIN:-/usr/bin/node}" v
-  for v in "$mc" "$bk" "$user" "$group" "$svc" "$dir" "$node"; do
+  for v in "$mc" "$bk" "$sv" "$user" "$group" "$svc" "$dir" "$node"; do
     [[ "$v" =~ ^[A-Za-z0-9._/@-]+$ ]] || { echo "units: unsafe value: $v" >&2; return 1; }
   done
   sed -e "s#/srv/minecraft-backups#@BK@#g" \
+      -e "s#/srv/minecraft-servers#@SV@#g" \
       -e "s#/srv/minecraft#${mc}#g" \
       -e "s#@BK@#${bk}#g" \
+      -e "s#@SV@#${sv}#g" \
       -e "s#/opt/rconsole#${dir}#g" \
       -e "s#^User=minecraft\$#User=${user}#" \
       -e "s#^Group=minecraft\$#Group=${group}#" \
       -e "s#^SupplementaryGroups=minecraft\$#SupplementaryGroups=${group}#" \
+      -e "s#^SocketUser=minecraft\$#SocketUser=${user}#" \
       -e "s#minecraft\\.service#${svc}#g" \
       -e "s#/usr/bin/node #${node} #g"
 }

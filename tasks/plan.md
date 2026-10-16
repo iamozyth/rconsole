@@ -8,9 +8,9 @@ Abgrenzung zu Crafty Controller 4: Crafty bringt Python, eine Datenbank und eine
 
 ## Architekturentscheidungen
 
-1. **Instanzen statt `MC_DIR`.** Jeder Server ist eine Instanz `SERVERS_DIR/<id>/` (Standard `/srv/minecraft/<id>`) mit einer `instance.json` (Distribution, Minecraft-Version, Build/Loader-Version, Java-Hauptversion, RAM, Port, JVM-Profil). `<id>` ist `[a-z0-9-]{1,32}`. Das Datenmodell ist von Anfang an mehrfähig; ob die Oberfläche gleich mehrere Server zeigt, ist Frage 1 unten.
+1. **Instanzen statt `MC_DIR`.** Jeder Server ist eine Instanz `SERVERS_DIR/<id>/` (Standard `/srv/minecraft-servers/<id>`, neben dem bestehenden `/srv/minecraft`) mit einer `instance.json` (Distribution, Minecraft-Version, Build/Loader-Version, Java-Hauptversion, RAM, Port, JVM-Profil). `<id>` ist `[a-z0-9-]{1,32}`. Das Datenmodell ist von Anfang an mehrfähig; ob die Oberfläche gleich mehrere Server zeigt, ist Frage 1 unten.
 2. **Eine Unit-Vorlage für alle Server: `rconsole-mc@.service`.** Läuft als `minecraft`, mit demselben Sandboxing wie die Job-Units, plus `MemoryMax` aus der Instanz. `ExecStart` ist ein fester Starter (`bin/mc-launch.js %i`), der `instance.json` erneut prüft und `java` mit fest aufgebauten Argumenten startet. rconsole kann also keine beliebige Kommandozeile einschleusen, nur geprüfte Felder (RAM-Zahl, Flag-Profil aus einer Liste).
-3. **Konsole über stdin, nicht nur RCON.** Eine `rconsole-mc@.socket`-Unit mit `ListenFIFO=/run/rconsole-mc/%i.stdin` (Gruppe `rconsole`, schreibbar) wird zum stdin des Servers. Damit funktionieren Befehle auch vor RCON-Start, für Velocity (hat kein RCON) und beim Hängen. Stoppen läuft über SIGTERM, das Minecraft sauber mit Speichern behandelt. RCON bleibt für Antworten (TPS, Spielerliste) und wird bei neuen Instanzen automatisch mit Zufallspasswort eingerichtet, nur auf 127.0.0.1.
+3. **Konsole über stdin, nicht nur RCON.** Eine `rconsole-mc@.socket`-Unit mit `ListenFIFO=/run/rconsole-mc-%i.stdin` (Gruppe `rconsole`, schreibbar) wird zum stdin des Servers. Damit funktionieren Befehle auch vor RCON-Start, für Velocity (hat kein RCON) und beim Hängen. Stoppen läuft über SIGTERM, das Minecraft sauber mit Speichern behandelt. RCON bleibt für Antworten (TPS, Spielerliste) und wird bei neuen Instanzen automatisch mit Zufallspasswort eingerichtet, nur auf 127.0.0.1.
 4. **polkit wird enger statt weiter.** Erlaubt nur `start/stop/restart` auf `rconsole-mc@<id>.service` (Regex) und die bestehenden Job-Units. Autostart nach einem Reboot macht rconsole selbst (Flag in `instance.json`), so braucht es kein `enable` und keine Unit-Datei-Rechte.
 5. **Installation als Helper-Jobs.** Neue Job-Arten in `bin/mc-helper.js`: `server-create` (Ordner, `instance.json`, `server.properties`, `eula.txt`), `server-install` (Distribution laden und prüfen, im `rconsole-net@`), `java-install` (Temurin-JRE der passenden Version nach `SERVERS_DIR/.java/<major>`), `server-delete` (vorher Archiv ins Backup-Verzeichnis). Alles wird im Helper aus der Distribution neu aufgelöst, nie aus Angaben von rconsole übernommen, genau wie heute bei Paper und Modrinth.
 6. **Ein Katalog `lib/distributions.js`** mit je einem Resolver pro Distribution: Versionen, Builds, Download-URL, Prüfsumme, erlaubte Hosts, Java-Version. Ersetzt `lib/paper.js` und erweitert Updates von Paper/Folia auf alle Distributionen.
@@ -44,7 +44,7 @@ Details und Akzeptanzkriterien in `tasks/todo.md`. Jede Phase endet mit grünen 
 ### Checkpoint 1: Katalog und Modell getestet, nichts Bestehendes verändert
 
 ### Phase 2: Lebenszyklus
-- [ ] 5. Unit-Vorlagen `rconsole-mc@.service`/`.socket`, Starter `bin/mc-launch.js`, polkit-Regel
+- [x] 5. Unit-Vorlagen `rconsole-mc@.service`/`.socket`, Starter `bin/mc-launch.js`, polkit-Regel
 - [ ] 6. Helper-Jobs `java-install`, `server-create`, `server-install`, `server-delete`
 - [ ] 7. `Power` arbeitet pro Instanz; Konsole über FIFO; Autostart durch rconsole
 - [ ] 8. API: Instanzen anlegen, installieren, starten, stoppen, löschen (mit Rollen und Audit)

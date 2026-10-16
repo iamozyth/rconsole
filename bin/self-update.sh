@@ -89,7 +89,7 @@ main() {
   load_rconsole_env "${RCONSOLE_ENV:-/etc/rconsole.env}"
   local changed=0 src dest shipped c rendered
   rendered="$(mktemp)"
-  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service 50-rconsole.rules; do
+  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
     [ -f "$dir/$src" ] || continue
     if [ "$src" = 50-rconsole.rules ]; then dest="$polkit_dir/$src"; else dest="$unit_dir/$src"; fi
     render_unit < "$dir/$src" > "$rendered" || continue

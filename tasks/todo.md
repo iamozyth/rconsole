@@ -26,8 +26,8 @@
 - [x] `npm test` grün (bis auf 6 bestehende Restore-Tests, die nur unter macOS-tar scheitern), keine bestehende Funktion verändert
 
 ## 5. Units und Starter
-- [ ] `rconsole-mc@.service`, `rconsole-mc@.socket`, `bin/mc-launch.js`, polkit-Regel, `bin/units.sh`
-- [ ] Starter baut die Java-Kommandozeile nur aus validierten Feldern
+- [x] `rconsole-mc@.service`, `rconsole-mc@.socket`, `bin/mc-launch.js`, polkit-Regel, `bin/units.sh`
+- [x] Starter baut die Java-Kommandozeile nur aus validierten Feldern
 - Abhängig von: 4
 
 ## 6. Helper-Jobs

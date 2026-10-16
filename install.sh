@@ -28,7 +28,7 @@ main() {
   local REPO="${RCONSOLE_REPO_URL:-https://github.com/iamozyth/rconsole.git}"
   local DIR="${RCONSOLE_DIR:-/opt/rconsole}" ENV_FILE="${RCONSOLE_ENV:-/etc/rconsole.env}"
   local UNIT_DIR="${SYSTEMD_DIR:-/etc/systemd/system}" POLKIT_DIR="${POLKIT_DIR:-/etc/polkit-1/rules.d}"
-  local MC_DIR="" MC_SERVICE="" BACKUP_DIR="" MC_USER="" MC_GROUP="" MC_JAR="" WEB_HOST="0.0.0.0" WEB_PORT="8080"
+  local MC_DIR="" MC_SERVICE="" BACKUP_DIR="" SERVERS_DIR="/srv/minecraft-servers" MC_USER="" MC_GROUP="" MC_JAR="" WEB_HOST="0.0.0.0" WEB_PORT="8080"
   local ADMIN="" YES=0 DRY=0 UNINSTALL=0 RESTART_MC=0
   local -a CHANGES=() NOTES=()
 
@@ -76,7 +76,7 @@ main() {
   if [ "$UNINSTALL" = 1 ]; then
     step "Removing rconsole"
     run systemctl disable --now rconsole.service 2>/dev/null || true
-    for f in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service; do run rm -f "$UNIT_DIR/$f"; done
+    for f in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-mc@.service rconsole-mc@.socket; do run rm -f "$UNIT_DIR/$f"; done
     run rm -f "$POLKIT_DIR/50-rconsole.rules"
     run systemctl daemon-reload
     info "Removed the services and the polkit rule. Kept: $DIR, $ENV_FILE, /var/lib/rconsole and your backups."
@@ -206,6 +206,12 @@ main() {
   fi
   run chown "$MC_USER:$MC_GROUP" "$BACKUP_DIR"
   run chmod 2770 "$BACKUP_DIR"
+  # Servers rconsole installs itself: written by the Minecraft user (helper
+  # jobs, the servers), readable for rconsole through the group.
+  if [ ! -d "$SERVERS_DIR" ]; then
+    run install -d -o "$MC_USER" -g "$MC_GROUP" -m 2750 "$SERVERS_DIR"
+    changed "created $SERVERS_DIR"
+  fi
 
   # --- Minecraft service: restart policy, umask ------------------------------
   step "Minecraft service"
@@ -266,6 +272,7 @@ main() {
   setenv WEB_PORT "$WEB_PORT"
   setenv MC_DIR "$MC_DIR"
   setenv BACKUP_DIR "$BACKUP_DIR"
+  setenv SERVERS_DIR "$SERVERS_DIR"
   setenv MC_SERVICE "$MC_SERVICE"
   setenv MC_JAR "$MC_JAR"
   setenv MC_USER "$MC_USER"
@@ -277,9 +284,9 @@ main() {
   # --- services and polkit ---------------------------------------------------------
   step "Services"
   load_rconsole_env "$ENV_FILE"
-  export MC_DIR BACKUP_DIR MC_SERVICE MC_USER MC_GROUP NODE_BIN RCONSOLE_DIR="$DIR"
+  export MC_DIR BACKUP_DIR SERVERS_DIR MC_SERVICE MC_USER MC_GROUP NODE_BIN RCONSOLE_DIR="$DIR"
   local src dest tmp; tmp="$(mktemp)"
-  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service 50-rconsole.rules; do
+  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
     if [ "$src" = 50-rconsole.rules ]; then dest="$POLKIT_DIR/$src"; else dest="$UNIT_DIR/$src"; fi
     render_unit < "$SRC/$src" > "$tmp" || die "could not render $src"
     if [ -f "$dest" ] && cmp -s "$tmp" "$dest"; then continue; fi

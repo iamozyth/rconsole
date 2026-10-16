@@ -1,0 +1,12 @@
+# Console input for rconsole-mc@%i.service: rconsole (group rconsole) writes
+# a command line into the FIFO, the server reads it as stdin. Works before
+# RCON is up, while the server hangs, and for proxies without RCON.
+[Unit]
+Description=Console of Minecraft server %i (rconsole)
+
+[Socket]
+ListenFIFO=/run/rconsole-mc-%i.stdin
+SocketUser=minecraft
+SocketGroup=rconsole
+SocketMode=0620
+RemoveOnStop=true

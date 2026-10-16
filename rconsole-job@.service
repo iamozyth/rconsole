@@ -21,7 +21,7 @@ IOSchedulingClass=idle
 CPUWeight=10
 IOWeight=10
 
-ReadWritePaths=/srv/minecraft /srv/minecraft-backups
+ReadWritePaths=/srv/minecraft /srv/minecraft-backups -/srv/minecraft-servers
 RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
 NoNewPrivileges=true
