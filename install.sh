@@ -4,7 +4,11 @@
 #   curl -fsSL https://raw.githubusercontent.com/iamozyth/rconsole/main/install.sh | sudo bash
 #   sudo ./install.sh [options]          # from a checkout
 #
-# It finds the server (systemd unit, folder, user, jar, server software),
+# With --new (or when no server is found) it sets rconsole up to install
+# and run servers itself: users, folders, units and polkit, and you create
+# the first server in the browser under Server -> Servers.
+#
+# Otherwise it finds the server (systemd unit, folder, user, jar, server software),
 # installs what is missing (Node.js, git, polkit), turns on RCON if needed,
 # sets up users, permissions, the backup folder, the systemd units and the
 # polkit rule, writes /etc/rconsole.env, starts rconsole and creates the
@@ -17,6 +21,7 @@
 #   --host ADDR         address rconsole listens on (default 0.0.0.0)
 #   --port N            port rconsole listens on (default 8080)
 #   --admin NAME        first account (asked for if missing)
+#   --new               no existing server: rconsole installs and runs servers itself
 #   --yes               don't ask; use detected values and defaults
 #   --dry-run           show what would be done, change nothing
 #   --uninstall         stop and remove rconsole (keeps backups and /var/lib/rconsole)
@@ -29,7 +34,7 @@ main() {
   local DIR="${RCONSOLE_DIR:-/opt/rconsole}" ENV_FILE="${RCONSOLE_ENV:-/etc/rconsole.env}"
   local UNIT_DIR="${SYSTEMD_DIR:-/etc/systemd/system}" POLKIT_DIR="${POLKIT_DIR:-/etc/polkit-1/rules.d}"
   local MC_DIR="" MC_SERVICE="" BACKUP_DIR="" SERVERS_DIR="/srv/minecraft-servers" MC_USER="" MC_GROUP="" MC_JAR="" WEB_HOST="0.0.0.0" WEB_PORT="8080"
-  local ADMIN="" YES=0 DRY=0 UNINSTALL=0 RESTART_MC=0
+  local ADMIN="" YES=0 DRY=0 UNINSTALL=0 RESTART_MC=0 NEW=0
   local -a CHANGES=() NOTES=()
 
   # --- output ----------------------------------------------------------------
@@ -61,9 +66,10 @@ main() {
       --port) WEB_PORT="$2"; shift ;;
       --admin) ADMIN="$2"; shift ;;
       --yes|-y) YES=1 ;;
+      --new) NEW=1 ;;
       --dry-run) DRY=1 ;;
       --uninstall) UNINSTALL=1 ;;
-      -h|--help) sed -n '2,24p' "$0" 2>/dev/null || true; exit 0 ;;
+      -h|--help) sed -n '2,30p' "$0" 2>/dev/null || true; exit 0 ;;
       *) die "unknown option $1 (see --help)" ;;
     esac
     shift
@@ -108,11 +114,23 @@ main() {
     MC_SERVICE="${candidates[0]%%|*}"
     [ -n "$MC_DIR" ] || MC_DIR="${candidates[0]#*|}"
   fi
-  if [ -z "$MC_DIR" ]; then
+  if [ -z "$MC_DIR" ] && [ "$NEW" = 0 ]; then
     for d in /srv/minecraft /opt/minecraft /var/lib/minecraft /home/minecraft /home/*/minecraft /home/*/server /srv/*; do
       [ -f "$d/server.properties" ] && { MC_DIR="$d"; break; }
     done
+    if [ -z "$MC_DIR" ] && [ -z "$MC_SERVICE" ]; then
+      info "No Minecraft server found on this machine."
+      if confirm "Set rconsole up to install and run servers itself?" y; then NEW=1
+      else die "stopped. Pass --mc-dir/--service for an existing server."; fi
+    fi
   fi
+  if [ "$NEW" = 1 ]; then
+    MC_USER=minecraft; MC_GROUP=minecraft; MC_DIR=/srv/minecraft; MC_SERVICE=minecraft.service; MC_JAR=paper.jar
+    [ -n "$BACKUP_DIR" ] || BACKUP_DIR=/srv/minecraft-backups
+    info "Servers:       $B$SERVERS_DIR$N (installed by rconsole, run as $MC_USER)"
+    info "Backups:       $BACKUP_DIR"
+    confirm "Set up rconsole?" y || die "stopped."
+  else
   [ -n "$MC_DIR" ] || MC_DIR="$(ask "Minecraft server folder (with server.properties)" "")"
   MC_DIR="${MC_DIR%/}"
   [ -f "$MC_DIR/server.properties" ] || die "no server.properties in '$MC_DIR'. Start the server once, or pass --mc-dir."
@@ -140,6 +158,7 @@ main() {
   info "Software:      ${software:-unknown}"
   info "Backups:       $BACKUP_DIR"
   confirm "Set up rconsole for this server?" y || die "stopped. Pass --mc-dir/--service to pick another server."
+  fi
 
   # --- dependencies ----------------------------------------------------------
   step "Checking dependencies"
@@ -191,6 +210,12 @@ main() {
 
   # --- users and permissions ---------------------------------------------------
   step "Users and permissions"
+  if [ "$NEW" = 1 ]; then
+    if id "$MC_USER" >/dev/null 2>&1; then info "user $MC_USER exists"
+    else run useradd --system --home-dir "$SERVERS_DIR" --no-create-home --shell /usr/sbin/nologin "$MC_USER"; changed "created system user $MC_USER (runs the servers)"; fi
+    # The job units expect MC_DIR to exist; with --new it stays empty.
+    [ -d "$MC_DIR" ] || { run install -d -o "$MC_USER" -g "$MC_GROUP" -m 2750 "$MC_DIR"; changed "created $MC_DIR"; }
+  fi
   if id rconsole >/dev/null 2>&1; then info "user rconsole exists"
   else run useradd --system --no-create-home --shell /usr/sbin/nologin rconsole; changed "created system user rconsole"; fi
   # rconsole reads the server folder through the server's group.
@@ -213,6 +238,8 @@ main() {
     changed "created $SERVERS_DIR"
   fi
 
+  local pass="" port=""
+  if [ "$NEW" = 0 ]; then
   # --- Minecraft service: restart policy, umask ------------------------------
   step "Minecraft service"
   local dropin="$UNIT_DIR/$MC_SERVICE.d/50-rconsole.conf" restart umask lines=()
@@ -234,7 +261,7 @@ main() {
 
   # --- RCON --------------------------------------------------------------------
   step "RCON"
-  local props="$MC_DIR/server.properties" enabled pass port
+  local props="$MC_DIR/server.properties" enabled
   prop() { grep -E "^$1=" "$props" | tail -1 | cut -d= -f2- | sed 's/\\//g' || true; }
   enabled="$(prop enable-rcon)"; pass="$(prop 'rcon\.password')"; port="$(prop 'rcon\.port')"
   if [ "$enabled" != true ] || [ -z "$pass" ]; then
@@ -254,6 +281,7 @@ main() {
     RESTART_MC=1
   else info "RCON is on (port ${port:-25575})"; fi
   [ -n "$port" ] || port=25575
+  fi
 
   # --- configuration -------------------------------------------------------------
   step "Configuration ($ENV_FILE)"
@@ -266,8 +294,10 @@ main() {
     install -m 0600 /dev/null "$ENV_FILE"
     printf '# rconsole configuration, written by install.sh. See README "Configuration".\n' > "$ENV_FILE"
   fi
-  setenv RCON_PASSWORD "$pass"
-  setenv RCON_PORT "$port"
+  if [ "$NEW" = 0 ]; then
+    setenv RCON_PASSWORD "$pass"
+    setenv RCON_PORT "$port"
+  fi
   setenv WEB_HOST "$WEB_HOST"
   setenv WEB_PORT "$WEB_PORT"
   setenv MC_DIR "$MC_DIR"
@@ -332,6 +362,7 @@ main() {
   step "Done"
   local ips; ips="$(hostname -I 2>/dev/null | awk '{print $1}')"
   if [ "$WEB_HOST" = 0.0.0.0 ]; then info "Open ${B}http://${ips:-<this-server>}:$WEB_PORT${N}"; else info "Open ${B}http://$WEB_HOST:$WEB_PORT${N}"; fi
+  [ "$NEW" = 0 ] || info "Create your first server under ${B}Server → Servers${N}: pick the software and version, rconsole does the rest."
   info "rconsole speaks plain HTTP: keep it on your LAN/VPN, or put a TLS reverse proxy in front (README: Traefik) and set TRUST_PROXY."
   [ "${#CHANGES[@]}" -gt 0 ] || info "Nothing needed changing."
   for n in "${NOTES[@]+"${NOTES[@]}"}"; do printf '    %s!%s %s\n' "$Y" "$N" "$n"; done
