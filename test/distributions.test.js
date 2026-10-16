@@ -225,3 +225,29 @@ test('maven: a checksum file that is not a hash is refused', async () => {
   serve({ [PROMOS]: { promos: { '26.3-latest': '66.0.12' } }, [`${FORGE}/26.3-66.0.12/forge-26.3-66.0.12-installer.jar.sha256`]: '<html>' });
   await assert.rejects(dist.resolve('forge', '26.3'), /verifiable/);
 });
+
+test('paper: without a build, the newest STABLE build wins over a newer experimental one', async () => {
+  serve({
+    [`${FILL}/paper/versions/26.3/builds`]: [{ id: 180, channel: 'ALPHA' }, { id: 178, channel: 'STABLE' }],
+    [`${FILL}/paper/versions/26.3/builds/178`]: { downloads: { 'server:default': { name: 'p.jar', checksums: { sha256: HASH }, url: 'https://fill-data.papermc.io/p.jar' } } },
+  });
+  assert.strictEqual((await dist.resolve('paper', '26.3')).build, 178);
+});
+
+test('builds must have the type their distribution uses', async () => {
+  const seen = serve({});
+  await assert.rejects(dist.resolve('neoforge', '1.21.1', 262), /Invalid build/);
+  await assert.rejects(dist.resolve('paper', '26.3', '178'), /Invalid build/);
+  await assert.rejects(dist.resolve('vanilla', '26.3', 1), /Invalid build/);
+  assert.deepStrictEqual(seen, []);
+});
+
+test('a file name with path parts from an API is replaced', async () => {
+  serve({ [`${FILL}/paper/versions/26.3/builds/1`]: { downloads: { 'server:default': { name: '../../.ssh/authorized_keys', checksums: { sha256: HASH }, url: 'https://fill-data.papermc.io/p.jar' } } } });
+  assert.strictEqual((await dist.resolve('paper', '26.3', 1)).file, 'paper-26.3.jar');
+});
+
+test('forge: only versions with the args-file launch (1.17 and later) are offered', async () => {
+  serve({ [PROMOS]: { promos: { '1.7.10-latest': '10.13.4.1614', '1.16.5-recommended': '36.2.34', '1.17.1-latest': '37.1.1', '26.3-latest': '66.0.12' } } });
+  assert.deepStrictEqual(await dist.versions('forge'), ['26.3', '1.17.1']);
+});

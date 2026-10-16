@@ -79,3 +79,20 @@ test('read refuses an instance.json that is a link', () => {
   fs.symlinkSync(path.join(dir, 'elsewhere.json'), path.join(dir, 'survival', 'instance.json'));
   assert.throws(() => instances.read(dir, 'survival'));
 });
+
+test('non-string ids, versions and launch paths are refused', () => {
+  assert.throws(() => instances.validate({ ...base, version: 1.20 }), /version/);
+  assert.throws(() => instances.validate({ ...base, launch: { type: 'jar', path: ['server.jar'] } }), /launch/);
+  assert.throws(() => instances.validate({ ...base, id: ['survival'] }), /id/);
+});
+
+test('read refuses an instance folder that is a link; list reports what it skips', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-instances-'));
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-elsewhere-'));
+  fs.writeFileSync(path.join(elsewhere, 'instance.json'), JSON.stringify(base));
+  fs.symlinkSync(elsewhere, path.join(dir, 'survival'));
+  assert.throws(() => instances.read(dir, 'survival'), /folder/);
+  const skipped = [];
+  assert.deepStrictEqual(instances.list(dir, (name) => skipped.push(name)), []);
+  assert.deepStrictEqual(skipped, ['survival']);
+});
