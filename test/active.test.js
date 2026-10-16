@@ -15,7 +15,7 @@ function setup() {
   const add = (id, distribution = 'paper', port = 25565) => {
     fs.mkdirSync(path.join(sv, id), { recursive: true });
     fs.writeFileSync(path.join(sv, id, 'instance.json'), JSON.stringify({ id, distribution, version: '26.3', java: 25, memoryMb: 1024, port, launch: { type: 'jar', path: `${id}.jar` } }));
-    fs.writeFileSync(path.join(sv, id, 'server.properties'), `rcon.port=${port + 10}\nrcon.password=pw-${id}\n`);
+    fs.writeFileSync(path.join(sv, id, 'server.properties'), `enable-rcon=true\nrcon.port=${port + 10}\nrcon.password=pw-${id}\n`);
   };
   return { sv, state, add };
 }

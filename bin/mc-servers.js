@@ -81,7 +81,7 @@ function checkTree(dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) checkTree(p);
-    else if (!e.isFile()) fail(`The Java archive contains a link or special file: ${path.basename(p)}`);
+    else if (!e.isFile() || fs.lstatSync(p).nlink > 1) fail(`The Java archive contains a link or special file: ${path.basename(p)}`);
   }
 }
 
@@ -223,6 +223,30 @@ function pruneJars(dir, keep) {
   }
 }
 
+// Mod loader installers (Fabric, Quilt, Forge, NeoForge) write into the
+// server folder in place: the top-level jars and scripts and libraries/.
+// Those are copied aside before an update, put back if it fails, and are
+// what Roll back restores.
+const SNAPSHOT = '.rconsole-previous';
+const snapshotItems = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+  .filter((e) => (e.isFile() && /\.(jar|sh|bat)$|^user_jvm_args\.txt$/.test(e.name)) || (e.isDirectory() && e.name === 'libraries'))
+  .map((e) => e.name);
+
+async function snapshot(dir) {
+  const snap = path.join(dir, SNAPSHOT);
+  fs.rmSync(snap, { recursive: true, force: true });
+  fs.mkdirSync(snap, { mode: 0o750 });
+  for (const name of snapshotItems(dir)) await run('cp', ['-a', '--', path.join(dir, name), path.join(snap, name)]);
+}
+
+async function restoreSnapshot(dir) {
+  const snap = path.join(dir, SNAPSHOT);
+  if (!fs.existsSync(snap)) fail('Nothing to roll back to');
+  for (const name of snapshotItems(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+  for (const name of fs.readdirSync(snap)) fs.renameSync(path.join(snap, name), path.join(dir, name));
+  fs.rmSync(snap, { recursive: true, force: true });
+}
+
 // Installs another version or build of the same distribution into an
 // existing server (rconsole stops it first), keeping what ran before for
 // rollback. With rollback, swaps back to that.
@@ -234,6 +258,12 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
   if (rollback) {
     const prev = current.previous;
     if (!prev?.launch) fail('Nothing to roll back to');
+    // Installer distributions: the files come back from the snapshot, once.
+    if (prev.snapshot) {
+      await restoreSnapshot(dir);
+      writeInstance(dir, { ...current, ...prev, snapshot: undefined, previous: null });
+      return { id, rolledBack: true, version: prev.version, build: prev.build };
+    }
     if (!fs.existsSync(path.join(dir, prev.launch.path))) fail(`${prev.launch.path} is gone; can't roll back`);
     writeInstance(dir, { ...current, ...prev, previous: was });
     return { id, rolledBack: true, version: prev.version, build: prev.build };
@@ -245,8 +275,11 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
   const body = await download(resolved);
   const dl = path.join(dir, tmpName(`.${resolved.file}`));
   fs.writeFileSync(dl, body, { mode: 0o640, flag: 'wx' });
+  const inPlace = resolved.install === 'installer';
+  let launch;
   try {
-    if (resolved.install === 'installer') {
+    if (inPlace) {
+      await snapshot(dir);
       fs.renameSync(dl, path.join(dir, resolved.file));
       try {
         await run(path.join(javaRoot(), String(major), 'bin', 'java'), ['-jar', resolved.file, ...resolved.installArgs], { cwd: dir, timeoutMs: 14 * 60 * 1000 });
@@ -257,12 +290,15 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
     } else {
       fs.renameSync(dl, path.join(dir, resolved.file));
     }
+    launch = findLaunch(dir, resolved);
+    if (!launch) fail(`The ${resolved.distribution} update finished, but no server to start was found`);
+  } catch (err) {
+    if (inPlace) await restoreSnapshot(dir).catch(() => {});
+    throw err;
   } finally {
     fs.rmSync(dl, { force: true });
   }
-  const launch = findLaunch(dir, resolved);
-  if (!launch) fail(`The ${resolved.distribution} update finished, but no server to start was found`);
-  writeInstance(dir, { ...current, version: resolved.version, build: resolved.build, java: major, launch, previous: was });
+  writeInstance(dir, { ...current, version: resolved.version, build: resolved.build, java: major, launch, previous: { ...was, snapshot: inPlace } });
   pruneJars(dir, new Set([launch.path, was.launch?.path].filter((p) => p && !p.includes('/'))));
   return { id, version: resolved.version, build: resolved.build, java: major, verified: resolved.algo };
 }

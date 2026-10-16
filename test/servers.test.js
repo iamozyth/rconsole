@@ -42,6 +42,9 @@ global.fetch = async (url) => {
     'https://fill-data.papermc.io/paper.jar': JAR,
     [`${FILL}/180`]: { downloads: { 'server:default': { name: 'paper-26.3-180.jar', checksums: { sha256: JAR2_SHA }, url: 'https://fill-data.papermc.io/paper-180.jar' } } },
     'https://fill-data.papermc.io/paper-180.jar': JAR2,
+    'https://meta.fabricmc.net/v2/versions/installer': [{ version: '1.1.2', stable: true, url: 'https://maven.fabricmc.net/fabric-installer-1.1.2.jar' }],
+    'https://maven.fabricmc.net/fabric-installer-1.1.2.jar': JAR,
+    'https://maven.fabricmc.net/fabric-installer-1.1.2.jar.sha256': JAR_SHA,
   };
   const body = routes[String(url)];
   if (body === undefined) return { ok: false, status: 404 };
@@ -99,6 +102,23 @@ test('update: a newer build is installed next to the old one, rollback swaps bac
   await TASKS['server-update']({ id: 'survival', rollback: true });
   i = instances.read(SV, 'survival');
   assert.deepStrictEqual([i.build, i.launch.path, i.previous.build], [178, 'paper-26.3-178.jar', 180]);
+});
+
+test('update: a failed mod loader install puts the old files back', async () => {
+  const dir = path.join(SV, 'modded');
+  fs.mkdirSync(path.join(dir, 'libraries', 'x'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'fabric-server-launch.jar'), 'old launcher');
+  fs.writeFileSync(path.join(dir, 'server.jar'), 'old vanilla');
+  fs.writeFileSync(path.join(dir, 'libraries', 'x', 'lib.jar'), 'old lib');
+  const before = { id: 'modded', distribution: 'fabric', version: '26.3', build: '0.19.4', java: 25, memoryMb: 2048, port: 25570, launch: { type: 'jar', path: 'fabric-server-launch.jar' } };
+  fs.writeFileSync(path.join(dir, 'instance.json'), JSON.stringify(before));
+  // The test "java" is an empty file, so the installer fails to run.
+  await assert.rejects(TASKS['server-update']({ id: 'modded', version: '26.3', build: '0.19.5' }));
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'libraries', 'x', 'lib.jar'), 'utf8'), 'old lib');
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'server.jar'), 'utf8'), 'old vanilla');
+  assert.ok(!fs.existsSync(path.join(dir, '.rconsole-previous')));
+  assert.strictEqual(instances.read(SV, 'modded').build, '0.19.4');
+  await assert.rejects(TASKS['server-update']({ id: 'modded', rollback: true }), /Nothing to roll back/);
 });
 
 test('delete: archives the server into the backup folder, then removes it', async () => {

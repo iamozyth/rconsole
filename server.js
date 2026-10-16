@@ -53,6 +53,10 @@ const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 const activeInstance = active.pick({ serversDir: config.serversDir, stateDir: config.stateDir, log });
 if (activeInstance) Object.assign(config, active.overrides(config.serversDir, activeInstance));
 else config.activeServer = null;
+if (!activeInstance && !config.rconPassword && fs.existsSync(path.join(config.mcDir, 'server.properties'))) {
+  console.error('Missing required environment variable RCON_PASSWORD (for the server in MC_DIR)');
+  process.exit(1);
+}
 if (!config.rconPassword) log(activeInstance ? `WARNING: ${activeInstance.id} has no RCON password in server.properties` : 'No server yet: create one under Servers (RCON_PASSWORD is only needed for a server rconsole did not install)');
 
 const rcon = new Rcon({ host: config.rconHost, port: config.rconPort, password: config.rconPassword });
@@ -69,13 +73,9 @@ const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stat
 const pending = new Pending({ stateDir: config.stateDir, power });
 const platform = platformLib.detector(config.mcDir);
 const activeInstance$ = () => (config.activeServer ? servers.get(config.activeServer) : null);
-const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon, instance: () => {
-  try {
-    return activeInstance$();
-  } catch {
-    return null;
-  }
-} });
+// Errors reading the active server's instance.json surface instead of
+// falling back to the MC_DIR updates, which would install the wrong jar.
+const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon, instance: activeInstance$ });
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform });
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
@@ -94,8 +94,8 @@ serverOps.onFinish = ops.onFinish;
 const servers = new Servers({ serversDir: config.serversDir, jobs, ops: serverOps, log });
 // The first server becomes the active one; rconsole restarts (systemd brings
 // it back) to run every view on it.
-servers.onCreated = (id) => {
-  if (config.activeServer) return;
+servers.onCreated = (id, kind) => {
+  if (config.activeServer || kind !== 'server') return;
   active.setActive(config.stateDir, id);
   log(`servers: ${id} is now the active server; restarting rconsole`);
   setTimeout(() => process.exit(75), 1500);

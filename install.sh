@@ -212,7 +212,7 @@ main() {
   step "Users and permissions"
   if [ "$NEW" = 1 ]; then
     if id "$MC_USER" >/dev/null 2>&1; then info "user $MC_USER exists"
-    else run useradd --system --home-dir "$SERVERS_DIR" --no-create-home --shell /usr/sbin/nologin "$MC_USER"; changed "created system user $MC_USER (runs the servers)"; fi
+    else run useradd --system --user-group --home-dir "$SERVERS_DIR" --no-create-home --shell /usr/sbin/nologin "$MC_USER"; changed "created system user $MC_USER (runs the servers)"; fi
     # The job units expect MC_DIR to exist; with --new it stays empty.
     [ -d "$MC_DIR" ] || { run install -d -o "$MC_USER" -g "$MC_GROUP" -m 2750 "$MC_DIR"; changed "created $MC_DIR"; }
   fi

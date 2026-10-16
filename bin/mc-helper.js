@@ -475,7 +475,7 @@ async function main() {
   try {
     // The active server rconsole works on. Only a valid instance in
     // SERVERS_DIR is accepted; every path check then applies to its folder.
-    if (instance !== null) {
+    if (instance !== null && !Object.hasOwn(servers.TASKS, kind)) {
       const i = instances.read(config.serversDir, instance);
       MC = path.join(config.serversDir, i.id);
       jar = path.join(MC, i.launch?.type === 'jar' ? i.launch.path : 'server.jar');

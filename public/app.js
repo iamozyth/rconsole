@@ -898,6 +898,7 @@ async function deleteServer(s, button) {
 }
 
 let serversActive = null;
+let lastServersOp = null;
 async function loadServers() {
   try {
     const { servers, active, distributions, op, dir } = await api('GET', '/api/servers');
@@ -922,6 +923,7 @@ async function loadServers() {
           ] : null)))
       : [emptyRow(6, el('b', {}, 'No servers yet. '), atLeast('admin') ? 'Press New server to pick the software and version.' : 'An admin can install one.')]));
     renderServersOp(op);
+    lastServersOp = op;
     if (!servers.length && !op?.running && !op?.result && atLeast('admin') && serverForm.hidden) toggleServerForm(true);
   } catch (e) {
     $('server-list').replaceChildren(emptyRow(6, `Can't list servers: ${e.message}`));
@@ -929,22 +931,23 @@ async function loadServers() {
 }
 viewLoaders['server/servers'] = loadServers;
 
-// Polls while an install, start or delete runs; the first server makes
-// rconsole restart onto it, so the page reloads when it is back.
+// Polls while an install, start or delete runs. rconsole restarts when the
+// first server is installed or the shown one is deleted; the page then
+// waits for it and reloads onto the new state.
 function watchServers() {
   clearTimeout(serversTimer);
+  const shown = serversActive;
   serversTimer = setTimeout(async () => {
-    const wasFirst = !serversActive;
     try {
       await loadServers();
     } catch {}
     if (serversOpRunning) return watchServers();
-    if (wasFirst && serversActive === null) {
-      const { active } = await api('GET', '/api/servers').catch(() => ({}));
-      if (!active) {
-        toast('Switching rconsole to the new server…');
-        setTimeout(() => location.reload(), 4000);
-      }
+    const op = lastServersOp;
+    if (!op || op.error) return;
+    const restarts = (!shown && /^Create server /.test(op.label)) || (shown && op.label === `Delete server ${shown}`);
+    if (restarts) {
+      toast('rconsole is switching servers. The page reloads when it is back.');
+      waitForComeback();
     }
   }, 2000);
 }
