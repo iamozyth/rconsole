@@ -64,9 +64,10 @@ async function inspectJre(file) {
   const listing = await run('tar', ['-tvzf', file], { capture: true });
   let top = null;
   for (const line of listing.split('\n').filter(Boolean)) {
-    const m = line.match(/^(\S)\S*\s+\S+\s+\d+\s+\S+\s+\S+\s+(.+?)(?: -> .*)?$/);
+    const m = line.match(/^(\S)\S*\s+\S+\s+\d+\s+\S+\s+\S+\s+(.+)$/);
     if (!m) fail('Unexpected archive listing');
-    const name = m[2].replace(/\/$/, '');
+    // Only links carry " -> target"; a file name containing it is checked whole.
+    const name = (m[1] === 'l' ? m[2].replace(/ -> .*$/, '') : m[2]).replace(/\/$/, '');
     if (name.startsWith('/') || name.split('/').includes('..')) fail('The Java archive contains unsafe paths');
     const [root, second] = name.split('/');
     if (top === null) top = root;
@@ -159,6 +160,8 @@ async function serverCreate(args) {
   serversRoot();
   const wish = instances.validate({ ...args, java: 8, launch: null, build: args.build ?? null });
   if (!args.eula?.by) fail('The Minecraft EULA must be accepted first');
+  const eula = { by: String(args.eula.by).replace(/[^\w.@-]/g, '').slice(0, 64), at: String(args.eula.at || '').replace(/[^\w:.+-]/g, '').slice(0, 40) || new Date().toISOString() };
+  if (!eula.by) fail('The Minecraft EULA must be accepted first');
   const dir = path.join(SV, wish.id);
   if (fs.existsSync(dir)) fail(`A server named ${wish.id} already exists`);
   if (instances.list(SV).some((i) => i.port === wish.port)) fail(`Port ${wish.port} is used by another server`);
@@ -181,11 +184,11 @@ async function serverCreate(args) {
     if (!launch) fail(`The ${resolved.distribution} installer finished, but no server to start was found`);
     if (wish.kind === 'server') {
       writeServerProperties(staging, { port: wish.port, motd: wish.name });
-      fs.writeFileSync(path.join(staging, 'eula.txt'), `# Accepted in rconsole by ${args.eula.by} on ${args.eula.at}: https://aka.ms/MinecraftEULA\neula=true\n`, { mode: 0o640 });
+      fs.writeFileSync(path.join(staging, 'eula.txt'), `# Accepted in rconsole by ${eula.by} on ${eula.at}: https://aka.ms/MinecraftEULA\neula=true\n`, { mode: 0o640 });
     }
     const instance = instances.validate({
       ...wish, build: resolved.build, java: major, launch, created: new Date().toISOString(),
-      eula: { by: String(args.eula.by), at: String(args.eula.at || new Date().toISOString()) },
+      eula,
     });
     fs.writeFileSync(path.join(staging, 'instance.json'), `${JSON.stringify(instance, null, 2)}\n`, { mode: 0o640, flag: 'wx' });
     fs.renameSync(staging, dir);
