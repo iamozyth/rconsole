@@ -16,7 +16,7 @@ Abgrenzung zu Crafty Controller 4: Crafty bringt Python, eine Datenbank und eine
 6. **Ein Katalog `lib/distributions.js`** mit je einem Resolver pro Distribution: Versionen, Builds, Download-URL, Prüfsumme, erlaubte Hosts, Java-Version. Ersetzt `lib/paper.js` und erweitert Updates von Paper/Folia auf alle Distributionen.
 7. **Java ohne apt.** Die Java-Hauptversion kommt aus Mojangs Versions-JSON (`javaVersion.majorVersion`), die JRE von Adoptium (Temurin) mit SHA-256 aus deren API. Kein System-Java nötig, mehrere Versionen nebeneinander.
 8. **EULA wird nicht stillschweigend akzeptiert.** Der Assistent zeigt die Minecraft-EULA mit Link und verlangt ein Häkchen; erst dann schreibt der Helper `eula=true`. Wer akzeptiert hat, steht im Audit-Log.
-9. **Bestehende Server bleiben unterstützt.** Der heutige Modus („externer Server“ mit eigenem `MC_SERVICE`) läuft unverändert weiter. Zusätzlich gibt es **Übernehmen**: rconsole liest Ordner und Jar, legt eine `instance.json` an und startet ihn künftig über `rconsole-mc@`. Der alte Dienst wird nur nach Bestätigung deaktiviert.
+9. **Keine Migration.** Entschieden am 16.10.: Bestehende Server werden nicht übernommen. rconsole setzt einen frischen Server auf, und die Welt kommt aus einem Backup (`.tar.gz` einer Welt) per Import in die neue Instanz.
 
 ## Wie gut sich jede Distribution prüfen lässt
 
@@ -55,7 +55,7 @@ Details und Akzeptanzkriterien in `tasks/todo.md`. Jede Phase endet mit grünen 
 - [ ] 9. Assistent „Neuer Server“: Distribution, Version, RAM, Port, EULA, Fortschritt live
 - [ ] 10. Server-Übersicht mit Start/Stop/Löschen; bestehende Ansichten auf die aktive Instanz
 - [ ] 11. Updates für alle Distributionen über den Katalog (ersetzt `lib/paper.js`)
-- [ ] 12. „Bestehenden Server übernehmen“ und Installer-Modus ohne vorhandenen Server
+- [ ] 12. Welt-Backup in einen neuen Server importieren; Installer-Modus ohne vorhandenen Server
 - [ ] 13. README, Sicherheitsmodell, Release-Notes
 
 ### Checkpoint 3: Code-Review, Security-Review, Ende-zu-Ende auf Debian
@@ -66,11 +66,16 @@ Details und Akzeptanzkriterien in `tasks/todo.md`. Jede Phase endet mit grünen 
 |---|---|---|
 | Forge/NeoForge-Installer führt fremden Code aus | Hoch | Läuft nur im gesandboxten `rconsole-net@` als `minecraft`, nur Installer mit geprüfter Prüfsumme von festen Hosts; derselbe Code läuft später ohnehin als Server |
 | Purpur nur MD5, Vanilla nur SHA-1 | Mittel | Bezug nur über HTTPS von festen Hosts, schwächere Prüfung in der Oberfläche sichtbar |
-| Umbau von `MC_DIR` auf Instanzen bricht bestehende Installationen | Hoch | Externer Modus bleibt Standard für Bestandsinstallationen; die aktive Instanz liefert dieselben Pfade an alle bestehenden Module |
+| Umstellung von `MC_DIR` auf Instanzen | Mittel | Keine Migration nötig (Entscheidung): frische Installation, Welt per Import |
 | FIFO-Konsole und SIGTERM-Stopp verhalten sich je Distribution anders | Mittel | Auf Debian je Distribution einmal Ende-zu-Ende testen, RCON-`stop` als Rückfall |
 | Viel Speicher durch mehrere JREs und Server | Niedrig | Speicheranzeige pro Instanz, ungenutzte JREs aufräumen |
 
+## Entscheidungen
+
+1. Mehrfähig, Oberfläche erst mit einem aktiven Server (16.10.).
+2. Keine Migration bestehender Server; frischer Server plus Welt-Import (16.10.).
+
 ## Offene Fragen
 
-1. Mehrere Server gleichzeitig (wie Crafty) oder vorerst einer pro rconsole? Empfehlung: Datenmodell und Units sofort mehrfähig, Oberfläche erst mit einem aktiven Server, Umschalter in einer späteren Phase.
-2. Soll ich den Velocity-Proxy direkt mit Backend-Servern verbinden (Forwarding-Secret automatisch setzen) oder Velocity zunächst nur als einzelne Instanz anbieten? Empfehlung: zuerst einzeln.
+1. Testhost für den Ende-zu-Ende-Test auf Debian.
+2. Velocity zunächst nur als einzelne Instanz, Forwarding zu Backends später (Vorschlag).
