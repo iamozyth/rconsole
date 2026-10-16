@@ -58,24 +58,31 @@ function serversRoot() {
 
 // --- Java ----------------------------------------------------------------------
 
-// Lists a JRE archive: one top folder, files and folders only; the links
-// Temurin ships under legal/ are left out of the extraction.
+// Names in a JRE archive: one top folder, no absolute or ".." paths. Listed
+// with plain -t so GNU tar (Debian) and bsdtar read it the same way; the
+// file types are checked after extraction (checkTree).
 async function inspectJre(file) {
-  const listing = await run('tar', ['-tvzf', file], { capture: true });
+  const names = (await run('tar', ['-tzf', file], { capture: true })).split('\n').filter(Boolean);
   let top = null;
-  for (const line of listing.split('\n').filter(Boolean)) {
-    const m = line.match(/^(\S)\S*\s+\S+\s+\d+\s+\S+\s+\S+\s+(.+)$/);
-    if (!m) fail('Unexpected archive listing');
-    // Only links carry " -> target"; a file name containing it is checked whole.
-    const name = (m[1] === 'l' ? m[2].replace(/ -> .*$/, '') : m[2]).replace(/\/$/, '');
+  for (const raw of names) {
+    const name = raw.replace(/\/$/, '');
     if (name.startsWith('/') || name.split('/').includes('..')) fail('The Java archive contains unsafe paths');
-    const [root, second] = name.split('/');
+    const root = name.split('/')[0];
     if (top === null) top = root;
     if (root !== top) fail('The Java archive must have one top folder');
-    if (!'-d'.includes(m[1]) && !(m[1] === 'l' && second === 'legal')) fail('The Java archive contains links or special files');
   }
   if (!top) fail('The Java archive is empty');
   return top;
+}
+
+// Only plain files and folders may come out of the archive (the links
+// Temurin ships under legal/ are excluded from extraction).
+function checkTree(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) checkTree(p);
+    else if (!e.isFile()) fail(`The Java archive contains a link or special file: ${path.basename(p)}`);
+  }
 }
 
 async function javaInstall({ major }) {
@@ -93,6 +100,7 @@ async function javaInstall({ major }) {
     const top = await inspectJre(archive);
     fs.mkdirSync(staging, { mode: 0o750 });
     await run('tar', ['-xzf', archive, '-C', staging, '--no-same-owner', '--exclude', `${top}/legal`, '--strip-components=1', '--', top]);
+    checkTree(staging);
     if (!fs.statSync(path.join(staging, 'bin', 'java')).isFile()) fail('The Java archive has no bin/java');
     fs.renameSync(staging, dest);
   } finally {
@@ -237,5 +245,6 @@ module.exports = {
   TASKS: { 'java-install': javaInstall, 'server-create': serverCreate, 'server-delete': serverDelete },
   NETWORK: ['java-install', 'server-create'],
   inspectJre,
+  checkTree,
   findLaunch,
 };

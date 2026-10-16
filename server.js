@@ -93,6 +93,12 @@ servers.onCreated = (id) => {
   log(`servers: ${id} is now the active server; restarting rconsole`);
   setTimeout(() => process.exit(75), 1500);
 };
+// Deleting the active server moves rconsole to the next one (or to none).
+servers.onDeleted = (id) => {
+  if (id !== config.activeServer) return;
+  log(`servers: the active server ${id} was deleted; restarting rconsole`);
+  setTimeout(() => process.exit(75), 1500);
+};
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });

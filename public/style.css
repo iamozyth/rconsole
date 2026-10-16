@@ -782,6 +782,20 @@ kbd {
 
 .world-new { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; border-bottom: 1px solid var(--line); }
 .world-new .form-actions .note { margin-right: auto; }
+.server-new { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; border-bottom: 1px solid var(--line); }
+.server-new .fld.wide { grid-column: 1 / -1; }
+.server-new .form-actions { grid-column: 1 / -1; }
+.server-new .form-actions .note { margin-right: auto; }
+.dist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.dist-card { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.dist-card:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.dist-card:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dist-card input { position: absolute; opacity: 0; pointer-events: none; }
+.dist-card b { font-size: 14px; }
+.dist-card .note { font-size: 12px; }
+.server-new .checks { flex-direction: row; flex-wrap: wrap; gap: 8px 20px; }
+.check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+@media (max-width: 720px) { .server-new { grid-template-columns: 1fr; } }
 .dims { display: flex; gap: 4px; flex-wrap: wrap; }
 .dialog-fields { display: flex; flex-direction: column; gap: 12px; padding: 0 20px 20px 68px; }
 .dialog-fields .fld .field { width: 100%; }

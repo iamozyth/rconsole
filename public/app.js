@@ -828,6 +828,198 @@ async function loadServerSummary() {
 }
 viewLoaders['server/overview'] = loadServerSummary;
 
+// --- Server → Servers: servers rconsole installs and runs itself ---
+const VERIFY_NOTE = { sha256: 'SHA-256 from the publisher', sha1: 'SHA-1 from Mojang', md5: 'MD5 only (all Purpur publishes)', 'sha256-maven': 'SHA-256 from its Maven' };
+const DIST_NOTE = {
+  vanilla: 'Mojang’s own server', paper: 'Fast, plugins', folia: 'Paper on many threads', purpur: 'Paper with more options',
+  fabric: 'Lightweight mods', quilt: 'Fabric-compatible mods', forge: 'Classic mod loader', neoforge: 'Modern Forge mods', velocity: 'Proxy for several servers',
+};
+let serversOpRunning = false;
+let serversTimer;
+let distLoaded = false;
+
+function renderServersOp(op) {
+  const box = $('servers-op');
+  const recent = op && !op.running && op.finishedAt && Date.now() - Date.parse(op.finishedAt) < 60000;
+  box.hidden = !op || (!op.running && !recent);
+  if (!box.hidden) {
+    box.dataset.state = op.running ? 'running' : op.error ? 'failed' : 'done';
+    box.textContent = op.running ? `${op.label}: ${op.step}…` : op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.`;
+  }
+  if (serversOpRunning && op && !op.running) toast(op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.`, op.error ? 'bad' : 'ok');
+  serversOpRunning = Boolean(op?.running);
+  document.querySelectorAll('#server-new [data-op], #server-list button').forEach((b) => (b.disabled = serversOpRunning));
+}
+
+function serverButton(label, iconName, fn, danger) {
+  const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}`, disabled: serversOpRunning || undefined }, icon(iconName), label);
+  btn.addEventListener('click', () => fn(btn));
+  return btn;
+}
+
+function serverStateLabel(s) {
+  if (!s.state.available) return el('span', { class: 'pill bad', title: s.state.error || '' }, 'Not controllable');
+  const active = s.state.active;
+  return el('span', { class: `pill ${active === 'active' ? 'ok' : active === 'failed' ? 'bad' : ''}` }, active === 'active' ? 'Running' : active === 'activating' ? 'Starting' : active === 'deactivating' ? 'Stopping' : active === 'failed' ? 'Crashed' : 'Stopped');
+}
+
+async function serverAction(s, action, button) {
+  if (action !== 'start' && !(await confirmAction({
+    title: `${action === 'stop' ? 'Stop' : 'Restart'} ${s.name}?`,
+    body: 'Players are disconnected; the world is saved first.',
+    confirm: action === 'stop' ? 'Stop' : 'Restart', tone: action === 'stop' ? 'danger' : 'primary', icon: action === 'stop' ? 'stop' : 'restart',
+  }))) return;
+  await busy(button, async () => {
+    try {
+      renderServersOp(await api('POST', `/api/servers/${s.id}/power`, { action }));
+      watchServers();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+async function deleteServer(s, button) {
+  const keep = el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: true }), ' Keep an archive in the backup folder');
+  if (!(await confirmAction({
+    title: `Delete ${s.name}?`,
+    body: `The server stops and its folder is removed: worlds, plugins, mods and settings.${s.id === serversActive ? ' It is the server rconsole shows; another one takes its place.' : ''}`,
+    confirm: 'Delete server', tone: 'danger', icon: 'delete', content: keep,
+  }))) return;
+  const archive = keep.querySelector('input').checked;
+  await busy(button, async () => {
+    try {
+      renderServersOp(await api('DELETE', `/api/servers/${s.id}${archive ? '' : '?archive=0'}`));
+      watchServers();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+let serversActive = null;
+async function loadServers() {
+  try {
+    const { servers, active, distributions, op, dir } = await api('GET', '/api/servers');
+    serversActive = active;
+    if (!distLoaded) renderDistributions(distributions);
+    const names = Object.fromEntries(distributions.map((d) => [d.id, d.name]));
+    $('servers-info').textContent = servers.length
+      ? `${servers.length} server${servers.length === 1 ? '' : 's'} in ${dir}.${active ? ` rconsole shows ${active}.` : ''}`
+      : `No server yet. Install one: rconsole downloads it with the right Java into ${dir}.`;
+    $('server-list').replaceChildren(...(servers.length
+      ? servers.map((s) => el('tr', {},
+          el('td', { class: 'primary-cell', 'data-label': 'Server' }, el('b', {}, s.name), s.id === active ? el('span', { class: 'pill own' }, 'Shown') : null, el('span', { class: 'sub mono' }, s.id)),
+          el('td', { 'data-label': 'Software' }, `${names[s.distribution] || s.distribution} ${s.version}`, s.build ? el('span', { class: 'sub' }, typeof s.build === 'number' ? `build ${s.build}` : `loader ${s.build}`) : null),
+          el('td', { class: 'mono', 'data-label': 'Port' }, String(s.port)),
+          el('td', { 'data-label': 'Memory' }, fmt.bytes(s.memoryMb * 1024 * 1024), el('span', { class: 'sub' }, `Java ${s.java}`)),
+          el('td', { 'data-label': 'State' }, serverStateLabel(s)),
+          el('td', { class: 'act' }, atLeast('admin') ? [
+            s.state.active === 'active'
+              ? [serverButton('Restart', 'restart', (b) => serverAction(s, 'restart', b)), serverButton('Stop', 'stop', (b) => serverAction(s, 'stop', b))]
+              : serverButton('Start', 'play', (b) => serverAction(s, 'start', b)),
+            serverButton('Delete', 'delete', (b) => deleteServer(s, b), true),
+          ] : null)))
+      : [emptyRow(6, el('b', {}, 'No servers yet. '), atLeast('admin') ? 'Press New server to pick the software and version.' : 'An admin can install one.')]));
+    renderServersOp(op);
+    if (!servers.length && !op?.running && !op?.result && atLeast('admin') && serverForm.hidden) toggleServerForm(true);
+  } catch (e) {
+    $('server-list').replaceChildren(emptyRow(6, `Can't list servers: ${e.message}`));
+  }
+}
+viewLoaders['server/servers'] = loadServers;
+
+// Polls while an install, start or delete runs; the first server makes
+// rconsole restart onto it, so the page reloads when it is back.
+function watchServers() {
+  clearTimeout(serversTimer);
+  serversTimer = setTimeout(async () => {
+    const wasFirst = !serversActive;
+    try {
+      await loadServers();
+    } catch {}
+    if (serversOpRunning) return watchServers();
+    if (wasFirst && serversActive === null) {
+      const { active } = await api('GET', '/api/servers').catch(() => ({}));
+      if (!active) {
+        toast('Switching rconsole to the new server…');
+        setTimeout(() => location.reload(), 4000);
+      }
+    }
+  }, 2000);
+}
+
+const serverForm = $('server-new');
+function toggleServerForm(open) {
+  serverForm.hidden = !open;
+  $('server-new-toggle').setAttribute('aria-expanded', open);
+}
+$('server-new-toggle').addEventListener('click', () => toggleServerForm(serverForm.hidden));
+$('server-new-cancel').addEventListener('click', () => toggleServerForm(false));
+
+function renderDistributions(list) {
+  distLoaded = true;
+  $('dist-grid').replaceChildren(...list.map((d) => el('label', { class: 'dist-card', title: VERIFY_NOTE[d.verify] || '' },
+    el('input', { type: 'radio', name: 'distribution', value: d.id, required: true, onchange: () => loadVersions(d) }),
+    el('b', {}, d.name),
+    el('span', { class: 'note' }, DIST_NOTE[d.id] || (d.kind === 'proxy' ? 'Proxy' : 'Server')))));
+}
+
+const option = (value, label) => el('option', { value }, label);
+async function loadVersions(d) {
+  const f = serverForm.elements;
+  f.version.replaceChildren(option('', 'Loading versions…'));
+  f.build.replaceChildren(option('', 'Newest stable'));
+  f.port.value = d.kind === 'proxy' ? 25577 : f.port.value === '25577' ? 25565 : f.port.value;
+  if (!f.id.value) f.id.value = d.kind === 'proxy' ? 'proxy' : 'survival';
+  $('server-new-note').textContent = `${d.name}: ${VERIFY_NOTE[d.verify]}. rconsole downloads the server and the Java it needs and sets up RCON with a random password.`;
+  try {
+    const { versions } = await api('GET', `/api/distributions/${d.id}/versions`);
+    f.version.replaceChildren(...versions.slice(0, 80).map((v) => option(v, v)));
+    loadBuilds();
+  } catch (e) {
+    f.version.replaceChildren(option('', 'Versions unavailable'));
+    toast(e.message, 'bad');
+  }
+}
+
+async function loadBuilds() {
+  const f = serverForm.elements;
+  const dist = f.distribution.value;
+  f.build.replaceChildren(option('', 'Newest stable'));
+  if (!dist || !f.version.value || dist === 'vanilla') return;
+  try {
+    const { builds } = await api('GET', `/api/distributions/${dist}/versions/${encodeURIComponent(f.version.value)}/builds`);
+    f.build.append(...builds.map((b) => option(String(b.id), `${typeof b.id === 'number' ? `#${b.id}` : b.id}${b.channel && !/stable|release/i.test(b.channel) ? ` (${b.channel.toLowerCase()})` : ''}`)));
+  } catch {}
+}
+serverForm.elements.version.addEventListener('change', loadBuilds);
+
+serverForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = serverForm.elements;
+  if (!f.distribution.value) return toast('Pick the server software.', 'bad');
+  if (!f.eula.checked) return toast('Accept the Minecraft EULA to install a server.', 'bad');
+  const buildRaw = f.build.value;
+  const body = {
+    id: f.id.value.trim(), name: f.id.value.trim(), distribution: f.distribution.value, version: f.version.value,
+    build: buildRaw === '' ? null : /^\d+$/.test(buildRaw) && ['paper', 'folia', 'velocity', 'purpur'].includes(f.distribution.value) ? Number(buildRaw) : buildRaw,
+    port: Number(f.port.value), memoryMb: Number(f.memoryMb.value), flags: f.flags.value,
+    start: f.start.checked, autostart: f.autostart.checked, eula: true,
+  };
+  await busy(serverForm.querySelector('.btn-primary'), async () => {
+    try {
+      renderServersOp(await api('POST', '/api/servers', body));
+      toast(`Installing ${body.id}. This takes a minute or two.`);
+      serverForm.reset();
+      toggleServerForm(false);
+      watchServers();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
+
 // --- running operation (world switch, restore, power) ---
 let opWasRunning = false;
 function renderOp(op) {

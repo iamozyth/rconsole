@@ -108,23 +108,20 @@ test('findLaunch: Forge and NeoForge args files, Fabric launcher', () => {
   assert.deepStrictEqual(servers.findLaunch(dir, { distribution: 'fabric' }), { type: 'jar', path: 'fabric-server-launch.jar' });
 });
 
-// The listing format is GNU tar's (Debian); macOS's bsdtar lists differently.
-const gnuTar = /GNU tar/.test(execFileSync('tar', ['--version'], { encoding: 'utf8' }));
-
-test('inspectJre: links only under legal/, one top folder', { skip: !gnuTar && 'needs GNU tar' }, async () => {
-  const make = (name, build) => {
-    const src = fs.mkdtempSync(path.join(root, 'jre-'));
-    fs.mkdirSync(path.join(src, 'jdk-25-jre', 'bin'), { recursive: true });
-    fs.mkdirSync(path.join(src, 'jdk-25-jre', 'legal', 'x'), { recursive: true });
-    fs.writeFileSync(path.join(src, 'jdk-25-jre', 'bin', 'java'), '');
-    fs.symlinkSync('../java.base/LICENSE', path.join(src, 'jdk-25-jre', 'legal', 'x', 'LICENSE'));
-    build(path.join(src, 'jdk-25-jre'));
-    const file = path.join(root, name);
-    execFileSync('tar', ['-czf', file, '-C', src, 'jdk-25-jre']);
-    return file;
-  };
-  assert.strictEqual(await servers.inspectJre(make('ok.tgz', () => {})), 'jdk-25-jre');
-  await assert.rejects(servers.inspectJre(make('link.tgz', (d) => fs.symlinkSync('/etc/passwd', path.join(d, 'bin', 'evil')))), /links/);
+test('inspectJre and checkTree: one top folder; links only where they are left out', async () => {
+  const src = fs.mkdtempSync(path.join(root, 'jre-'));
+  fs.mkdirSync(path.join(src, 'jdk-25-jre', 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(src, 'jdk-25-jre', 'legal', 'x'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'jdk-25-jre', 'bin', 'java'), '');
+  fs.symlinkSync('../java.base/LICENSE', path.join(src, 'jdk-25-jre', 'legal', 'x', 'LICENSE'));
+  execFileSync('tar', ['-czf', path.join(root, 'ok.tgz'), '-C', src, 'jdk-25-jre']);
+  assert.strictEqual(await servers.inspectJre(path.join(root, 'ok.tgz')), 'jdk-25-jre');
+  fs.mkdirSync(path.join(src, 'other'));
+  execFileSync('tar', ['-czf', path.join(root, 'two.tgz'), '-C', src, 'jdk-25-jre', 'other']);
+  await assert.rejects(servers.inspectJre(path.join(root, 'two.tgz')), /one top folder/);
+  assert.throws(() => servers.checkTree(path.join(src, 'jdk-25-jre')), /link/);
+  fs.rmSync(path.join(src, 'jdk-25-jre', 'legal'), { recursive: true });
+  servers.checkTree(path.join(src, 'jdk-25-jre'));
 });
 
 test('helper jobs naming a server work in its folder; unknown servers are refused', () => {
