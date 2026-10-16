@@ -5,8 +5,8 @@
 <h1 align="center">rconsole</h1>
 
 <p align="center">
-  <b>A self-hosted web console for your Minecraft server.</b><br>
-  Live console, players, worlds, backups, updates, plugins and alerts in one fast, secure page, built for Paper, Spigot, Fabric, Forge and vanilla.
+  <b>A self-hosted web console that installs and runs your Minecraft server.</b><br>
+  Pick Vanilla, Paper, Purpur, Folia, Fabric, Quilt, Forge, NeoForge or Velocity; rconsole sets it up with the right Java and gives you a live console, players, worlds, backups, updates, plugins and alerts in one fast, secure page.
 </p>
 
 <p align="center">
@@ -31,22 +31,29 @@
   <img src="docs/screenshots/console.webp" alt="rconsole: live server console with command autocomplete, online players and quick actions" width="900">
 </p>
 
-rconsole turns RCON and your server's own files into a polished admin panel. It installs next to an existing server in one command, needs nothing but Node.js, and keeps the server's files out of its reach: everything that changes them runs as the Minecraft user in sandboxed jobs.
+rconsole installs Minecraft servers and runs them as hardened systemd services, then turns RCON and the server's own files into a polished admin panel. It installs in one command, needs nothing but Node.js, and keeps the server's files out of its own reach: everything that changes them runs as the Minecraft user in sandboxed jobs, and every download is checked against its publisher's checksum. It also attaches to a server you already run.
 
 > [!WARNING]
 > **Early preview.** rconsole was written largely with an AI coding assistant (Claude Code), with a human steering, reviewing and testing it on a real Paper server. It has automated tests but no independent security review yet. Run it on a trusted network or behind a TLS proxy, keep your own backups, and expect breaking changes.
 
 ## Quick install
 
-On a Debian or Ubuntu host where your Minecraft server already runs as a systemd service:
+On a Debian or Ubuntu host:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/iamozyth/rconsole/main/install.sh | sudo bash
 ```
 
-Then open `http://<your-server>:8080` and sign in. The installer explains each step before it changes anything; [details below](#what-the-installer-does).
+Then open `http://<your-server>:8080`, sign in, and create your server under **Server → Servers**. If a Minecraft server already runs here as a systemd service, the installer offers to attach to it instead. It explains each step before it changes anything; [details below](#what-the-installer-does).
 
 ## Features
+
+**Servers, installed for you**
+- **Pick the software**: Vanilla, Paper, Purpur, Folia, Fabric, Quilt, Forge, NeoForge or the Velocity proxy, then the Minecraft version and build. rconsole downloads it, runs the mod loader's installer when there is one, and sets up RCON with a random password.
+- **The right Java, automatically**: the Eclipse Temurin runtime each Minecraft version needs, side by side, no system Java.
+- **Every download verified** against its publisher's checksum, from the publisher's own servers only.
+- **Each server in its own sandbox**: a hardened `rconsole-mc@<name>` systemd service with Aikar's flags, a memory size you choose, a console that works even before RCON is up, and autostart after a reboot.
+- **Updates and rollback for every distribution**: newer builds and Minecraft versions, the world backed up first, the previous version kept.
 
 **Console and control**
 - **Live console**: the server log as it happens, filterable, with a chat-and-joins view and a command prompt with history and **autocomplete** for commands, subcommands, players, game modes and game rules, including plugin commands.
@@ -111,13 +118,13 @@ Then open `http://<your-server>:8080` and sign in. The installer explains each s
 
 - Linux with systemd: Debian or Ubuntu for the installer (developed on Debian); other distributions with the manual setup.
 - Node.js 18 or newer (installed automatically if missing).
-- A Minecraft server running as a systemd service under its own user. Java Edition: Paper, Purpur, Folia, Spigot, Bukkit, Fabric, Quilt, Forge, NeoForge or vanilla.
-- RCON (the installer turns it on).
+- x86-64 or ARM64 for the servers rconsole installs (Java comes from Adoptium for both).
+- Or an existing Minecraft server running as a systemd service under its own user, with RCON (the installer turns it on).
 
 ## FAQ
 
 **How is rconsole different from Pterodactyl, Crafty Controller or AMP?**
-Those are hosting panels: they install and run servers for you, often in containers, and bring their own databases and daemons. rconsole is the opposite: a single small Node.js process that attaches to the server you already run, with no database and no dependencies. It is for people who run one server (a homelab, friends, a community) and want a great console for it, not a hosting platform.
+They install and run servers too, but bring their own databases, daemons, containers or a Python stack, and their panel usually runs with the rights of the servers it manages. rconsole is a single small Node.js process with no database and no dependencies that can't write to the servers' files at all: installs, updates and backups run as the Minecraft user in fixed, sandboxed jobs, and each server runs in its own hardened systemd service. It is made for people who run their own servers (a homelab, friends, a community) and want the best console for them, not a multi-tenant hosting platform.
 
 **How much does it take from the server?**
 Very little. rconsole idles at about 70 MB of memory and well under 1% of one core. With the dashboard open it sends roughly ten RCON commands a minute (TPS every 10 s, the player list every 30 s or on a join or leave, the game time once a minute); a tab in the background sends none. Its systemd units give Minecraft priority: rconsole runs with a lower CPU and disk weight and a memory ceiling, and backups, restores and downloads only use what the server leaves over.
@@ -133,14 +140,43 @@ Not under the default license; see [License](#license) and ask for a commercial 
 
 ## Documentation
 
-- [What the installer does](#what-the-installer-does) · [Manual setup](#setup-on-debian-manual) · [Configuration](#configuration) · [Traefik / HTTPS](#traefik)
+- [Servers](#servers) · [What the installer does](#what-the-installer-does) · [Manual setup](#setup-on-debian-manual) · [Configuration](#configuration) · [Traefik / HTTPS](#traefik)
 - [Updating rconsole](#updating) · [Server updates](#updates) · [Offsite backups](#offsite-backups) · [Plugins](#plugins) · [Server software](#server-software)
 - [Insights](#insights) · [spark](#spark-profiler) · [Problems](#problems) · [Connection attempts](#connection-attempts) · [Notifications](#notifications) · [Prometheus](#prometheus) · [Map](#map)
 - [Security model](#security-model) · [Upgrading from 1.x](#upgrading-from-1x-rconsole-backup--rconsole-update) · [Notes](#notes) · [License](#license)
 
+## Servers
+
+**Server → Servers** lists the servers rconsole installed, in `SERVERS_DIR` (`/srv/minecraft-servers`), one folder each. **New server** asks for:
+
+- **Software**: each choice says how its downloads are checked.
+
+  | Software | Source | Checked with |
+  |---|---|---|
+  | Vanilla | Mojang | SHA-1 from Mojang's version manifest |
+  | Paper, Folia, Velocity | PaperMC | SHA-256 from PaperMC's API |
+  | Purpur | PurpurMC | MD5 (the only checksum Purpur publishes) |
+  | Fabric, Quilt, Forge, NeoForge | the project's Maven | SHA-256 published next to the installer |
+  | Java (Temurin) | Adoptium | SHA-256 from Adoptium's API |
+
+- **Minecraft version and build** (newest stable by default), **name**, **port**, **memory** and **Java tuning** (Aikar's flags or Java's defaults);
+- whether to **start it** now and **after a reboot**;
+- the **Minecraft EULA**: rconsole only writes `eula=true` after you accept it, and records who did.
+
+The install runs in a helper job as the Minecraft user: it works out the download again from the publisher, checks it, installs the Java the version needs (Java 8 before 1.17, 17, 21 or 25 after), runs the Fabric, Quilt, Forge or NeoForge installer, writes `server.properties` with its own RCON port and a random password, and moves the finished folder into place. If anything fails, nothing is left behind.
+
+The first server becomes the one rconsole shows (Console, Players, Worlds and the rest work on it), and rconsole restarts onto it. Each server runs as `rconsole-mc@<name>.service`: as the Minecraft user, writable only in its own folder, without rconsole's settings or secrets in its environment, stopped with SIGTERM so it saves first, restarted by systemd after a crash. Its console input is a FIFO (`/run/rconsole-mc-<name>.stdin`) that only rconsole can write to, so commands work before RCON is up, while the server hangs, and on Velocity, which has no RCON.
+
+- **Updates**: Server → Updates lists newer builds and Minecraft versions of the server's own software and installs them in the usual order (countdown, disconnect, stop, back up the world, install, start). The previous version stays for **Roll back**.
+- **Your old world**: back it up under Worlds before you switch, then restore it over the new server's world from Worlds → Backups.
+- **Delete** stops the server and moves its folder into the backup folder as `server-<name>-<time>.tar.gz` (or removes it, if you say so).
+- Installing, starting, stopping and deleting servers is for admins and recorded in the audit log.
+
 ## What the installer does
 
-The installer finds the server (its service, folder, user, jar and software: Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge or vanilla) and shows what it found before changing anything. Then it:
+With no Minecraft server on the machine (or with `--new`), the installer sets rconsole up to install servers itself: the `minecraft` user, `/srv/minecraft-servers`, the backup folder, the units and polkit rule, and your account. Then you create a server in the browser.
+
+For an existing server, the installer finds the server (its service, folder, user, jar and software: Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge or vanilla) and shows what it found before changing anything. Then it:
 
 - installs Node.js, git and polkit if missing;
 - clones rconsole to `/opt/rconsole` and creates the `rconsole` system user;
@@ -250,7 +286,7 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user r
 
 | Variable        | Default                  | Description                                          |
 |-----------------|--------------------------|------------------------------------------------------|
-| `RCON_PASSWORD` | (required)               | Matches `rcon.password`                              |
+| `RCON_PASSWORD` | (none)                   | Matches `rcon.password` of a server rconsole didn't install |
 | `RCON_HOST`     | `127.0.0.1`              | Minecraft server host                                |
 | `RCON_PORT`     | `25575`                  | RCON port                                            |
 | `WEB_HOST`      | `127.0.0.1`              | Address to bind (`0.0.0.0` for a proxy on another host) |
@@ -261,6 +297,7 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user r
 | `BACKUP_KEEP`   | `10`                     | Newest backups to keep, `0` keeps all                |
 | `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
 | `MC_SERVICE`    | `minecraft.service`      | systemd unit rconsole starts, stops and restarts     |
+| `SERVERS_DIR`   | `/srv/minecraft-servers` | Servers rconsole installs, one folder each; the one it shows replaces `MC_DIR`, `MC_SERVICE` and the RCON settings |
 | `NTFY_URL` / `NTFY_TOKEN` | (none) | ntfy topic and token; otherwise set them in the UI (Settings → Notifications) |
 | `PUBLIC_URL`    | (none)                   | rconsole's own URL, e.g. `https://rconsole.example.com`: notification links and the single sign-on redirect |
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | (none) | [Single sign-on](#single-sign-on-authentik) with an OpenID Connect provider; the secret can also come from `OIDC_CLIENT_SECRET_FILE` |
@@ -527,7 +564,8 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 - **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.
 - **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
 - **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
-- **polkit** lets the `rconsole` user start exactly these job units and start/stop/restart `minecraft.service`, nothing else. Signed-in users are full admins: RCON commands and plugin installs (from Modrinth) run with the Minecraft server's rights by design. rconsole itself can't make the helper write outside its fixed job types, and updates only install downloads whose hash matches the publisher's API.
+- **Installed servers**: downloads are resolved and checked by the helper, never taken from rconsole; only HTTPS from the publisher's own hosts, only with the publisher's checksum (see [Servers](#servers) for which one). Archives are listed before they are unpacked. `instance.json` is validated wherever it's read, and the java command line is built only from checked values (memory, a fixed flag profile, a plain relative launch path). Each server runs in its own sandboxed `rconsole-mc@` unit without rconsole's environment file, so plugins never see rconsole's secrets.
+- **polkit** lets the `rconsole` user start exactly these job units, start/stop/restart `minecraft.service` and `rconsole-mc@<name>.service`, nothing else. Signed-in users are full admins: RCON commands and plugin installs (from Modrinth) run with the Minecraft server's rights by design. rconsole itself can't make the helper write outside its fixed job types, and updates only install downloads whose hash matches the publisher's API.
 
 rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below) and set `TRUST_PROXY` to the proxy's IP, so client IPs and `Secure` cookies are correct. For defence in depth, firewall port 80 so only the proxy can reach it.
 
