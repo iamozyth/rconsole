@@ -87,6 +87,12 @@ main() {
   # shellcheck source=units.sh
   source "$dir/bin/units.sh"
   load_rconsole_env "${RCONSOLE_ENV:-/etc/rconsole.env}"
+  # Servers rconsole installs itself (4.0): their folder, owned by the
+  # Minecraft user, readable for rconsole through the group.
+  local sv="${SERVERS_DIR:-/srv/minecraft-servers}"
+  if [ ! -d "$sv" ] && id "${MC_USER:-minecraft}" >/dev/null 2>&1; then
+    install -d -o "${MC_USER:-minecraft}" -g "${MC_GROUP:-minecraft}" -m 2750 "$sv" && installed+=("$sv")
+  fi
   local changed=0 src dest shipped c rendered
   rendered="$(mktemp)"
   for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
