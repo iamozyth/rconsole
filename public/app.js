@@ -2058,7 +2058,7 @@ async function loadUpdates(refresh) {
       ? o.newerVersions.map((v) => el('tr', {},
           el('td', { class: 'primary-cell', 'data-label': 'Version' }, `Minecraft ${v}`),
           el('td', { class: 'act' }, el('button', { class: 'btn btn-sm', 'data-update': true, disabled: updateBusy || undefined, onclick: (e) => upgradeVersion(v, e.currentTarget) }, icon('updates'), 'Upgrade…'))))
-      : [emptyRow(2, o.current ? `Minecraft ${o.current.version} is the newest version Paper supports.` : '–')]));
+      : [emptyRow(2, o.current ? `Minecraft ${o.current.version} is the newest version ${name} supports.` : '–')]));
     return { updates: o.newerBuilds.length, error: o.error };
   } catch (e) {
     $('upd-source').textContent = e.message;
@@ -2247,11 +2247,11 @@ function waitForComeback() {
 async function upgradeVersion(version, btn) {
   try {
     const { builds } = await busy(btn, () => api('GET', `/api/updates/builds?version=${encodeURIComponent(version)}`));
-    if (!builds.length) return toast(`No Paper builds for ${version} yet.`, 'bad');
-    const b = builds[0];
+    // Vanilla has no builds: the version is the download.
+    const b = builds[0] || { id: null, channel: '' };
     startUpdate({ version, build: b.id }, {
       title: `Upgrade to Minecraft ${version}?`,
-      body: `Paper build ${b.id} (${(b.channel || '').toLowerCase()}). This converts the world to ${version}. Rolling back the jar afterwards does not undo that; only restoring the backup does.`,
+      body: `${b.id == null ? 'The server' : `Build ${b.id}${b.channel ? ` (${b.channel.toLowerCase()})` : ''}`}. This converts the world to ${version}. Rolling back the jar afterwards does not undo that; only restoring the backup does.`,
       confirm: 'Upgrade',
       tone: 'danger',
       icon: 'updates',

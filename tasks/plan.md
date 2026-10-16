@@ -52,10 +52,10 @@ Details und Akzeptanzkriterien in `tasks/todo.md`. Jede Phase endet mit grünen 
 ### Checkpoint 2: Server lässt sich per API von null an erstellen und starten (auf einer Debian-VM getestet)
 
 ### Phase 3: Oberfläche und Übergang
-- [ ] 9. Assistent „Neuer Server“: Distribution, Version, RAM, Port, EULA, Fortschritt live
-- [ ] 10. Server-Übersicht mit Start/Stop/Löschen; bestehende Ansichten auf die aktive Instanz
-- [ ] 11. Updates für alle Distributionen über den Katalog (ersetzt `lib/paper.js`)
-- [ ] 12. Welt-Backup in einen neuen Server importieren; Installer-Modus ohne vorhandenen Server
+- [x] 9. Assistent „Neuer Server“: Distribution, Version, RAM, Port, EULA, Fortschritt live
+- [x] 10. Server-Übersicht mit Start/Stop/Löschen; bestehende Ansichten auf die aktive Instanz
+- [x] 11. Updates für alle Distributionen über den Katalog (ersetzt `lib/paper.js`)
+- [~] 12. Welt-Backup in einen neuen Server importieren (über Worlds → Restore auf dem aktiven Server); Installer-Modus ohne vorhandenen Server offen
 - [ ] 13. README, Sicherheitsmodell, Release-Notes
 
 ### Checkpoint 3: Code-Review, Security-Review, Ende-zu-Ende auf Debian

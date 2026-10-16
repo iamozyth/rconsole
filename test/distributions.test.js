@@ -97,7 +97,7 @@ test('vanilla: resolve returns the sha1 of the server jar and the Java version',
   assert.strictEqual(r.algo, 'sha1');
   assert.strictEqual(r.hash, 'b'.repeat(40));
   assert.strictEqual(r.javaMajor, 25);
-  assert.strictEqual(r.file, 'server.jar');
+  assert.strictEqual(r.file, 'minecraft-server-26.3.jar');
   assert.strictEqual(r.build, null);
 });
 

@@ -206,6 +206,67 @@ async function serverCreate(args) {
   }
 }
 
+// --- update and rollback ----------------------------------------------------------
+
+function writeInstance(dir, instance) {
+  const file = path.join(dir, 'instance.json');
+  const tmp = path.join(dir, tmpName('.instance.json'));
+  fs.writeFileSync(tmp, `${JSON.stringify(instances.validate(instance), null, 2)}\n`, { mode: 0o640, flag: 'wx' });
+  fs.renameSync(tmp, file);
+}
+
+// Jars no longer named by the current or previous install go, so updates
+// don't pile up. Only plain files at the top of the folder are touched.
+function pruneJars(dir, keep) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.isFile() && /\.jar$/.test(e.name) && !keep.has(e.name) && !/-launch\.jar$|^server\.jar$/.test(e.name)) fs.rmSync(path.join(dir, e.name));
+  }
+}
+
+// Installs another version or build of the same distribution into an
+// existing server (rconsole stops it first), keeping what ran before for
+// rollback. With rollback, swaps back to that.
+async function serverUpdate({ id, version, build = null, rollback = false }) {
+  serversRoot();
+  const current = instances.read(SV, id);
+  const dir = path.join(SV, id);
+  const was = { version: current.version, build: current.build, java: current.java, launch: current.launch };
+  if (rollback) {
+    const prev = current.previous;
+    if (!prev?.launch) fail('Nothing to roll back to');
+    if (!fs.existsSync(path.join(dir, prev.launch.path))) fail(`${prev.launch.path} is gone; can't roll back`);
+    writeInstance(dir, { ...current, ...prev, previous: was });
+    return { id, rolledBack: true, version: prev.version, build: prev.build };
+  }
+  const resolved = await distributions.resolve(current.distribution, version, build);
+  if (resolved.version === current.version && resolved.build === current.build) fail(`${id} already runs ${version}${build ? ` #${build}` : ''}`);
+  const major = await java.majorFor(current.distribution, resolved.version);
+  await javaInstall({ major });
+  const body = await download(resolved);
+  const dl = path.join(dir, tmpName(`.${resolved.file}`));
+  fs.writeFileSync(dl, body, { mode: 0o640, flag: 'wx' });
+  try {
+    if (resolved.install === 'installer') {
+      fs.renameSync(dl, path.join(dir, resolved.file));
+      try {
+        await run(path.join(javaRoot(), String(major), 'bin', 'java'), ['-jar', resolved.file, ...resolved.installArgs], { cwd: dir, timeoutMs: 14 * 60 * 1000 });
+      } finally {
+        fs.rmSync(path.join(dir, resolved.file), { force: true });
+        fs.rmSync(path.join(dir, `${resolved.file}.log`), { force: true });
+      }
+    } else {
+      fs.renameSync(dl, path.join(dir, resolved.file));
+    }
+  } finally {
+    fs.rmSync(dl, { force: true });
+  }
+  const launch = findLaunch(dir, resolved);
+  if (!launch) fail(`The ${resolved.distribution} update finished, but no server to start was found`);
+  writeInstance(dir, { ...current, version: resolved.version, build: resolved.build, java: major, launch, previous: was });
+  pruneJars(dir, new Set([launch.path, was.launch?.path].filter((p) => p && !p.includes('/'))));
+  return { id, version: resolved.version, build: resolved.build, java: major, verified: resolved.algo };
+}
+
 // --- delete --------------------------------------------------------------------
 
 // Archives SERVERS_DIR/<id> into BACKUP_DIR (unless archive is false), then
@@ -242,8 +303,8 @@ async function serverDelete({ id, archive = true }) {
 }
 
 module.exports = {
-  TASKS: { 'java-install': javaInstall, 'server-create': serverCreate, 'server-delete': serverDelete },
-  NETWORK: ['java-install', 'server-create'],
+  TASKS: { 'java-install': javaInstall, 'server-create': serverCreate, 'server-update': serverUpdate, 'server-delete': serverDelete },
+  NETWORK: ['java-install', 'server-create', 'server-update'],
   inspectJre,
   checkTree,
   findLaunch,

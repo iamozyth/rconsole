@@ -25,6 +25,8 @@ const { TASKS } = servers;
 const instances = require('../lib/instances');
 
 const JAR = Buffer.from('fake paper jar');
+const JAR2 = Buffer.from('newer paper jar');
+const JAR2_SHA = crypto.createHash('sha256').update(JAR2).digest('hex');
 const JAR_SHA = crypto.createHash('sha256').update(JAR).digest('hex'); // what the API publishes
 const sha = (algo, b) => crypto.createHash(algo).update(b).digest('hex');
 const FILL = 'https://fill.papermc.io/v3/projects/paper/versions/26.3/builds';
@@ -38,6 +40,8 @@ global.fetch = async (url) => {
     [MANIFEST]: { versions: [{ id: '26.3', type: 'release', url: 'https://piston-meta.mojang.com/26.3.json', sha1: sha('sha1', VJSON) }] },
     'https://piston-meta.mojang.com/26.3.json': VJSON,
     'https://fill-data.papermc.io/paper.jar': JAR,
+    [`${FILL}/180`]: { downloads: { 'server:default': { name: 'paper-26.3-180.jar', checksums: { sha256: JAR2_SHA }, url: 'https://fill-data.papermc.io/paper-180.jar' } } },
+    'https://fill-data.papermc.io/paper-180.jar': JAR2,
   };
   const body = routes[String(url)];
   if (body === undefined) return { ok: false, status: 404 };
@@ -83,6 +87,18 @@ test('create: a checksum mismatch leaves nothing behind', async () => {
   JAR.write(real);
   assert.ok(!fs.existsSync(path.join(SV, 'broken')));
   assert.ok(!fs.readdirSync(SV).some((f) => f.includes('broken')));
+});
+
+test('update: a newer build is installed next to the old one, rollback swaps back', async () => {
+  const r = await TASKS['server-update']({ id: 'survival', version: '26.3', build: 180 });
+  assert.deepStrictEqual([r.build, r.verified], [180, 'sha256']);
+  let i = instances.read(SV, 'survival');
+  assert.deepStrictEqual([i.build, i.launch.path, i.previous.build, i.previous.launch.path], [180, 'paper-26.3-180.jar', 178, 'paper-26.3-178.jar']);
+  assert.ok(fs.existsSync(path.join(SV, 'survival', 'paper-26.3-178.jar')));
+  await assert.rejects(TASKS['server-update']({ id: 'survival', version: '26.3', build: 180 }), /already runs/);
+  await TASKS['server-update']({ id: 'survival', rollback: true });
+  i = instances.read(SV, 'survival');
+  assert.deepStrictEqual([i.build, i.launch.path, i.previous.build], [178, 'paper-26.3-178.jar', 180]);
 });
 
 test('delete: archives the server into the backup folder, then removes it', async () => {

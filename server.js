@@ -68,7 +68,14 @@ const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs
 const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
 const pending = new Pending({ stateDir: config.stateDir, power });
 const platform = platformLib.detector(config.mcDir);
-const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon });
+const activeInstance$ = () => (config.activeServer ? servers.get(config.activeServer) : null);
+const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon, instance: () => {
+  try {
+    return activeInstance$();
+  } catch {
+    return null;
+  }
+} });
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform });
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
@@ -977,7 +984,8 @@ route('GET', /^\/api\/updates\/builds$/, async (req) => ({
 
 route('POST', /^\/api\/updates$/, async (req) => {
   const { version, build, rollback, backup, restartSeconds } = await readJson(req);
-  return [202, updates.start({ version: String(version || ''), build: Number(build), rollback: Boolean(rollback), backup: backup !== false, restartSeconds, user: req.user })];
+  const b = typeof build === 'string' && !/^\d+$/.test(build) ? build : build == null || build === '' ? null : Number(build);
+  return [202, updates.start({ version: String(version || ''), build: b, rollback: Boolean(rollback), backup: backup !== false, restartSeconds, user: req.user })];
 });
 
 route('GET', /^\/api\/tasks$/, async () => ({ tasks: scheduler.list() }));
