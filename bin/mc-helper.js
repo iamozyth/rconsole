@@ -27,11 +27,13 @@ const { FILE_RE: PLUGIN_FILE_RE } = require('../lib/plugins');
 const platform = require('../lib/platform');
 const configs = require('../lib/configs');
 const servers = require('./mc-servers');
+const instances = require('../lib/instances');
 
-const MC = config.mcDir;
+// MC_DIR, or the folder of the server a request names (see main()).
+let MC = config.mcDir;
 const BK = config.backupDir;
 const jobsDir = path.join(BK, '.jobs');
-const jar = path.join(MC, config.mcJar);
+let jar = path.join(MC, config.mcJar);
 
 const fail = (msg) => {
   throw new Error(msg);
@@ -446,6 +448,7 @@ async function main() {
   let kind;
   let args;
   let resultFile;
+  let instance = null;
 
   if (mode === 'job') {
     if (!names.JOB_ID_RE.test(arg || '')) fail('Invalid job id');
@@ -453,6 +456,7 @@ async function main() {
     kind = String(request.kind);
     args = request.args && typeof request.args === 'object' ? request.args : {};
     resultFile = `${arg}.json`;
+    instance = request.instance ?? null;
   } else if (mode === 'backup') {
     [kind, args, resultFile] = ['backup', { stamp: arg }, `backup-${arg}.json`];
   } else if (mode === 'update') {
@@ -469,6 +473,13 @@ async function main() {
     process.exit(1);
   }
   try {
+    // The active server rconsole works on. Only a valid instance in
+    // SERVERS_DIR is accepted; every path check then applies to its folder.
+    if (instance !== null) {
+      const i = instances.read(config.serversDir, instance);
+      MC = path.join(config.serversDir, i.id);
+      jar = path.join(MC, i.launch?.type === 'jar' ? i.launch.path : 'server.jar');
+    }
     const result = await TASKS[kind](args);
     writeResult(resultFile, { ok: true, kind, ...result });
     console.log(`${kind}: ok`);

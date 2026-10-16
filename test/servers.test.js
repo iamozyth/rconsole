@@ -126,3 +126,21 @@ test('inspectJre: links only under legal/, one top folder', { skip: !gnuTar && '
   assert.strictEqual(await servers.inspectJre(make('ok.tgz', () => {})), 'jdk-25-jre');
   await assert.rejects(servers.inspectJre(make('link.tgz', (d) => fs.symlinkSync('/etc/passwd', path.join(d, 'bin', 'evil')))), /links/);
 });
+
+test('helper jobs naming a server work in its folder; unknown servers are refused', () => {
+  fs.mkdirSync(path.join(SV, 'survival', 'world', 'region'), { recursive: true });
+  fs.writeFileSync(path.join(SV, 'survival', 'world', 'level.dat'), 'S');
+  const job = (id, request) => {
+    fs.mkdirSync(path.join(BK, '.requests'), { recursive: true });
+    fs.writeFileSync(path.join(BK, '.requests', `${id}.json`), JSON.stringify(request));
+    try {
+      execFileSync(process.execPath, [path.join(__dirname, '..', 'bin', 'mc-helper.js'), 'job', id], { env: process.env, stdio: 'pipe' });
+    } catch {}
+    return JSON.parse(fs.readFileSync(path.join(BK, '.jobs', `${id}.json`), 'utf8'));
+  };
+  const ok = job('a'.repeat(32), { kind: 'backup', args: { stamp: '2026-10-16_20-00-00' }, instance: 'survival' });
+  assert.strictEqual(ok.ok, true, ok.error);
+  assert.match(execFileSync('tar', ['-tzf', path.join(BK, ok.file)], { encoding: 'utf8' }), /^world\/level\.dat$/m);
+  const bad = job('b'.repeat(32), { kind: 'backup', args: { stamp: '2026-10-16_20-00-01' }, instance: '../mc' });
+  assert.strictEqual(bad.ok, false);
+});

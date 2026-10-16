@@ -16,6 +16,7 @@ const { Updates } = require('./lib/updates');
 const { Power } = require('./lib/power');
 const { Ops } = require('./lib/ops');
 const { Servers } = require('./lib/servers');
+const active = require('./lib/active');
 const distributions = require('./lib/distributions');
 const { Worlds } = require('./lib/worlds');
 const { Maintenance } = require('./lib/maintenance');
@@ -44,17 +45,20 @@ const { Oidc, roleFor } = require('./lib/oidc');
 const { SsoSettings } = require('./lib/sso');
 const properties = require('./lib/properties');
 
-if (!config.rconPassword) {
-  console.error('Missing required environment variable RCON_PASSWORD');
-  process.exit(1);
-}
-
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
+
+// A server rconsole installed itself takes the place of MC_DIR/MC_SERVICE
+// (lib/active.js). Without one and without RCON_PASSWORD, rconsole starts
+// anyway so the first server can be created from the browser.
+const activeInstance = active.pick({ serversDir: config.serversDir, stateDir: config.stateDir, log });
+if (activeInstance) Object.assign(config, active.overrides(config.serversDir, activeInstance));
+else config.activeServer = null;
+if (!config.rconPassword) log(activeInstance ? `WARNING: ${activeInstance.id} has no RCON password in server.properties` : 'No server yet: create one under Servers (RCON_PASSWORD is only needed for a server rconsole did not install)');
 
 const rcon = new Rcon({ host: config.rconHost, port: config.rconPort, password: config.rconPassword });
 const logTail = new LogTail(path.join(config.mcDir, 'logs', 'latest.log'));
 const stats = new Stats({ rcon, mcDir: config.mcDir });
-const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner, log });
+const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner, log, instance: config.activeServer });
 const activeWorld = async () => (await readProperties(config.mcDir))['level-name'] || 'world';
 const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: config.backupKeep, log, activeWorld });
 const power = new Power({ unit: config.mcService, log });
@@ -81,6 +85,14 @@ ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target
 const serverOps = new Ops({ log });
 serverOps.onFinish = ops.onFinish;
 const servers = new Servers({ serversDir: config.serversDir, jobs, ops: serverOps, log });
+// The first server becomes the active one; rconsole restarts (systemd brings
+// it back) to run every view on it.
+servers.onCreated = (id) => {
+  if (config.activeServer) return;
+  active.setActive(config.stateDir, id);
+  log(`servers: ${id} is now the active server; restarting rconsole`);
+  setTimeout(() => process.exit(75), 1500);
+};
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });
@@ -747,7 +759,7 @@ route('GET', /^\/api\/status$/, async () => ({
 // --- servers rconsole installs (SERVERS_DIR) ------------------------------------
 // Everything but reading is admin-only (the default for non-GET routes).
 
-route('GET', /^\/api\/servers$/, async () => ({ dir: config.serversDir, servers: await servers.list(), distributions: distributions.list(), op: serverOps.state }));
+route('GET', /^\/api\/servers$/, async () => ({ dir: config.serversDir, active: config.activeServer, servers: await servers.list(), distributions: distributions.list(), op: serverOps.state }));
 
 route('GET', /^\/api\/distributions\/([a-z]+)\/versions$/, async (req, res, [id]) => {
   try {
