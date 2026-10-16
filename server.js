@@ -15,6 +15,8 @@ const { Jobs } = require('./lib/jobs');
 const { Updates } = require('./lib/updates');
 const { Power } = require('./lib/power');
 const { Ops } = require('./lib/ops');
+const { Servers } = require('./lib/servers');
+const distributions = require('./lib/distributions');
 const { Worlds } = require('./lib/worlds');
 const { Maintenance } = require('./lib/maintenance');
 const { readProperties } = require('./lib/access');
@@ -74,6 +76,11 @@ const selfUpdate = new SelfUpdate({ dir: __dirname, stateDir: config.stateDir, r
 const audit = new Audit({ stateDir: config.stateDir, log, onRecord: (e) => notify.onAudit(e) });
 // Operations run in the background after the request returned 202; record how they ended.
 ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target: st.label, ok: !st.error, ...(st.error ? { error: st.error } : {}) });
+// Servers rconsole installed itself (SERVERS_DIR). Their own operation slot,
+// so installing a server doesn't block the current one's restarts.
+const serverOps = new Ops({ log });
+serverOps.onFinish = ops.onFinish;
+const servers = new Servers({ serversDir: config.serversDir, jobs, ops: serverOps, log });
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });
@@ -468,6 +475,10 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
   ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
   ['POST', /^\/api\/offsite\/download$/, (p, b) => ['offsite download', b.name]],
+  ['POST', /^\/api\/servers$/, (p, b) => ['server create', `${b.id} (${b.distribution} ${b.version}${b.build ? ` #${b.build}` : ''}), EULA accepted`]],
+  ['POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, ([id], b) => [`server ${b.action}`, id]],
+  ['POST', /^\/api\/servers\/([a-z0-9-]+)\/console$/, ([id], b) => ['command', `${id}: /${String(b.command || '').replace(/^\//, '')}`]],
+  ['DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b, q) => ['server delete', `${id}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
@@ -732,6 +743,43 @@ route('GET', /^\/api\/status$/, async () => ({
   problems: await problems.summary().catch(() => null),
   platform: (({ id, name, family, mcVersion, build, loaderVersion, addons, updates: auto }) => ({ id, name, family, mcVersion, build, loaderVersion, addons: addons?.kind || null, updates: Boolean(auto) }))(platform()),
 }));
+
+// --- servers rconsole installs (SERVERS_DIR) ------------------------------------
+// Everything but reading is admin-only (the default for non-GET routes).
+
+route('GET', /^\/api\/servers$/, async () => ({ dir: config.serversDir, servers: await servers.list(), distributions: distributions.list(), op: serverOps.state }));
+
+route('GET', /^\/api\/distributions\/([a-z]+)\/versions$/, async (req, res, [id]) => {
+  try {
+    return { versions: await distributions.versions(id) };
+  } catch (err) {
+    throw httpError(/Unknown/.test(err.message) ? 404 : 502, err.message);
+  }
+});
+
+route('GET', /^\/api\/distributions\/([a-z]+)\/versions\/([0-9.]+)\/builds$/, async (req, res, [id, version]) => {
+  try {
+    return { builds: (await distributions.builds(id, version)).slice(0, 50) };
+  } catch (err) {
+    throw httpError(/Unknown|Invalid/.test(err.message) ? 400 : 502, err.message);
+  }
+});
+
+route('POST', /^\/api\/servers$/, async (req) => {
+  const b = await readJson(req);
+  if (b.eula !== true) throw httpError(400, 'Accept the Minecraft EULA (https://aka.ms/MinecraftEULA) to create a server');
+  const wish = { id: b.id, name: b.name, distribution: b.distribution, version: b.version, build: b.build ?? null, memoryMb: b.memoryMb, port: b.port, flags: b.flags, autostart: b.autostart === true, eula: true };
+  return [202, servers.create(wish, { user: req.user, start: b.start !== false })];
+});
+
+route('POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, async (req, res, [id]) => [202, await servers.action(id, (await readJson(req)).action, { user: req.user })]);
+
+route('POST', /^\/api\/servers\/([a-z0-9-]+)\/console$/, async (req, res, [id]) => {
+  await servers.send(id, (await readJson(req)).command);
+  return { ok: true };
+});
+
+route('DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, async (req, res, [id]) => [202, servers.remove(id, { archive: new URL(req.url, 'http://x').searchParams.get('archive') !== '0', user: req.user })]);
 
 // --- server power & maintenance ---------------------------------------------
 
@@ -1123,6 +1171,7 @@ scheduler.load().then(() => {
   logTail.on('line', (line) => {
     if (/ (joined|left) the game$| lost connection: /.test(line)) stats.invalidate('players');
   });
+  servers.autostart().catch((err) => log(`servers: autostart: ${err.message}`));
   server.listen(config.webPort, config.webHost, () => {
     log(`rconsole listening on http://${config.webHost}:${config.webPort}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);

@@ -46,8 +46,8 @@ Details und Akzeptanzkriterien in `tasks/todo.md`. Jede Phase endet mit grünen 
 ### Phase 2: Lebenszyklus
 - [x] 5. Unit-Vorlagen `rconsole-mc@.service`/`.socket`, Starter `bin/mc-launch.js`, polkit-Regel
 - [x] 6. Helper-Jobs `java-install`, `server-create`, `server-install`, `server-delete`
-- [ ] 7. `Power` arbeitet pro Instanz; Konsole über FIFO; Autostart durch rconsole
-- [ ] 8. API: Instanzen anlegen, installieren, starten, stoppen, löschen (mit Rollen und Audit)
+- [x] 7. `Power` arbeitet pro Instanz; Konsole über FIFO; Autostart durch rconsole
+- [x] 8. API: Instanzen anlegen, installieren, starten, stoppen, löschen (mit Rollen und Audit)
 
 ### Checkpoint 2: Server lässt sich per API von null an erstellen und starten (auf einer Debian-VM getestet)
 
