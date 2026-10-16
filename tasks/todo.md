@@ -18,12 +18,12 @@
 - Abhängig von: 1
 
 ## 4. Instanzmodell
-- [ ] `lib/instances.js`: Laden, Validieren (id, Distribution, Version, RAM, Port, Flag-Profil), Liste
-- [ ] Gleiche Validierung im Helper und im Starter nutzbar
+- [x] `lib/instances.js`: Laden, Validieren (id, Distribution, Version, RAM, Port, Flag-Profil), Liste
+- [x] Gleiche Validierung im Helper und im Starter nutzbar
 - Abhängig von: 1
 
 ## Checkpoint 1
-- [ ] `npm test` grün, keine bestehende Funktion verändert
+- [x] `npm test` grün (bis auf 6 bestehende Restore-Tests, die nur unter macOS-tar scheitern), keine bestehende Funktion verändert
 
 ## 5. Units und Starter
 - [ ] `rconsole-mc@.service`, `rconsole-mc@.socket`, `bin/mc-launch.js`, polkit-Regel, `bin/units.sh`
