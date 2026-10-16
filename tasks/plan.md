@@ -36,8 +36,8 @@ Die genauen API-Antworten und welche Prüfsummen die Maven-Server je Datei wirkl
 Details und Akzeptanzkriterien in `tasks/todo.md`. Jede Phase endet mit grünen Tests (`npm test`) und einem prüfbaren Commit.
 
 ### Phase 1: Fundament (ohne sichtbare Änderung)
-- [ ] 1. Distributionskatalog mit Paper/Folia/Velocity und Vanilla, Tests mit gefälschten APIs
-- [ ] 2. Purpur, Fabric, Quilt, Forge, NeoForge im Katalog
+- [x] 1. Distributionskatalog mit Paper/Folia/Velocity und Vanilla, Tests mit gefälschten APIs
+- [x] 2. Purpur, Fabric, Quilt, Forge, NeoForge im Katalog
 - [ ] 3. Java-Auflösung (Mojang-Java-Version → Temurin-Download mit SHA-256)
 - [ ] 4. Instanzmodell `lib/instances.js` mit Validierung von `instance.json`
 

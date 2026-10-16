@@ -43,7 +43,7 @@ test('paper: resolve returns a sha256-verified download from papermc.io', async 
   const r = await dist.resolve('paper', '26.3', 178);
   assert.deepStrictEqual(r, {
     distribution: 'paper', version: '26.3', build: 178, url: `https://fill-data.papermc.io/v1/objects/${HASH}/paper-26.3-178.jar`,
-    algo: 'sha256', hash: HASH, size: 5, file: 'paper-26.3-178.jar', install: 'jar', javaMajor: null,
+    algo: 'sha256', hash: HASH, size: 5, file: 'paper-26.3-178.jar', install: 'jar', installArgs: [], javaMajor: null,
   });
 });
 
@@ -120,4 +120,108 @@ test('catalog lists every distribution with its kind and checksum strength', () 
   assert.strictEqual(byId.paper.kind, 'server');
   assert.strictEqual(byId.vanilla.verify, 'sha1');
   assert.strictEqual(byId.folia.verify, 'sha256');
+});
+
+// --- Purpur --------------------------------------------------------------------
+
+const PURPUR = 'https://api.purpurmc.org/v2/purpur';
+const MD5 = 'c'.repeat(32);
+
+test('purpur: resolve uses the md5 the API publishes and its own download URL', async () => {
+  serve({ [`${PURPUR}/26.2/latest`]: { version: '26.2', build: '2501', result: 'SUCCESS', md5: MD5 } });
+  const r = await dist.resolve('purpur', '26.2');
+  assert.deepStrictEqual([r.build, r.algo, r.hash, r.url, r.file, r.install], [2501, 'md5', MD5, `${PURPUR}/26.2/2501/download`, 'purpur-26.2-2501.jar', 'jar']);
+});
+
+test('purpur: failed builds are refused', async () => {
+  serve({ [`${PURPUR}/26.2/7`]: { build: '7', result: 'FAILURE', md5: MD5 } });
+  await assert.rejects(dist.resolve('purpur', '26.2', 7), /verifiable/);
+});
+
+test('purpur: builds newest first', async () => {
+  serve({ [`${PURPUR}/26.2`]: { builds: { latest: '12', all: ['10', '12', '11'] } } });
+  assert.deepStrictEqual((await dist.builds('purpur', '26.2')).map((b) => b.id), [12, 11, 10]);
+});
+
+// --- Fabric and Quilt: installer from Maven ------------------------------------
+
+const FABRIC_META = 'https://meta.fabricmc.net/v2/versions';
+const FABRIC_INSTALLER = 'https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.2/fabric-installer-1.1.2.jar';
+
+function fabric() {
+  return serve({
+    [`${FABRIC_META}/game`]: [{ version: '26.4-snapshot-1', stable: false }, { version: '26.3', stable: true }, { version: '1.21.10', stable: true }],
+    [`${FABRIC_META}/loader`]: [{ version: '0.20.0', stable: false }, { version: '0.19.5', stable: true }],
+    [`${FABRIC_META}/installer`]: [{ version: '1.1.3', stable: false, url: 'x' }, { version: '1.1.2', stable: true, url: FABRIC_INSTALLER }],
+    [`${FABRIC_INSTALLER}.sha256`]: `${HASH}\n`,
+  });
+}
+
+test('fabric: stable game versions only', async () => {
+  fabric();
+  assert.deepStrictEqual(await dist.versions('fabric'), ['26.3', '1.21.10']);
+});
+
+test('fabric: resolve picks the newest stable loader and the installer with its Maven sha256', async () => {
+  fabric();
+  const r = await dist.resolve('fabric', '26.3');
+  assert.deepStrictEqual(
+    [r.build, r.url, r.algo, r.hash, r.install, r.installArgs],
+    ['0.19.5', FABRIC_INSTALLER, 'sha256', HASH, 'installer', ['server', '-mcversion', '26.3', '-loader', '0.19.5', '-downloadMinecraft']],
+  );
+});
+
+test('fabric: a loader version with odd characters is refused', async () => {
+  fabric();
+  await assert.rejects(dist.resolve('fabric', '26.3', '0.19.5 -evil'), /Invalid build/);
+});
+
+const QUILT_MAVEN = 'https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer';
+test('quilt: installer from Quilt Maven with the newest stable loader', async () => {
+  serve({
+    'https://meta.quiltmc.org/v3/versions/loader': [{ version: '0.31.0-beta.4' }, { version: '0.30.2' }],
+    [`${QUILT_MAVEN}/maven-metadata.xml`]: '<metadata><versioning><release>0.15.1</release></versioning></metadata>',
+    [`${QUILT_MAVEN}/0.15.1/quilt-installer-0.15.1.jar.sha256`]: HASH,
+  });
+  const r = await dist.resolve('quilt', '26.3');
+  assert.deepStrictEqual([r.build, r.url, r.install], ['0.30.2', `${QUILT_MAVEN}/0.15.1/quilt-installer-0.15.1.jar`, 'installer']);
+  assert.deepStrictEqual(r.installArgs, ['install', 'server', '26.3', '0.30.2', '--download-server', '--install-dir=.']);
+});
+
+// --- NeoForge and Forge ------------------------------------------------------------
+
+const NEO = 'https://maven.neoforged.net/releases/net/neoforged/neoforge';
+const neoMeta = `<metadata><versioning><versions>
+  <version>21.1.262</version><version>21.0.5</version><version>20.4.253</version>
+  <version>26.1.2.121</version><version>26.3.0.85</version><version>26.3.0.86</version><version>26.3.0.90-beta</version>
+</versions></versioning></metadata>`;
+
+test('neoforge: Minecraft versions are derived from NeoForge versions', async () => {
+  serve({ [`${NEO}/maven-metadata.xml`]: neoMeta });
+  assert.deepStrictEqual(await dist.versions('neoforge'), ['26.3', '26.1.2', '1.21.1', '1.21', '1.20.4']);
+  assert.deepStrictEqual((await dist.builds('neoforge', '26.3')).map((b) => b.id), ['26.3.0.86', '26.3.0.85']);
+});
+
+test('neoforge: resolve the newest release installer with --installServer', async () => {
+  serve({ [`${NEO}/maven-metadata.xml`]: neoMeta, [`${NEO}/21.1.262/neoforge-21.1.262-installer.jar.sha256`]: HASH });
+  const r = await dist.resolve('neoforge', '1.21.1');
+  assert.deepStrictEqual([r.build, r.url, r.install, r.installArgs], ['21.1.262', `${NEO}/21.1.262/neoforge-21.1.262-installer.jar`, 'installer', ['--installServer']]);
+});
+
+const FORGE = 'https://maven.minecraftforge.net/net/minecraftforge/forge';
+const PROMOS = 'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json';
+
+test('forge: the recommended build wins over the latest', async () => {
+  serve({
+    [PROMOS]: { promos: { '26.2-latest': '65.1.5', '26.2-recommended': '65.1.0', '26.3-latest': '66.0.12' } },
+    [`${FORGE}/26.2-65.1.0/forge-26.2-65.1.0-installer.jar.sha256`]: HASH,
+  });
+  assert.deepStrictEqual(await dist.versions('forge'), ['26.3', '26.2']);
+  const r = await dist.resolve('forge', '26.2');
+  assert.deepStrictEqual([r.build, r.url, r.algo, r.installArgs], ['65.1.0', `${FORGE}/26.2-65.1.0/forge-26.2-65.1.0-installer.jar`, 'sha256', ['--installServer']]);
+});
+
+test('maven: a checksum file that is not a hash is refused', async () => {
+  serve({ [PROMOS]: { promos: { '26.3-latest': '66.0.12' } }, [`${FORGE}/26.3-66.0.12/forge-26.3-66.0.12-installer.jar.sha256`]: '<html>' });
+  await assert.rejects(dist.resolve('forge', '26.3'), /verifiable/);
 });

@@ -1,15 +1,15 @@
 # Aufgaben: Server-Lebenszyklus
 
 ## 1. Distributionskatalog: Paper, Folia, Velocity, Vanilla
-- [ ] `lib/distributions.js`: `versions(id)`, `builds(id, version)`, `resolve(id, version, build)` → `{ url, algo, hash, size, file }`
-- [ ] Downloads nur von festen Hosts je Distribution, ohne Prüfsumme kein Download
-- [ ] Vanilla liefert `javaMajor` aus dem Versions-JSON
+- [x] `lib/distributions.js`: `versions(id)`, `builds(id, version)`, `resolve(id, version, build)` → `{ url, algo, hash, size, file }`
+- [x] Downloads nur von festen Hosts je Distribution, ohne Prüfsumme kein Download
+- [x] Vanilla liefert `javaMajor` aus dem Versions-JSON
 - Prüfung: `node --test test/distributions.test.js` mit lokalem Fake-API-Server
 - Dateien: `lib/distributions.js`, `test/distributions.test.js`
 
 ## 2. Katalog: Purpur, Fabric, Quilt, Forge, NeoForge
-- [ ] Resolver je Distribution, Installer-Typ (`jar` oder `installer`) im Ergebnis
-- [ ] Prüfsummenstärke wird mitgeliefert (für die Oberfläche)
+- [x] Resolver je Distribution, Installer-Typ (`jar` oder `installer`) im Ergebnis
+- [x] Prüfsummenstärke wird mitgeliefert (für die Oberfläche)
 - Prüfung: Tests mit aufgezeichneten API-Antworten
 - Abhängig von: 1
 
