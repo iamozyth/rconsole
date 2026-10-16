@@ -897,17 +897,37 @@ async function deleteServer(s, button) {
   });
 }
 
+async function showServer(s, button) {
+  if (!(await confirmAction({
+    title: `Show ${s.name} in rconsole?`,
+    body: `Console, players, worlds, backups, plugins and updates switch to ${s.name}. rconsole restarts for a moment; ${serversActive ? `${serversActive}` : 'the server it shows now'} keeps running.`,
+    confirm: 'Show', tone: 'primary', icon: 'server',
+  }))) return;
+  await busy(button, async () => {
+    try {
+      await api('POST', `/api/servers/${s.id}/show`);
+      toast(`Switching to ${s.name}. The page reloads when rconsole is back.`);
+      waitForComeback();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
 let serversActive = null;
 let lastServersOp = null;
+let serversAttached = false;
 async function loadServers() {
   try {
-    const { servers, active, distributions, op, dir } = await api('GET', '/api/servers');
+    const { servers, active, attached, distributions, op, dir } = await api('GET', '/api/servers');
     serversActive = active;
+    serversAttached = attached;
     if (!distLoaded) renderDistributions(distributions);
     const names = Object.fromEntries(distributions.map((d) => [d.id, d.name]));
     $('servers-info').textContent = servers.length
       ? `${servers.length} server${servers.length === 1 ? '' : 's'} in ${dir}.${active ? ` rconsole shows ${active}.` : ''}`
       : `No server yet. Install one: rconsole downloads it with the right Java into ${dir}.`;
+    if (attached) $('servers-info').textContent += ' rconsole shows the server it is attached to until you press Show on one of these.';
     $('server-list').replaceChildren(...(servers.length
       ? servers.map((s) => el('tr', {},
           el('td', { class: 'primary-cell', 'data-label': 'Server' }, el('b', {}, s.name), s.id === active ? el('span', { class: 'pill own' }, 'Shown') : null, el('span', { class: 'sub mono' }, s.id)),
@@ -919,6 +939,7 @@ async function loadServers() {
             s.state.active === 'active'
               ? [serverButton('Restart', 'restart', (b) => serverAction(s, 'restart', b)), serverButton('Stop', 'stop', (b) => serverAction(s, 'stop', b))]
               : serverButton('Start', 'play', (b) => serverAction(s, 'start', b)),
+            s.id !== active && s.kind === 'server' ? serverButton('Show', 'server', (b) => showServer(s, b)) : null,
             serverButton('Delete', 'delete', (b) => deleteServer(s, b), true),
           ] : null)))
       : [emptyRow(6, el('b', {}, 'No servers yet. '), atLeast('admin') ? 'Press New server to pick the software and version.' : 'An admin can install one.')]));
@@ -944,7 +965,7 @@ function watchServers() {
     if (serversOpRunning) return watchServers();
     const op = lastServersOp;
     if (!op || op.error) return;
-    const restarts = (!shown && /^Create server /.test(op.label)) || (shown && op.label === `Delete server ${shown}`);
+    const restarts = (!shown && !serversAttached && /^Create server /.test(op.label)) || (shown && op.label === `Delete server ${shown}`);
     if (restarts) {
       toast('rconsole is switching servers. The page reloads when it is back.');
       waitForComeback();

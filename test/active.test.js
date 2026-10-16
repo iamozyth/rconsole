@@ -45,6 +45,14 @@ test('overrides point every view at the active server', () => {
   });
 });
 
+test('next to an attached server, an installed one is shown only once chosen', () => {
+  const { sv, state, add } = setup();
+  add('survival');
+  assert.strictEqual(active.pick({ serversDir: sv, stateDir: state, legacy: true }), null);
+  active.setActive(state, 'survival');
+  assert.strictEqual(active.pick({ serversDir: sv, stateDir: state, legacy: true }).id, 'survival');
+});
+
 test('setActive refuses invalid ids', () => {
   assert.throws(() => active.setActive(setup().state, '../x'), /Invalid/);
 });

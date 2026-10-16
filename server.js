@@ -50,7 +50,8 @@ const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 // A server rconsole installed itself takes the place of MC_DIR/MC_SERVICE
 // (lib/active.js). Without one and without RCON_PASSWORD, rconsole starts
 // anyway so the first server can be created from the browser.
-const activeInstance = active.pick({ serversDir: config.serversDir, stateDir: config.stateDir, log });
+const legacyServer = fs.existsSync(path.join(config.mcDir, 'server.properties'));
+const activeInstance = active.pick({ serversDir: config.serversDir, stateDir: config.stateDir, legacy: legacyServer, log });
 if (activeInstance) Object.assign(config, active.overrides(config.serversDir, activeInstance));
 else config.activeServer = null;
 if (!activeInstance && !config.rconPassword && fs.existsSync(path.join(config.mcDir, 'server.properties'))) {
@@ -95,7 +96,7 @@ const servers = new Servers({ serversDir: config.serversDir, jobs, ops: serverOp
 // The first server becomes the active one; rconsole restarts (systemd brings
 // it back) to run every view on it.
 servers.onCreated = (id, kind) => {
-  if (config.activeServer || kind !== 'server') return;
+  if (config.activeServer || legacyServer || kind !== 'server') return;
   active.setActive(config.stateDir, id);
   log(`servers: ${id} is now the active server; restarting rconsole`);
   setTimeout(() => process.exit(75), 1500);
@@ -503,6 +504,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/servers$/, (p, b) => ['server create', `${b.id} (${b.distribution} ${b.version}${b.build ? ` #${b.build}` : ''}), EULA accepted`]],
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, ([id], b) => [`server ${b.action}`, id]],
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/console$/, ([id], b) => ['command', `${id}: /${String(b.command || '').replace(/^\//, '')}`]],
+  ['POST', /^\/api\/servers\/([a-z0-9-]+)\/show$/, ([id]) => ['server show', id]],
   ['DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b, q) => ['server delete', `${id}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
@@ -772,7 +774,7 @@ route('GET', /^\/api\/status$/, async () => ({
 // --- servers rconsole installs (SERVERS_DIR) ------------------------------------
 // Everything but reading is admin-only (the default for non-GET routes).
 
-route('GET', /^\/api\/servers$/, async () => ({ dir: config.serversDir, active: config.activeServer, servers: await servers.list(), distributions: distributions.list(), op: serverOps.state }));
+route('GET', /^\/api\/servers$/, async () => ({ dir: config.serversDir, active: config.activeServer, attached: legacyServer && !config.activeServer, servers: await servers.list(), distributions: distributions.list(), op: serverOps.state }));
 
 route('GET', /^\/api\/distributions\/([a-z]+)\/versions$/, async (req, res, [id]) => {
   try {
@@ -802,6 +804,17 @@ route('POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, async (req, res, [id]) =>
 route('POST', /^\/api\/servers\/([a-z0-9-]+)\/console$/, async (req, res, [id]) => {
   await servers.send(id, (await readJson(req)).command);
   return { ok: true };
+});
+
+// Shows another server in every view: rconsole restarts onto it.
+route('POST', /^\/api\/servers\/([a-z0-9-]+)\/show$/, async (req, res, [id]) => {
+  const i = servers.get(id);
+  if (i.kind !== 'server') throw httpError(400, 'A proxy has no worlds or players to show');
+  if (id === config.activeServer) throw httpError(409, `${id} is already shown`);
+  active.setActive(config.stateDir, id);
+  log(`servers: ${req.user} switched rconsole to ${id}; restarting`);
+  setTimeout(() => process.exit(75), 1500);
+  return { ok: true, restarting: true };
 });
 
 route('DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, async (req, res, [id]) => [202, servers.remove(id, { archive: new URL(req.url, 'http://x').searchParams.get('archive') !== '0', user: req.user })]);
