@@ -31,7 +31,7 @@
 - Abhängig von: 4
 
 ## 6. Helper-Jobs
-- [ ] `java-install`, `server-create`, `server-install`, `server-delete` mit Tests gegen ein Temp-Verzeichnis
+- [x] `java-install`, `server-create`, `server-delete` mit Tests (`server-install` für Updates folgt in Schritt 11) gegen ein Temp-Verzeichnis
 - Abhängig von: 2, 3, 4
 
 ## 7. Power pro Instanz, FIFO-Konsole, Autostart

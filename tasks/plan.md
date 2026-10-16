@@ -45,7 +45,7 @@ Details und Akzeptanzkriterien in `tasks/todo.md`. Jede Phase endet mit grünen 
 
 ### Phase 2: Lebenszyklus
 - [x] 5. Unit-Vorlagen `rconsole-mc@.service`/`.socket`, Starter `bin/mc-launch.js`, polkit-Regel
-- [ ] 6. Helper-Jobs `java-install`, `server-create`, `server-install`, `server-delete`
+- [x] 6. Helper-Jobs `java-install`, `server-create`, `server-install`, `server-delete`
 - [ ] 7. `Power` arbeitet pro Instanz; Konsole über FIFO; Autostart durch rconsole
 - [ ] 8. API: Instanzen anlegen, installieren, starten, stoppen, löschen (mit Rollen und Audit)
 

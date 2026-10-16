@@ -26,6 +26,7 @@ const modrinth = require('../lib/modrinth');
 const { FILE_RE: PLUGIN_FILE_RE } = require('../lib/plugins');
 const platform = require('../lib/platform');
 const configs = require('../lib/configs');
+const servers = require('./mc-servers');
 
 const MC = config.mcDir;
 const BK = config.backupDir;
@@ -430,6 +431,7 @@ const TASKS = {
   'plugin-remove': pluginRemove,
   'plugin-rollback': pluginRollback,
   'config-write': configWrite,
+  ...servers.TASKS,
 };
 
 function writeResult(file, result) {
