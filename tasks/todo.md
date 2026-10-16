@@ -14,7 +14,7 @@
 - Abhängig von: 1
 
 ## 3. Java-Auflösung
-- [ ] `javaFor(mcVersion)` über Mojang, `resolveJre(major, arch)` über Adoptium mit SHA-256
+- [x] `majorFor(distribution, mcVersion)` über Mojang, `resolveRuntime(major, arch)` über Adoptium mit SHA-256
 - Abhängig von: 1
 
 ## 4. Instanzmodell

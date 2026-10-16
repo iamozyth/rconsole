@@ -38,7 +38,7 @@ Details und Akzeptanzkriterien in `tasks/todo.md`. Jede Phase endet mit grünen 
 ### Phase 1: Fundament (ohne sichtbare Änderung)
 - [x] 1. Distributionskatalog mit Paper/Folia/Velocity und Vanilla, Tests mit gefälschten APIs
 - [x] 2. Purpur, Fabric, Quilt, Forge, NeoForge im Katalog
-- [ ] 3. Java-Auflösung (Mojang-Java-Version → Temurin-Download mit SHA-256)
+- [x] 3. Java-Auflösung (Mojang-Java-Version → Temurin-Download mit SHA-256)
 - [ ] 4. Instanzmodell `lib/instances.js` mit Validierung von `instance.json`
 
 ### Checkpoint 1: Katalog und Modell getestet, nichts Bestehendes verändert
