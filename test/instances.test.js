@@ -50,7 +50,7 @@ test('command: aikar flags, equal heap bounds, the jar and nogui', () => {
 test('command: Forge and NeoForge start from their args file', () => {
   const i = instances.validate({ ...base, distribution: 'neoforge', build: '26.3.0.86', flags: 'default', launch: { type: 'argsfile', path: 'libraries/net/neoforged/neoforge/26.3.0.86/unix_args.txt' } });
   const argv = instances.command(i, '/j');
-  assert.deepStrictEqual(argv, ['/j/bin/java', '-Xms1024M', '-Xmx4096M', '@libraries/net/neoforged/neoforge/26.3.0.86/unix_args.txt', 'nogui']);
+  assert.deepStrictEqual(argv, ['/j/bin/java', '-Xms1024M', '-Xmx4096M', '-Xlog:gc:file=logs/gc.log:time:filecount=2,filesize=4M', '@libraries/net/neoforged/neoforge/26.3.0.86/unix_args.txt', 'nogui']);
 });
 
 test('command: a proxy gets no nogui', () => {

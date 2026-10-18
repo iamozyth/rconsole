@@ -41,3 +41,14 @@ test('rcon: joins fragments before decoding, so split characters survive', async
     server.close();
   }
 });
+
+test('vanilla: minecraft: commands past plugin overrides, plain names where unknown', async () => {
+  const { Rcon } = require('../lib/rcon');
+  const sent = [];
+  const paper = Object.assign(Object.create(Rcon.prototype), { send: async (c) => (sent.push(c), c === 'minecraft:list' ? 'There are 0 of a max of 10 players online: ' : 'Essentials says hi') });
+  assert.match(await paper.vanilla('list'), /of a max of 10/);
+  const fabric = Object.assign(Object.create(Rcon.prototype), { send: async (c) => (sent.push(c), c.startsWith('minecraft:') ? 'Unknown or incomplete command, see below for error' : 'There are 1 of a max of 5 players online: Steve') });
+  assert.match(await fabric.vanilla('list'), /Steve/);
+  assert.match(await fabric.vanilla('list'), /Steve/);
+  assert.deepStrictEqual(sent, ['minecraft:list', 'minecraft:list', 'list', 'list']);
+});

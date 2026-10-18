@@ -62,7 +62,7 @@ if (!config.rconPassword) log(activeInstance ? `WARNING: ${activeInstance.id} ha
 
 const rcon = new Rcon({ host: config.rconHost, port: config.rconPort, password: config.rconPassword });
 const logTail = new LogTail(path.join(config.mcDir, 'logs', 'latest.log'));
-const stats = new Stats({ rcon, mcDir: config.mcDir });
+const stats = new Stats({ rcon, mcDir: config.mcDir, heapMax: activeInstance ? activeInstance.memoryMb * 1024 * 1024 : null });
 const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner, log, instance: config.activeServer });
 const activeWorld = async () => (await readProperties(config.mcDir))['level-name'] || 'world';
 const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: config.backupKeep, log, activeWorld });

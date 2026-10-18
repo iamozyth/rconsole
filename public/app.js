@@ -692,6 +692,29 @@ let countdownEnd = null;
 
 // Nominal readouts stay neutral; only off-nominal ones are marked, so the
 // strip never borrows an area's colour.
+// Memory: for a server rconsole runs, the Java heap really in use (live
+// data after the last garbage collection, from its GC log) out of its -Xmx.
+// The JVM reserves its whole heap up front, so the host's "used" mostly
+// says how much was given to Minecraft, not how much it needs.
+function renderMemory(s) {
+  const { host, heap } = s;
+  const hostUsed = host.mem.total - host.mem.available;
+  const hostLine = `Host: ${fmt.bytes(hostUsed)} of ${fmt.bytes(host.mem.total)} used, ${fmt.bytes(host.mem.available)} available.`;
+  $('s-mem-label').textContent = heap?.used != null ? 'Java heap' : 'Memory';
+  if (heap?.used != null) {
+    const share = heap.used / heap.max;
+    readout('s-mem', [fmt.bytes(heap.used), el('small', {}, ` / ${fmt.bytes(heap.max)}`)], level(share, 0.75, 0.9));
+    $('s-mem').parentElement.title = [
+      `${fmt.bytes(heap.used)} of the ${fmt.bytes(heap.max)} heap hold live data (after the last garbage collection, ${fmt.relative(heap.at)}).`,
+      `It had grown to ${fmt.bytes(heap.before)} before that collection; the most seen recently: ${fmt.bytes(heap.peak)}.`,
+      hostLine,
+    ].join('\n');
+    return;
+  }
+  readout('s-mem', [fmt.bytes(hostUsed), el('small', {}, ` / ${fmt.bytes(host.mem.total)}`)], level(hostUsed / host.mem.total, 0.8, 0.92));
+  $('s-mem').parentElement.title = heap ? `${hostLine}\nThe Java heap shows here after the server's first garbage collection.` : hostLine;
+}
+
 function readout(id, content, cls = '') {
   const off = cls === 'meh' || cls === 'bad';
   $(id).replaceChildren(...(off ? [icon('alert')] : []), ...[].concat(content));
@@ -731,8 +754,7 @@ function renderStatus(s) {
   readout('s-players', game?.players ? [String(game.players.online), el('small', {}, ` / ${game.players.max}`)] : '–');
   readout('s-time', game?.daytime != null ? [fmt.gameTime(game.daytime), game.day != null ? el('small', {}, ` day ${game.day}`) : ''] : '–');
   readout('s-cpu', host.cpu != null ? fmt.pct(host.cpu) : '–', host.cpu != null ? level(host.cpu, 0.7, 0.9) : '');
-  const memUsed = 1 - host.mem.available / host.mem.total;
-  readout('s-mem', [fmt.bytes(host.mem.total - host.mem.available), el('small', {}, ` / ${fmt.bytes(host.mem.total)}`)], level(memUsed, 0.8, 0.92));
+  renderMemory(s);
   if (host.disk) readout('s-disk', fmt.bytes(host.disk.available), level(1 - host.disk.available / host.disk.total, 0.8, 0.92));
   readout('s-uptime', fmt.duration(host.uptime));
 
@@ -819,7 +841,9 @@ async function loadServerSummary() {
       row('Players', players ? `${players.online} of ${players.max} online` : s.maxPlayers ? `up to ${s.maxPlayers}` : '–'),
       row('Access', [s.whitelist ? 'Whitelist on' : 'Anyone can join', sub(s.onlineMode ? ' · online mode' : ' · offline mode')]),
       row('Gameplay', [s.difficulty ? s.difficulty[0].toUpperCase() + s.difficulty.slice(1) : '–', s.gamemode ? sub(` · ${s.gamemode}`) : null]),
-      row('Memory', s.process?.rss ? fmt.bytes(s.process.rss) : sub('–')),
+      row('Memory', lastStatus?.heap?.used != null
+        ? [fmt.bytes(lastStatus.heap.used), sub(` in use of a ${fmt.bytes(lastStatus.heap.max)} heap`)]
+        : s.process?.rss ? fmt.bytes(s.process.rss) : sub('–')),
       row(pf.addons === 'mod' ? 'Mods' : 'Plugins', pf.addons ? el('a', { href: '#server/plugins' }, 'Manage') : sub('None')),
       row('Message of the day', s.motd ? s.motd.replace(/§./g, '') : sub('–')));
   } catch (e) {
@@ -2496,8 +2520,16 @@ async function loadMetrics() {
     statList('ms-players', [['Now', lastOf(m.players) ?? '–'], ['Peak', pl.length ? Math.max(...pl) : '–']]);
     lineChart($('mc-cpu'), { ...base, label: 'CPU', max: 1, yFmt: pct, series: [{ values: m.cpu, label: 'Host', fmt: pct }, { values: m.pcpu, label: 'Minecraft', fmt: pct, cls: 'alt' }] });
     statList('ms-cpu', [['Host', lastOf(m.cpu) != null ? pct(lastOf(m.cpu)) : '–'], ['Minecraft', lastOf(m.pcpu) != null ? pct(lastOf(m.pcpu)) : '–']]);
-    lineChart($('mc-mem'), { ...base, label: 'Memory', max: 1, yFmt: pct, series: [{ values: m.mem, label: 'Host used', fmt: pct }] });
-    statList('ms-mem', [['Host', lastOf(m.mem) != null ? pct(lastOf(m.mem)) : '–'], ['Minecraft RSS', lastOf(m.rss) != null ? fmt.bytes(lastOf(m.rss)) : '–']]);
+    const heapSeries = (m.heap || []).some((v) => v != null);
+    lineChart($('mc-mem'), { ...base, label: 'Memory', max: 1, yFmt: pct, series: [
+      ...(heapSeries ? [{ values: m.heap, label: 'Java heap in use', fmt: pct }] : []),
+      { values: m.mem, label: 'Host used', fmt: pct },
+    ] });
+    statList('ms-mem', [
+      ...(heapSeries ? [['Java heap', lastOf(m.heap) != null ? pct(lastOf(m.heap)) : '–']] : []),
+      ['Host', lastOf(m.mem) != null ? pct(lastOf(m.mem)) : '–'],
+      ['Minecraft RSS', lastOf(m.rss) != null ? fmt.bytes(lastOf(m.rss)) : '–'],
+    ]);
   } catch (e) {
     $('m-info').textContent = `Can't load metrics: ${e.message}`;
   }

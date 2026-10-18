@@ -16,7 +16,7 @@ const path = require('path');
 const instances = require('../lib/instances');
 
 const DIR_RE = /^\/[A-Za-z0-9._/-]+$/;
-const TOKEN_RE = /^[A-Za-z0-9@_.:+=/-]+$/;
+const TOKEN_RE = /^[A-Za-z0-9@_.:+=/,-]+$/;
 
 const fail = (msg) => {
   throw new Error(msg);
@@ -42,6 +42,10 @@ function launchEnv(serversDir, id) {
   if (!fs.statSync(java).isFile()) fail(`Java ${instance.java} is not installed (${java})`);
   if (!instance.launch) fail(`${id} is not installed yet`);
   plainPath(path.join(serversDir, id), ...instance.launch.path.split('/'));
+  // The GC log goes to logs/, which the server only creates on its first start.
+  const logs = path.join(serversDir, id, 'logs');
+  if (!fs.existsSync(logs)) fs.mkdirSync(logs, { mode: 0o750 });
+  else if (fs.lstatSync(logs).isSymbolicLink()) fail(`${logs} is a link`);
   const [bin, ...args] = instances.command(instance, javaHome);
   for (const a of [bin, ...args]) if (!TOKEN_RE.test(a)) fail(`Unsafe argument ${a}`);
   return `JAVA=${bin}\nJAVA_ARGS=${args.join(' ')}\n`;
