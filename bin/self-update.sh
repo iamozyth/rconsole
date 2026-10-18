@@ -4,7 +4,9 @@
 # fast-forwards the checkout to the configured branch of its own remote;
 # rconsole can't pass arguments to it.
 #
-#   1. fetch and fast-forward (refuses local changes or diverged history)
+#   1. fetch and fast-forward (refuses local changes or diverged history);
+#      with SELF_UPDATE_SIGNERS in /etc/rconsole.env, only to the newest
+#      release tag signed by one of those SSH keys
 #   2. check the new code parses, otherwise roll back
 #   3. install changed unit files / polkit rule, unless the installed copy
 #      was customized (then it reports the manual step instead)
@@ -48,6 +50,12 @@ main() {
     exit 1
   fi
 
+  # The installed (trusted) version's reader, for SELF_UPDATE_SIGNERS.
+  # shellcheck source=units.sh
+  source "$dir/bin/units.sh"
+  load_rconsole_env "${RCONSOLE_ENV:-/etc/rconsole.env}"
+  local signers="${SELF_UPDATE_SIGNERS:-}" target=FETCH_HEAD what="origin/$branch"
+
   before="$("${git[@]}" rev-parse HEAD)"
   report running "Fetching $branch"
   if ! "${git[@]}" fetch --quiet origin "$branch"; then
@@ -58,8 +66,39 @@ main() {
     report failed "$dir has local changes; update it by hand"
     exit 1
   fi
-  if ! "${git[@]}" merge --ff-only --quiet FETCH_HEAD; then
-    report failed "Local history differs from origin/$branch; update it by hand"
+  if [ -n "$signers" ]; then
+    # Signed releases only: the newest v* tag with an SSH signature from a
+    # key in the allowed-signers file. That file is root's, so neither
+    # rconsole nor whoever can push to GitHub can add a key to it.
+    if [[ ! "$signers" =~ ^/[A-Za-z0-9._/-]+$ ]] || [ ! -f "$signers" ] || [ -L "$signers" ] \
+      || [ "$(stat -c %u "$signers")" != 0 ] || [ -n "$(find "$signers" -perm /022)" ]; then
+      report failed "SELF_UPDATE_SIGNERS must be a file owned by root and writable only by root"
+      exit 1
+    fi
+    if ! "${git[@]}" fetch --quiet --force origin 'refs/tags/v*:refs/tags/v*'; then
+      report failed "git fetch of the release tags failed (network?)"
+      exit 1
+    fi
+    target=""
+    local t
+    while read -r t; do
+      "${git[@]}" cat-file tag "$t" 2>/dev/null | grep -q -- '-----BEGIN SSH SIGNATURE-----' || continue
+      if "${git[@]}" -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile="$signers" verify-tag "$t" >/dev/null 2>&1; then
+        target="$t^{commit}" what="$t"
+        break
+      fi
+    done < <("${git[@]}" tag -l 'v*' --sort=-v:refname)
+    if [ -z "$target" ]; then
+      report failed "No release tag signed by a key in $signers"
+      exit 1
+    fi
+    if "${git[@]}" merge-base --is-ancestor "$target" HEAD; then
+      report done "Already up to date ($what)"
+      exit 0
+    fi
+  fi
+  if ! "${git[@]}" merge --ff-only --quiet "$target"; then
+    report failed "Local history differs from $what; update it by hand"
     exit 1
   fi
   after="$("${git[@]}" rev-parse HEAD)"

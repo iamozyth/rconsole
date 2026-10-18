@@ -101,7 +101,10 @@ function restartWhenIdle() {
   // serverOps is checked once its own operation (the create or delete that
   // asked for the restart) has had time to finish.
   const busy = () => ops.busy() || serverOps.busy() || Boolean(updates.running) || countdown.endsAt != null;
-  const tick = () => (busy() ? setTimeout(tick, 2000) : setTimeout(() => process.exit(75), 500));
+  const tick = () => (busy() ? setTimeout(tick, 2000) : setTimeout(() => {
+    sessions.flush(); // everyone stays signed in across the restart
+    process.exit(75);
+  }, 500));
   setTimeout(tick, 1500);
 }
 
@@ -146,7 +149,7 @@ notify.handlers = {
 };
 const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log, audit: (e) => audit.record(e) });
 const users = new Users(config.stateDir);
-const sessions = new Sessions();
+const sessions = new Sessions(path.join(config.stateDir, 'sessions.json'));
 const throttle = new Throttle();
 const lastTotpStep = new Map(); // user -> last accepted TOTP step, blocks code replay
 
@@ -390,16 +393,26 @@ async function login(req, res) {
     throw httpError(401, 'Invalid username or password');
   }
 
+  if (!user.totp && config.require2fa.includes(users.roleOf(name))) {
+    log(`auth: ${name} has no 2FA, which is required for ${users.roleOf(name)}s`);
+    audit.record({ user: name, ip, action: 'login', ok: false, error: '2FA required, not set up' });
+    throw httpError(403, `Your role needs two-factor sign-in. On the server, run: node cli.js user totp ${name}`);
+  }
+
   if (user.totp) {
     if (!code) return [401, { needCode: true }];
-    const step = verifyTotp(user.totp, String(code).replace(/\s/g, ''));
-    if (step === null || step <= (lastTotpStep.get(name) ?? -1)) {
+    const given = String(code).replace(/\s/g, '');
+    const step = /^\d{6}$/.test(given) ? verifyTotp(user.totp, given) : null;
+    if (step === null && users.useRecovery(name, given)) {
+      const left = (users.get(name).recovery || []).length;
+      log(`auth: ${name} used a recovery code (${left} left)`);
+      audit.record({ user: name, ip, action: 'recovery code used', target: `${left} left` });
+    } else if (step === null || step <= (lastTotpStep.get(name) ?? -1)) {
       throttle.fail(...keys);
       log(`auth: wrong 2FA code for "${name}" from ${ip}`);
       audit.record({ user: name, ip, action: 'login', ok: false, error: 'wrong 2FA code' });
       throw httpError(401, 'Invalid code', { needCode: true });
-    }
-    lastTotpStep.set(name, step);
+    } else lastTotpStep.set(name, step);
   }
 
   throttle.reset(...keys);
@@ -1135,6 +1148,11 @@ function mapToken(req) {
 // Valid while the session that asked for it is.
 // Same checks as the cookie: ends with the session, and with a password or
 // 2FA change of its user.
+// Links of sessions that ended (sign-out, expiry) are dropped regularly.
+setInterval(() => {
+  for (const t of mapTokens.keys()) mapSessionUser(t);
+}, 10 * 60 * 1000).unref();
+
 function mapSessionUser(token) {
   const user = mapTokens.has(token) ? sessionUser(mapTokens.get(token)) : null;
   if (!user) mapTokens.delete(token);
@@ -1211,6 +1229,9 @@ const server = http.createServer((req, res) => {
 });
 
 async function dispatch(req, res) {
+  // Only over HTTPS (the proxy says so): browsers ignore it on plain HTTP,
+  // and it must not pin a host that is reached without TLS.
+  if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   const { pathname } = new URL(req.url, 'http://localhost');
   const isRead = req.method === 'GET' || req.method === 'HEAD';
 
@@ -1306,6 +1327,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     logTail.stop();
     metrics.stop();
     rcon.close();
+    sessions.flush();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref(); // open log streams keep the server alive
   });

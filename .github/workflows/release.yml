@@ -3,6 +3,10 @@
 #   doesn't exist yet (the tag v<version> is created on the pushed commit);
 # - on a pushed version tag (v1.2.3).
 # Release notes come from docs/releases/<tag>.md when it exists.
+# With the repository variable SIGNED_TAGS=true only pushed tags publish a
+# release: the maintainer pushes a signed tag (git tag -s), which servers
+# with SELF_UPDATE_SIGNERS install, and this workflow never creates an
+# unsigned one first.
 name: Release
 
 on:
@@ -24,7 +28,9 @@ jobs:
         id: v
         env:
           GH_TOKEN: ${{ github.token }}
+          SIGNED_TAGS: ${{ vars.SIGNED_TAGS }}
         run: |
+          if [ "${GITHUB_REF_TYPE}" = branch ] && [ "${SIGNED_TAGS}" = true ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [ "${GITHUB_REF_TYPE}" = tag ]; then tag="${GITHUB_REF_NAME}"; else tag="v$(node -p 'require("./package.json").version')"; fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           if gh release view "$tag" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
