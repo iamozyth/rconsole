@@ -278,7 +278,7 @@ sudo -u rconsole node cli.js user add yourname
 sudo -u rconsole node cli.js user totp yourname   # optional 2FA, highly recommended
 ```
 
-Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user role <name> <admin|moderator|viewer>`, `user totp-off <name>`. Add team members with a role: `user add <name> --role moderator`. Changes apply immediately, no restart needed.
+Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user role <name> <admin|moderator|viewer>`, `user totp-off <name>`, `user link <local> <sso-account>` and `user unlink <name>` (see Single sign-on). Add team members with a role: `user add <name> --role moderator`. Changes apply immediately, no restart needed.
 
 ## Configuration
 
@@ -344,7 +344,8 @@ OIDC_NAME=authentik
 
 - **Groups decide**: someone in none of the three groups is refused (and no account is created). Moving someone to another group changes their role at their next sign-in and ends their sessions with the old role. SSO sessions end after `OIDC_SESSION_HOURS` (12), so removing someone at the provider takes effect within that time at most.
 - **Where the settings live**: saved from Settings in `/var/lib/rconsole/sso.json` (mode 600); `OIDC_*` and `LOCAL_LOGIN` in `/etc/rconsole.env` win over it.
-- **Accounts**: the first sign-in creates an rconsole account named after the provider username (`node cli.js user list` shows them as SSO). It is tied to the provider's user ID, has no password, and never takes over a local account of the same name; that one gets a `-2` suffix instead.
+- **Accounts**: the first sign-in creates an rconsole account named after the provider username (`node cli.js user list` shows them as SSO). It is tied to the provider's user ID, has no password, and never takes over a local account of the same name on its own (a provider user named `admin` must not become your local `admin`); the new account gets a `-2` suffix instead.
+- **Keep your local account**: sign in with its password, open **Settings → Account** and click **Link to authentik** (or whatever you named the provider). After signing in there, the provider user opens that account from then on: its password and 2FA here are removed and its role follows the provider's groups. If you already signed in with the provider and got `name-2`, linking merges `name-2` into it; on the server the same is `sudo -u rconsole node cli.js user link name name-2`. `user unlink <name>` turns it back into a local account (set a password with `user passwd`).
 - **Sign out** also ends the provider session, so the next visit asks the provider again.
 - **Other providers**: Keycloak needs a *Group Membership* mapper named `groups` (full group path off). Auth0 has no groups claim by default: add a post-login Action such as `api.idToken.setCustomClaim('https://rconsole/groups', event.authorization.roles)` and set `OIDC_GROUPS_CLAIM=https://rconsole/groups`; also add `PUBLIC_URL/login` to Allowed Logout URLs.
 

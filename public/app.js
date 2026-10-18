@@ -3810,6 +3810,11 @@ async function signOut() {
 }
 $('logout').addEventListener('click', signOut);
 $('logout-m').addEventListener('click', signOut);
+// Back from linking a local account to the provider (see renderAccount).
+if (new URLSearchParams(location.search).has('linked')) {
+  history.replaceState(null, '', `/${location.hash}`);
+  setTimeout(() => toast('Linked. From now on, sign in with single sign-on.'), 0);
+}
 api('GET', '/api/me').then(({ user, role, via, name, auth }) => {
   applyRole(role);
   me = { user, role, via, name, auth };
@@ -3846,6 +3851,13 @@ function renderAccount() {
     row('Signed in with', sso || 'Username and password'),
     row(sso ? 'Password and 2FA' : 'Change password or 2FA', sso ? `Managed in ${sso}` : el('span', {}, 'On the server: ', el('code', {}, `node cli.js user passwd ${me.user}`))),
   );
+  // A local account can be tied to the provider user once, by signing in there.
+  const provider = me.auth?.sso?.name;
+  if (!sso && provider) {
+    $('acct-facts').append(row(`Sign in with ${provider}`, el('span', {},
+      el('a', { class: 'btn', href: '/auth/oidc/start?link=1' }, `Link to ${provider}`),
+      el('span', { class: 'note' }, ` Then you sign in to ${me.user} with ${provider}; your password and 2FA here are removed, and your role follows your ${provider} groups.`))));
+  }
 }
 
 async function loadUsers() {

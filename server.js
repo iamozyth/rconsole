@@ -461,8 +461,18 @@ async function ssoStart(req, res) {
   if (!oidc) return toLogin(res, 'sso_off');
   const ip = clientIp(req);
   if (throttle.blocked(`ip:${ip}`)) return toLogin(res, 'sso_locked');
+  // ?link=1 from Settings → Account: tie the provider user to the local
+  // account signed in here with its password. The session cookie is
+  // SameSite=Strict, so a link from another site can't start this.
+  let link = null;
+  if (new URL(req.url, 'http://x').searchParams.get('link') === '1') {
+    const s = sessions.get(cookies(req)[COOKIE]);
+    const u = s && users.get(s.user);
+    if (!u || s.via !== 'password' || u.sso) return toLogin(res, 'sso_link');
+    link = { user: s.user, changed: u.changed };
+  }
   try {
-    const { url, cookie } = await oidc.begin();
+    const { url, cookie } = await oidc.begin({ link });
     send(res, 302, '', 'text/plain', { Location: url, 'Set-Cookie': oidcCookie(req, cookie, 600) });
   } catch (err) {
     log(`sso: can't start sign-in: ${err.message}`);
@@ -494,7 +504,25 @@ async function ssoCallback(req, res) {
     audit.record({ user: String(label), ip, action: 'login', ok: false, target: sso.name, error: 'not in an rconsole group' });
     return toLogin(res, 'sso_denied', clear);
   }
-  const name = users.upsertSso({ iss: claims.iss, sub: claims.sub, username: claims.preferred_username, name: claims.name, email: claims.email, role });
+  const ident = { iss: claims.iss, sub: claims.sub, username: claims.preferred_username, name: claims.name, email: claims.email, role };
+  let name;
+  if (result.link) {
+    // The account must be the one that started the link, unchanged since
+    // (no password change, no sign-out of all sessions in between).
+    const u = users.get(result.link.user);
+    if (!u || u.sso || u.changed !== result.link.changed) {
+      audit.record({ user: result.link.user, ip, action: 'sso link', ok: false, target: sso.name, error: 'account changed while linking' });
+      return toLogin(res, 'sso_link', clear);
+    }
+    let merged;
+    ({ name, merged } = users.linkSso(result.link.user, ident));
+    log(`auth: ${name} linked to ${sso.name} user ${JSON.stringify(String(label))}${merged ? `, merged ${merged} into it` : ''}`);
+    audit.record({ user: name, ip, action: 'sso link', target: `${sso.name} · ${String(label).slice(0, 100)}${merged ? ` · merged ${merged}` : ''}` });
+  } else {
+    const namesake = users.localNamesake(ident);
+    name = users.upsertSso(ident);
+    if (namesake) log(`sso: ${JSON.stringify(String(label))} got the new account ${name}, not the local ${namesake}. To use ${namesake}, sign in with its password and link it in Settings → Account, or run: node cli.js user link ${namesake} ${name}`);
+  }
   throttle.reset(`ip:${ip}`);
   sessions.destroy(cookies(req)[COOKIE]); // whoever was signed in on this browser before is signed out
   const token = sessions.create(name, { via: 'sso', idToken, maxAge: sso.sessionHours * 3600 * 1000 });
@@ -503,7 +531,8 @@ async function ssoCallback(req, res) {
   // A page, not a redirect: the browser treats a redirect chain that began
   // at the provider as cross-site and would hold back the SameSite=Strict
   // session cookie on the way to /.
-  const page = '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Signing in…</title><p><a href="/">Continue to rconsole</a></p>';
+  const dest = result.link ? '/?linked#settings/account' : '/';
+  const page = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${dest}"><title>Signing in…</title><p><a href="${dest}">Continue to rconsole</a></p>`;
   send(res, 200, page, 'text/html; charset=utf-8', { 'Set-Cookie': [sessionCookie(req, token, Math.round(sso.sessionHours * 3600)), oidcCookie(req, '', 0)] });
 }
 
