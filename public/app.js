@@ -955,16 +955,22 @@ async function loadServers() {
     serversAttached = attached;
     if (!distLoaded) renderDistributions(distributions);
     const names = Object.fromEntries(distributions.map((d) => [d.id, d.name]));
-    $('servers-info').textContent = servers.length
-      ? `${servers.length} server${servers.length === 1 ? '' : 's'} in ${dir}.${active ? ` rconsole shows ${active}.` : ''}`
-      : `No server yet. Install one: rconsole downloads it with the right Java into ${dir}.`;
-    if (attached) $('servers-info').textContent += ' rconsole shows the server it is attached to until you press Show on one of these.';
+    $('servers-info').replaceChildren(
+      servers.length
+        ? `${servers.length} server${servers.length === 1 ? '' : 's'}${active ? `, showing ${active}` : attached ? ', showing the server rconsole is attached to until you press Show' : ''}.`
+        : 'No server yet. rconsole downloads it with the right Java and checks every file.',
+      el('span', { class: 'servers-dir mono', title: dir }, dir));
+    // The shown server first, then game servers, then proxies, by name.
+    const rank = (s) => (s.id === active ? 0 : s.kind === 'server' ? 1 : 2);
+    servers.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
     $('server-list').replaceChildren(...(servers.length
       ? servers.map((s) => el('tr', {},
-          el('td', { class: 'primary-cell', 'data-label': 'Server' }, el('b', {}, s.name), s.id === active ? el('span', { class: 'pill own' }, 'Shown') : null, el('span', { class: 'sub mono' }, s.id)),
-          el('td', { 'data-label': 'Software' }, `${names[s.distribution] || s.distribution} ${s.version}`, s.build ? el('span', { class: 'sub' }, typeof s.build === 'number' ? `build ${s.build}` : `loader ${s.build}`) : null),
-          el('td', { class: 'mono', 'data-label': 'Port' }, String(s.port)),
-          el('td', { 'data-label': 'Memory' }, fmt.bytes(s.memoryMb * 1024 * 1024), el('span', { class: 'sub' }, `Java ${s.java}`)),
+          el('td', { class: 'primary-cell', 'data-label': 'Server' },
+            el('span', { class: 'srv-name' }, el('b', {}, s.name), s.id === active ? el('span', { class: 'pill own' }, 'Shown') : null, s.kind === 'proxy' ? el('span', { class: 'pill' }, 'Proxy') : null),
+            s.name !== s.id ? el('span', { class: 'sub mono' }, s.id) : null),
+          el('td', { class: 'nowrap', 'data-label': 'Software' }, `${names[s.distribution] || s.distribution} ${s.version}`, s.build ? el('span', { class: 'sub' }, typeof s.build === 'number' ? `build ${s.build}` : `loader ${s.build}`) : null),
+          el('td', { class: 'mono num', 'data-label': 'Port' }, String(s.port)),
+          el('td', { class: 'nowrap', 'data-label': 'Memory' }, fmt.bytes(s.memoryMb * 1024 * 1024), el('span', { class: 'sub' }, `Java ${s.java}`)),
           el('td', { 'data-label': 'State' }, serverStateLabel(s)),
           el('td', { class: 'act' }, atLeast('admin') ? [
             s.state.active === 'active'
