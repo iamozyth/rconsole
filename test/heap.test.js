@@ -26,3 +26,11 @@ test('full collections and gigabyte units are read too', () => {
   const r = heap.parse('[2026-10-18T19:00:00.000+0000] GC(9) Pause Full (System.gc()) 3G->1G(4G) 800.0ms');
   assert.deepStrictEqual([r.before, r.used, r.committed], [3 * 1024 * M, 1024 * M, 4 * 1024 * M]);
 });
+
+test('numbers are read whole; remark and cleanup phases are not collections', () => {
+  const r = heap.parse([
+    '[2026-10-18T19:59:36.000+0200] GC(10) Pause Young (Mixed) (G1 Evacuation Pause) 905M->295M(4096M) 3.1ms',
+    '[2026-10-18T19:59:36.590+0200] GC(11) Pause Cleanup 305M->305M(4096M) 0.015ms',
+  ].join('\n'));
+  assert.deepStrictEqual([r.before, r.used, r.collections], [905 * M, 295 * M, 1]);
+});
