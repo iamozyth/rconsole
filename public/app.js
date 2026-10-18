@@ -10,7 +10,7 @@ function el(tag, props = {}, ...children) {
     else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
     else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v === true ? '' : v);
   }
-  node.append(...children.flat().filter((c) => c !== null && c !== undefined && c !== false && c !== ''));
+  node.append(...children.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false && c !== ''));
   return node;
 }
 
