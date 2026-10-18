@@ -318,7 +318,14 @@ function readJson(req, limit = 16 * 1024) {
   });
 }
 
+// Open log streams per session: a few tabs are normal, hundreds are not.
+const STREAMS_PER_SESSION = 8;
+const streams = new Map(); // session cookie -> open streams
+
 function streamLogs(req, res) {
+  const session = cookies(req)[COOKIE];
+  if ((streams.get(session) || 0) >= STREAMS_PER_SESSION) return send(res, 429, { error: 'Too many open log views; close some tabs' });
+  streams.set(session, (streams.get(session) || 0) + 1);
   res.writeHead(200, {
     ...SECURITY_HEADERS,
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -339,6 +346,8 @@ function streamLogs(req, res) {
     res.write(': ping\n\n');
   }, 15000);
   req.on('close', () => {
+    if (streams.get(session) > 1) streams.set(session, streams.get(session) - 1);
+    else streams.delete(session);
     clearInterval(ping);
     logTail.off('line', onLine);
     logTail.off('status', onStatus);
@@ -1019,7 +1028,8 @@ route('GET', /^\/api\/backups\/([^/]+)$/, async (req, res, [name]) => {
     'Content-Length': stat.size,
     'Content-Disposition': `attachment; filename="${path.basename(file)}"`,
   });
-  fs.createReadStream(file).pipe(res);
+  // pipeline: a read error ends the download instead of leaving it hanging.
+  require('stream').pipeline(fs.createReadStream(file), res, (err) => err && err.code !== 'ERR_STREAM_PREMATURE_CLOSE' && log(`download ${path.basename(file)}: ${err.message}`));
   return null;
 });
 

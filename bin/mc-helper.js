@@ -443,6 +443,32 @@ function writeResult(file, result) {
   writeExclusive(path.join(realDir(jobsDir), file), JSON.stringify({ ...result, finished: new Date().toISOString() }));
 }
 
+// Results older than 30 days go, except the newest server update (rconsole
+// shows its version when the log doesn't). Only plain files are removed.
+function pruneResults(now = Date.now()) {
+  const old = [];
+  let keep = null;
+  for (const f of fs.readdirSync(jobsDir)) {
+    if (!f.endsWith('.json')) continue;
+    const p = path.join(jobsDir, f);
+    const st = fs.lstatSync(p, { throwIfNoEntry: false });
+    if (!st?.isFile()) continue;
+    if (now - st.mtimeMs > 30 * 86400 * 1000) old.push([p, st.mtimeMs]);
+  }
+  for (const [p] of old.sort((a, b) => b[1] - a[1])) {
+    if (!keep) {
+      try {
+        const r = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (r?.ok && r.version && r.build) {
+          keep = p;
+          continue;
+        }
+      } catch {}
+    }
+    fs.rmSync(p, { force: true });
+  }
+}
+
 async function main() {
   const [mode, arg] = process.argv.slice(2);
   let kind;
@@ -482,6 +508,11 @@ async function main() {
     }
     const result = await TASKS[kind](args);
     writeResult(resultFile, { ok: true, kind, ...result });
+    try {
+      pruneResults();
+    } catch (err) {
+      console.error(`pruning old results: ${err.message}`);
+    }
     console.log(`${kind}: ok`);
   } catch (err) {
     writeResult(resultFile, { ok: false, kind, error: err.message });
@@ -490,7 +521,7 @@ async function main() {
   }
 }
 
-module.exports = { TASKS };
+module.exports = { TASKS, pruneResults };
 
 if (require.main === module) {
   main().catch((err) => {

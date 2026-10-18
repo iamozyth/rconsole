@@ -24,7 +24,7 @@ fs.mkdirSync(BK, { recursive: true });
 world('world', 'A');
 fs.writeFileSync(path.join(MC, 'server.properties'), '#c\nlevel-name=world\nrcon.password=x\nmotd=hi\n');
 
-const { TASKS } = require('../bin/mc-helper');
+const { TASKS, pruneResults } = require('../bin/mc-helper');
 const read = (p) => fs.readFileSync(path.join(MC, p), 'utf8');
 
 test('backup names the archive after the world', async () => {
@@ -97,3 +97,20 @@ test('properties: editable keys pass, protected keys are refused', async () => {
 });
 
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+test('old job results are pruned, except the newest server update', () => {
+  const jobs = path.join(BK, '.jobs');
+  fs.mkdirSync(jobs, { recursive: true });
+  const old = (Date.now() - 40 * 86400 * 1000) / 1000;
+  const put = (name, data, age) => {
+    fs.writeFileSync(path.join(jobs, name), JSON.stringify(data));
+    if (age) fs.utimesSync(path.join(jobs, name), age, age);
+  };
+  put('a.json', { ok: true, kind: 'backup' }, old);
+  put('b.json', { ok: true, kind: 'paper-update', version: '1.21.4', build: 100 }, old - 10);
+  put('c.json', { ok: true, kind: 'paper-update', version: '1.21.3', build: 90 }, old - 20);
+  put('d.json', { ok: true, kind: 'backup' });
+  fs.symlinkSync('/etc/hostname', path.join(jobs, 'e.json'));
+  pruneResults();
+  assert.deepStrictEqual(fs.readdirSync(jobs).sort(), ['b.json', 'd.json', 'e.json']);
+});
