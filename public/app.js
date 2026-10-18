@@ -1023,13 +1023,14 @@ serverForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = serverForm.elements;
   if (!f.distribution.value) return toast('Pick the server software.', 'bad');
-  if (!f.eula.checked) return toast('Accept the Minecraft EULA to install a server.', 'bad');
+  const proxy = f.distribution.value === 'velocity';
+  if (!proxy && !f.eula.checked) return toast('Accept the Minecraft EULA to install a server.', 'bad');
   const buildRaw = f.build.value;
   const body = {
     id: f.id.value.trim(), name: f.id.value.trim(), distribution: f.distribution.value, version: f.version.value,
     build: buildRaw === '' ? null : /^\d+$/.test(buildRaw) && ['paper', 'folia', 'velocity', 'purpur'].includes(f.distribution.value) ? Number(buildRaw) : buildRaw,
     port: Number(f.port.value), memoryMb: Number(f.memoryMb.value), flags: f.flags.value,
-    start: f.start.checked, autostart: f.autostart.checked, eula: true,
+    start: f.start.checked, autostart: f.autostart.checked, eula: !proxy && f.eula.checked,
   };
   await busy(serverForm.querySelector('.btn-primary'), async () => {
     try {

@@ -794,8 +794,7 @@ route('GET', /^\/api\/distributions\/([a-z]+)\/versions\/([0-9.]+)\/builds$/, as
 
 route('POST', /^\/api\/servers$/, async (req) => {
   const b = await readJson(req);
-  if (b.eula !== true) throw httpError(400, 'Accept the Minecraft EULA (https://aka.ms/MinecraftEULA) to create a server');
-  const wish = { id: b.id, name: b.name, distribution: b.distribution, version: b.version, build: b.build ?? null, memoryMb: b.memoryMb, port: b.port, flags: b.flags, autostart: b.autostart === true, eula: true };
+  const wish = { id: b.id, name: b.name, distribution: b.distribution, version: b.version, build: b.build ?? null, memoryMb: b.memoryMb, port: b.port, flags: b.flags, autostart: b.autostart === true, eula: b.eula === true };
   return [202, servers.create(wish, { user: req.user, start: b.start !== false })];
 });
 

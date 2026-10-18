@@ -167,9 +167,9 @@ function writeServerProperties(dir, { port, motd }) {
 async function serverCreate(args) {
   serversRoot();
   const wish = instances.validate({ ...args, java: 8, launch: null, build: args.build ?? null });
-  if (!args.eula?.by) fail('The Minecraft EULA must be accepted first');
-  const eula = { by: String(args.eula.by).replace(/[^\w.@-]/g, '').slice(0, 64), at: String(args.eula.at || '').replace(/[^\w:.+-]/g, '').slice(0, 40) || new Date().toISOString() };
-  if (!eula.by) fail('The Minecraft EULA must be accepted first');
+  const eula = args.eula?.by ? { by: String(args.eula.by).replace(/[^\w.@-]/g, '').slice(0, 64), at: String(args.eula.at || '').replace(/[^\w:.+-]/g, '').slice(0, 40) || new Date().toISOString() } : null;
+  // Only game servers come under the Minecraft EULA; proxies don't.
+  if (wish.kind === 'server' && !eula?.by) fail('The Minecraft EULA must be accepted first');
   const dir = path.join(SV, wish.id);
   if (fs.existsSync(dir)) fail(`A server named ${wish.id} already exists`);
   if (instances.list(SV).some((i) => i.port === wish.port)) fail(`Port ${wish.port} is used by another server`);
