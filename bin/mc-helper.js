@@ -20,7 +20,7 @@ const config = require('../lib/config');
 const { readProperties } = require('../lib/access');
 const properties = require('../lib/properties');
 const settings = require('../lib/settings');
-const paper = require('../lib/paper');
+const distributions = require('../lib/distributions');
 const names = require('../lib/names');
 const modrinth = require('../lib/modrinth');
 const { FILE_RE: PLUGIN_FILE_RE } = require('../lib/plugins');
@@ -261,8 +261,8 @@ async function paperUpdate({ version, build, rollback }) {
   // Which project (paper/folia) is decided here from MC_DIR, not by rconsole.
   const pf = platform.detect(MC);
   if (!pf.updates) fail(`Automatic updates aren't available for ${pf.name}`);
-  const download = await paper.download(version, build, pf.updates);
-  const body = await fetchVerified(download.url, 'sha256', download.sha256, paper.USER_AGENT);
+  const download = await distributions.resolve(pf.updates, version, build);
+  const body = await fetchVerified(download.url, download.algo, download.hash, distributions.USER_AGENT);
   const tmp = path.join(MC, `.${config.mcJar}.download`);
   try {
     fs.writeFileSync(tmp, body, { mode: 0o640 });
@@ -272,7 +272,7 @@ async function paperUpdate({ version, build, rollback }) {
   } finally {
     fs.rmSync(tmp, { force: true });
   }
-  return { version, build, sha256: download.sha256, size: download.size };
+  return { version, build, sha256: download.hash, size: download.size };
 }
 
 // --- plugins ------------------------------------------------------------------
