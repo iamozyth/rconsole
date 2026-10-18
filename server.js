@@ -43,6 +43,7 @@ const crypto = require('crypto');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast } = require('./lib/auth');
 const { Oidc, roleFor } = require('./lib/oidc');
 const { SsoSettings } = require('./lib/sso');
+const { maskIps, maskDeep } = require('./lib/redact');
 const properties = require('./lib/properties');
 
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -244,7 +245,14 @@ function cookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const raw = part.slice(i + 1).trim();
+    // Malformed percent-encoding (anyone can send it) must not throw.
+    try {
+      out[part.slice(0, i).trim()] = decodeURIComponent(raw);
+    } catch {
+      out[part.slice(0, i).trim()] = raw;
+    }
   }
   return out;
 }
@@ -315,8 +323,10 @@ function streamLogs(req, res) {
     'X-Accel-Buffering': 'no',
   });
   const event = (name, data) => res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
-  event('backlog', { lines: logTail.backlog, error: logTail.error });
-  const onLine = (line) => event('line', line);
+  // Player addresses are for moderators and admins.
+  const mask = roleAtLeast(req.role, 'moderator') ? (l) => l : maskIps;
+  event('backlog', { lines: logTail.backlog.map(mask), error: logTail.error });
+  const onLine = (line) => event('line', mask(line));
   const onStatus = (error) => event('status', { error });
   logTail.on('line', onLine);
   logTail.on('status', onStatus);
@@ -343,7 +353,9 @@ async function login(req, res) {
   const { username, password, code } = await readJson(req);
   const name = String(username || '').trim().toLowerCase().slice(0, 64);
   const ip = clientIp(req);
-  const keys = [`ip:${ip}`, `user:${name}`];
+  // Per address, and per address and name. Not per name alone: then anyone
+  // could lock the real user out with five wrong passwords.
+  const keys = [`ip:${ip}`, `user:${ip}|${name}`];
 
   if (!sso.localLogin) throw httpError(403, `Sign in with ${sso.name}`);
   if (!Object.values(users.load()).some((u) => u.hash)) throw httpError(503, 'No users configured yet. On the server run: node cli.js user add <name>');
@@ -656,9 +668,10 @@ route('GET', /^\/api\/offsite\/list$/, () => offsite.list().then((items) => ({ i
 route('POST', /^\/api\/offsite\/upload$/, async (req) => [202, offsite.enqueue(String((await readJson(req)).file || ''))]);
 route('POST', /^\/api\/offsite\/download$/, async (req) => offsite.download(String((await readJson(req)).name || '')));
 route('DELETE', /^\/api\/offsite\/([^/]+)$/, (req, res, [name]) => offsite.remove(decodeURIComponent(name)));
-route('GET', /^\/api\/problems$/, async (req) => problems.scan({ days: new URL(req.url, 'http://x').searchParams.get('days') }));
+const forRole = (req, data) => (roleAtLeast(req.role, 'moderator') ? data : maskDeep(data)); // player addresses
+route('GET', /^\/api\/problems$/, async (req) => forRole(req, await problems.scan({ days: new URL(req.url, 'http://x').searchParams.get('days') })));
 route('POST', /^\/api\/problems\/seen$/, async () => problems.markSeen());
-route('GET', /^\/api\/logs\/search$/, async (req) => searchLogs(config.mcDir, Object.fromEntries(new URL(req.url, 'http://x').searchParams)));
+route('GET', /^\/api\/logs\/search$/, async (req) => forRole(req, await searchLogs(config.mcDir, Object.fromEntries(new URL(req.url, 'http://x').searchParams))));
 route('GET', /^\/api\/audit$/, async (req) => {
   const q = new URL(req.url, 'http://x').searchParams;
   return audit.query({ user: q.get('user') || '', action: q.get('action') || '', q: q.get('q') || '', failed: q.has('failed'), limit: Math.min(Number(q.get('limit')) || 200, 1000) });
@@ -964,7 +977,7 @@ route('DELETE', /^\/api\/worlds\/([\w-]+)$/, async (req, res, [name]) => {
   return [202, worlds.remove(name, { archive, user: req.user })];
 });
 
-route('GET', /^\/api\/access$/, () => readAccess(config.mcDir));
+route('GET', /^\/api\/access$/, async (req) => forRole(req, await readAccess(config.mcDir)));
 
 route('GET', /^\/api\/backups$/, async () => ({ dir: config.backupDir, keep: config.backupKeep, files: await backups.list(), state: backups.state }));
 
@@ -1179,7 +1192,7 @@ async function handle(req, res, handler, params = [], onDone) {
     send(res, status, body);
     onDone?.(status);
   } catch (err) {
-    const status = err.status || (err.code === 'ENOENT' ? 404 : 502);
+    const status = err.status || (err instanceof URIError ? 400 : err.code === 'ENOENT' ? 404 : 502); // URIError: malformed %-encoding in the path
     onDone?.(status, err.message);
     const headers = err.extra?.['Retry-After'] ? { 'Retry-After': err.extra['Retry-After'] } : {};
     const body = { error: err.message, ...(err.extra?.needCode ? { needCode: true } : {}) };
@@ -1188,7 +1201,16 @@ async function handle(req, res, handler, params = [], onDone) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
+  // Anything a handler throws ends this request, never the process.
+  dispatch(req, res).catch((err) => {
+    log(`http: ${req.method} ${String(req.url).slice(0, 200)}: ${err.stack || err.message}`);
+    if (!res.headersSent) send(res, err instanceof URIError ? 400 : 500, { error: err instanceof URIError ? 'Bad request' : 'Internal error' });
+    else res.destroy();
+  });
+});
+
+async function dispatch(req, res) {
   const { pathname } = new URL(req.url, 'http://localhost');
   const isRead = req.method === 'GET' || req.method === 'HEAD';
 
@@ -1232,7 +1254,11 @@ const server = http.createServer(async (req, res) => {
     }
   }
   send(res, 404, { error: 'Not found' });
-});
+}
+
+// A promise nobody handles is a bug to log, not a reason to sign everyone
+// out and abort running operations.
+process.on('unhandledRejection', (err) => log(`unhandled rejection: ${err?.stack || err}`));
 
 scheduler.load().then(() => {
   logTail.start();
