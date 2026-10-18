@@ -251,3 +251,18 @@ test('forge: only versions with the args-file launch (1.17 and later) are offere
   serve({ [PROMOS]: { promos: { '1.7.10-latest': '10.13.4.1614', '1.16.5-recommended': '36.2.34', '1.17.1-latest': '37.1.1', '26.3-latest': '66.0.12' } } });
   assert.deepStrictEqual(await dist.versions('forge'), ['26.3', '1.17.1']);
 });
+
+test('a dropped connection is retried; HTTP errors are not', async () => {
+  let calls = 0;
+  global.fetch = async () => {
+    calls++;
+    if (calls === 1) throw new TypeError('fetch failed');
+    return { ok: true, status: 200, json: async () => ({ versions: { a: ['26.3'] } }) };
+  };
+  assert.deepStrictEqual(await dist.versions('paper'), ['26.3']);
+  assert.strictEqual(calls, 2);
+  calls = 0;
+  global.fetch = async () => (calls++, { ok: false, status: 500 });
+  await assert.rejects(dist.versions('paper'), /HTTP 500/);
+  assert.strictEqual(calls, 1);
+});

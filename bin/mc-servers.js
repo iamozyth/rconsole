@@ -40,7 +40,7 @@ function run(cmd, args, { cwd, capture = false, timeoutMs = 10 * 60 * 1000 } = {
 }
 
 async function download({ url, algo, hash }) {
-  const res = await fetch(url, { headers: { 'User-Agent': distributions.USER_AGENT }, redirect: 'follow' });
+  const res = await distributions.fetchRetry(url, { headers: { 'User-Agent': distributions.USER_AGENT }, redirect: 'follow' });
   if (!res.ok) fail(`Download failed: HTTP ${res.status}`);
   const body = Buffer.from(await res.arrayBuffer());
   const actual = crypto.createHash(algo).update(body).digest('hex');
