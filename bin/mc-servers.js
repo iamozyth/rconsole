@@ -27,15 +27,26 @@ const fail = (msg) => {
   throw new Error(msg);
 };
 
+// Our own timer instead of spawn's timeout option: that one stays armed
+// when the program can't be started at all, keeping the process alive
+// for the whole timeout.
 function run(cmd, args, { cwd, capture = false, timeoutMs = 10 * 60 * 1000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: ['ignore', capture ? 'pipe' : 'ignore', 'pipe'], timeout: timeoutMs });
+    const child = spawn(cmd, args, { cwd, stdio: ['ignore', capture ? 'pipe' : 'ignore', 'pipe'] });
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
     let out = '';
     let err = '';
     child.stdout?.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (err = (err + d).slice(-4000)));
-    child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err.trim().split('\n').pop() || `${path.basename(cmd)} exited with ${code}`))));
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(signal === 'SIGKILL' ? `${path.basename(cmd)} took longer than ${Math.round(timeoutMs / 60000)} minutes` : err.trim().split('\n').pop() || `${path.basename(cmd)} exited with ${code}`));
+    });
   });
 }
 
