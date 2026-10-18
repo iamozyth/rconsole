@@ -801,7 +801,9 @@ function renderPlatform(pf) {
   const kind = pf.addons === 'mod' ? 'mod' : 'plugin';
   $('plugins-title').textContent = `Installed ${kind}s`;
   $('plugin-search').elements.q.placeholder = kind === 'mod' ? 'Search mods, e.g. lithium' : 'Search plugins, e.g. squaremap';
-  $('modrinth-note').textContent = `Only ${kind}s for your Minecraft version that run on ${pf.name} are offered. Downloads are checked against Modrinth's SHA-512.`;
+  $('modrinth-note').textContent = pf.family === 'bukkit'
+    ? `${kind[0].toUpperCase()}${kind.slice(1)}s that run on ${pf.name}, those for your Minecraft version first; older ones are marked and usually work too. Downloads are checked against Modrinth's SHA-512.`
+    : `Only ${kind}s for your Minecraft version that run on ${pf.name} are offered. Downloads are checked against Modrinth's SHA-512.`;
   if (!pf.addons && currentView('server') === 'plugins') showView('server', 'overview');
 }
 
@@ -1902,16 +1904,21 @@ $('plugin-search').addEventListener('submit', async (e) => {
       $('plugin-results').replaceChildren(...(results.length
         ? results.map((r) => el('tr', {},
             el('td', { class: 'primary-cell', 'data-label': 'Plugin' }, el('div', { class: 'plugin' }, pluginIcon(r.icon),
-              el('div', {}, el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(r.slug)}`, target: '_blank', rel: 'noopener' }, r.title), el('span', { class: 'sub clamp' }, r.description)))),
+              el('div', {}, el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(r.slug)}`, target: '_blank', rel: 'noopener' }, r.title),
+                r.exact ? null : el('span', { class: 'pill compat', title: 'No release for your Minecraft version yet. Plugins usually keep working on newer versions; check the server log after the restart.' }, `Up to ${r.newestGame || 'an older version'}`),
+                el('span', { class: 'sub clamp' }, r.description)))),
             el('td', { 'data-label': 'Author' }, r.author),
             el('td', { class: 'num', 'data-label': 'Downloads' }, new Intl.NumberFormat(undefined, { notation: 'compact' }).format(r.downloads)),
             el('td', { class: 'act' }, r.installed
               ? el('span', { class: 'pill own' }, icon('check'), 'Installed')
               : pluginButton('Install', 'download', async (b) => {
-                  if (!(await confirmAction({ title: `Install ${r.title}?`, body: `The newest release for this server is downloaded from Modrinth, checked, and loaded on the next start.`, confirm: 'Install', icon: 'plugins' }))) return;
-                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id }, (x) => `Installed ${x.file}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
+                  const body = r.exact
+                    ? 'The newest release for this server is downloaded from Modrinth, checked, and loaded on the next start.'
+                    : `${r.title} has no release for your Minecraft version yet; its newest release (made for up to ${r.newestGame || 'an older version'}) is installed. Plugins usually keep working on newer versions. Check the server log after the restart.`;
+                  if (!(await confirmAction({ title: `Install ${r.title}?`, body, confirm: 'Install', icon: 'plugins' }))) return;
+                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id }, (x) => `Installed ${x.file}${x.exact === false ? ` (made for ${x.gameVersions.slice(-1)[0] || 'an older version'})` : ''}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
                 }, { primary: true }))))
-        : [emptyRow(4, `Nothing on Modrinth matches “${q}” for this server.`)]));
+        : [emptyRow(4, `Nothing on Modrinth matches “${q}” for this server software.`)]));
     } catch (err) {
       toast(err.message, 'bad');
     }

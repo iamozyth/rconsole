@@ -557,6 +557,7 @@ select.field { padding-right: 6px; }
 .pill.bad { border-color: color-mix(in srgb, var(--c-danger) 30%, transparent); background: color-mix(in srgb, var(--c-danger) 10%, transparent); color: var(--c-danger); }
 .pill.ok { border-color: color-mix(in srgb, var(--ok) 30%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); }
 .pill svg { width: 11px; height: 11px; }
+.pill.compat { margin-left: 8px; vertical-align: 1px; border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn); }
 .addr { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 6px; }
 .addr .mono { margin-right: 4px; }
 
