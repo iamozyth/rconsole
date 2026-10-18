@@ -54,8 +54,8 @@ const freePort = () => new Promise((resolve) => {
 
 test('roles: admins can do everything, moderators moderate, viewers only read', { timeout: 60000 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-roles-'));
-  const [mc, state, bk] = ['mc', 'state', 'bk'].map((d) => path.join(root, d));
-  for (const d of [mc, state, bk, path.join(mc, 'logs')]) fs.mkdirSync(d, { recursive: true });
+  const [mc, state, bk, sv] = ['mc', 'state', 'bk', 'servers'].map((d) => path.join(root, d));
+  for (const d of [mc, state, bk, sv, path.join(mc, 'logs')]) fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(mc, 'server.properties'), 'level-name=world\nmotd=hi\n');
   fs.writeFileSync(path.join(mc, 'logs', 'latest.log'), '[10:00:00] [Server thread/INFO]: Done\n');
   const users = new Users(state);
@@ -67,7 +67,7 @@ test('roles: admins can do everything, moderators moderate, viewers only read', 
   const port = await freePort();
   const child = spawn(process.execPath, ['server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, STATE_DIR: state, MC_DIR: mc, BACKUP_DIR: bk, RCON_PORT: String(rcon.port), RCON_PASSWORD: 'x', WEB_HOST: '127.0.0.1', WEB_PORT: String(port), JOB_RUNNER: 'direct', MC_SERVICE: 'rconsole-test-none.service' },
+    env: { ...process.env, STATE_DIR: state, MC_DIR: mc, BACKUP_DIR: bk, SERVERS_DIR: sv, RCON_PORT: String(rcon.port), RCON_PASSWORD: 'x', WEB_HOST: '127.0.0.1', WEB_PORT: String(port), JOB_RUNNER: 'direct', MC_SERVICE: 'rconsole-test-none.service' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const base = `http://127.0.0.1:${port}`;
@@ -109,6 +109,11 @@ test('roles: admins can do everything, moderators moderate, viewers only read', 
       ['POST', '/api/backups', {}, [true, false, false]],
       ['PUT', '/api/offsite', {}, [true, false, false]],
       ['POST', '/api/problems/seen', null, [true, true, false]],
+      ['GET', '/api/servers', null, [true, true, true]],
+      ['POST', '/api/servers', { id: 'x' }, [true, false, false]],
+      ['POST', '/api/servers/x/power', { action: 'start' }, [true, false, false]],
+      ['POST', '/api/servers/x/console', { command: 'op Steve' }, [true, false, false]],
+      ['DELETE', '/api/servers/x', null, [true, false, false]],
     ];
     for (const [method, url, body, allowed] of cases) {
       for (const [i, role] of ['admin', 'moderator', 'viewer'].entries()) {

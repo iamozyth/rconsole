@@ -110,7 +110,7 @@
       <div class="readout"><dt>Players</dt><dd id="s-players">–</dd></div>
       <div class="readout"><dt>Game time</dt><dd id="s-time">–</dd></div>
       <div class="readout"><dt>CPU</dt><dd id="s-cpu">–</dd></div>
-      <div class="readout"><dt>Memory</dt><dd id="s-mem">–</dd></div>
+      <div class="readout"><dt id="s-mem-label">Memory</dt><dd id="s-mem">–</dd></div>
       <div class="readout"><dt>Disk free</dt><dd id="s-disk">–</dd></div>
       <div class="readout"><dt>Host up</dt><dd id="s-uptime">–</dd></div>
     </dl>
@@ -399,6 +399,7 @@
     <section class="area" id="tab-server" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Server sections">
         <button role="tab" data-view="overview" aria-selected="true">Overview</button>
+        <button role="tab" data-view="servers" aria-selected="false">Servers</button>
         <button role="tab" data-view="properties" aria-selected="false">Properties</button>
         <button role="tab" data-view="plugins" aria-selected="false">Plugins</button>
         <button role="tab" data-view="configs" aria-selected="false" data-min-role="admin">Configs</button>
@@ -454,6 +455,57 @@
           </section>
         </div>
 
+      </div>
+
+      <div class="view" data-view="servers" hidden>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Servers</h2><p class="note" id="servers-info">Servers rconsole installed and runs itself.</p></div>
+            <button class="btn btn-primary" id="server-new-toggle" aria-expanded="false" aria-controls="server-new" data-min-role="admin"><svg><use href="#pg-add"/></svg>New server</button>
+          </header>
+          <div class="job" id="servers-op" role="status" hidden></div>
+          <form class="server-new panel-body" id="server-new" hidden autocomplete="off">
+            <fieldset class="fld wide dist-pick">
+              <legend>Software</legend>
+              <div class="dist-grid" id="dist-grid"></div>
+            </fieldset>
+            <label class="fld"><span>Minecraft version</span><select class="field" name="version" required><option value="">Choose software first</option></select></label>
+            <label class="fld"><span>Build</span><select class="field" name="build"><option value="">Newest stable</option></select></label>
+            <label class="fld"><span>Name</span><input class="field" name="id" maxlength="32" placeholder="e.g. survival" required pattern="[a-z0-9][a-z0-9-]{0,31}" title="Lowercase letters, digits and dashes"></label>
+            <label class="fld"><span>Port</span><input class="field mono" name="port" type="number" min="1024" max="65535" value="25565" required></label>
+            <label class="fld"><span>Memory</span>
+              <select class="field" name="memoryMb">
+                <option value="1024">1 GB</option>
+                <option value="2048">2 GB</option>
+                <option value="4096" selected>4 GB</option>
+                <option value="6144">6 GB</option>
+                <option value="8192">8 GB</option>
+                <option value="12288">12 GB</option>
+                <option value="16384">16 GB</option>
+              </select>
+            </label>
+            <label class="fld"><span>Java tuning</span>
+              <select class="field" name="flags">
+                <option value="aikar" selected>Aikar's flags (recommended)</option>
+                <option value="default">Java defaults</option>
+              </select>
+            </label>
+            <div class="fld wide checks">
+              <label class="check"><input type="checkbox" name="start" checked> Start when installed</label>
+              <label class="check"><input type="checkbox" name="autostart" checked> Start after a reboot</label>
+              <label class="check eula"><input type="checkbox" name="eula"> I accept the <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft EULA</a></label>
+            </div>
+            <div class="form-actions">
+              <p class="note" id="server-new-note">rconsole downloads the server and the Java it needs, checks every file against the publisher's checksum, and sets up RCON with a random password.</p>
+              <button class="btn btn-quiet" type="button" id="server-new-cancel">Cancel</button>
+              <button class="btn btn-primary" data-op><svg><use href="#pg-server"/></svg>Install server</button>
+            </div>
+          </form>
+          <table class="table">
+            <thead><tr><th>Server</th><th>Software</th><th>Port</th><th>Memory</th><th>State</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="server-list"></tbody>
+          </table>
+        </section>
       </div>
 
       <div class="view" data-view="properties" hidden>

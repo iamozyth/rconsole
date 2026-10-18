@@ -78,3 +78,17 @@ test('update: the server is started again even when the download fails', async (
   assert.strictEqual(st.error, 'checksum mismatch');
   assert.strictEqual(calls.at(-1), 'power:start');
 });
+
+test('update: the active server rconsole installed updates through server-update, any build type', async () => {
+  const calls = [];
+  const inst = { id: 'modded', distribution: 'neoforge', version: '26.3', build: '26.3.0.85', previous: null };
+  const { u } = setup();
+  u.instance = () => inst;
+  u.jobs = { run: async (kind, args) => (calls.push([kind, args]), {}) };
+  u.start({ version: '26.3', build: '26.3.0.86', user: 't' });
+  const st = await finish(u);
+  assert.strictEqual(st.error, null);
+  assert.deepStrictEqual(calls.find(([k]) => k === 'server-update'), ['server-update', { id: 'modded', version: '26.3', build: '26.3.0.86' }]);
+  assert.strictEqual((await u.installed()).source, 'instance');
+  assert.throws(() => u.start({ version: '26.3', build: '1 -x', user: 't' }), /Invalid/);
+});

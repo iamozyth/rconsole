@@ -10,7 +10,7 @@ function el(tag, props = {}, ...children) {
     else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
     else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v === true ? '' : v);
   }
-  node.append(...children.flat().filter((c) => c !== null && c !== undefined && c !== false && c !== ''));
+  node.append(...children.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false && c !== ''));
   return node;
 }
 
@@ -692,6 +692,29 @@ let countdownEnd = null;
 
 // Nominal readouts stay neutral; only off-nominal ones are marked, so the
 // strip never borrows an area's colour.
+// Memory: for a server rconsole runs, the Java heap really in use (live
+// data after the last garbage collection, from its GC log) out of its -Xmx.
+// The JVM reserves its whole heap up front, so the host's "used" mostly
+// says how much was given to Minecraft, not how much it needs.
+function renderMemory(s) {
+  const { host, heap } = s;
+  const hostUsed = host.mem.total - host.mem.available;
+  const hostLine = `Host: ${fmt.bytes(hostUsed)} of ${fmt.bytes(host.mem.total)} used, ${fmt.bytes(host.mem.available)} available.`;
+  $('s-mem-label').textContent = heap?.used != null ? 'Java heap' : 'Memory';
+  if (heap?.used != null) {
+    const share = heap.used / heap.max;
+    readout('s-mem', [fmt.bytes(heap.used), el('small', {}, ` / ${fmt.bytes(heap.max)}`)], level(share, 0.75, 0.9));
+    $('s-mem').parentElement.title = [
+      `${fmt.bytes(heap.used)} of the ${fmt.bytes(heap.max)} heap hold live data (after the last garbage collection, ${fmt.relative(heap.at)}).`,
+      `It had grown to ${fmt.bytes(heap.before)} before that collection; the most seen recently: ${fmt.bytes(heap.peak)}.`,
+      hostLine,
+    ].join('\n');
+    return;
+  }
+  readout('s-mem', [fmt.bytes(hostUsed), el('small', {}, ` / ${fmt.bytes(host.mem.total)}`)], level(hostUsed / host.mem.total, 0.8, 0.92));
+  $('s-mem').parentElement.title = heap ? `${hostLine}\nThe Java heap shows here after the server's first garbage collection.` : hostLine;
+}
+
 function readout(id, content, cls = '') {
   const off = cls === 'meh' || cls === 'bad';
   $(id).replaceChildren(...(off ? [icon('alert')] : []), ...[].concat(content));
@@ -731,8 +754,7 @@ function renderStatus(s) {
   readout('s-players', game?.players ? [String(game.players.online), el('small', {}, ` / ${game.players.max}`)] : '–');
   readout('s-time', game?.daytime != null ? [fmt.gameTime(game.daytime), game.day != null ? el('small', {}, ` day ${game.day}`) : ''] : '–');
   readout('s-cpu', host.cpu != null ? fmt.pct(host.cpu) : '–', host.cpu != null ? level(host.cpu, 0.7, 0.9) : '');
-  const memUsed = 1 - host.mem.available / host.mem.total;
-  readout('s-mem', [fmt.bytes(host.mem.total - host.mem.available), el('small', {}, ` / ${fmt.bytes(host.mem.total)}`)], level(memUsed, 0.8, 0.92));
+  renderMemory(s);
   if (host.disk) readout('s-disk', fmt.bytes(host.disk.available), level(1 - host.disk.available / host.disk.total, 0.8, 0.92));
   readout('s-uptime', fmt.duration(host.uptime));
 
@@ -779,7 +801,9 @@ function renderPlatform(pf) {
   const kind = pf.addons === 'mod' ? 'mod' : 'plugin';
   $('plugins-title').textContent = `Installed ${kind}s`;
   $('plugin-search').elements.q.placeholder = kind === 'mod' ? 'Search mods, e.g. lithium' : 'Search plugins, e.g. squaremap';
-  $('modrinth-note').textContent = `Only ${kind}s for your Minecraft version that run on ${pf.name} are offered. Downloads are checked against Modrinth's SHA-512.`;
+  $('modrinth-note').textContent = pf.family === 'bukkit'
+    ? `${kind[0].toUpperCase()}${kind.slice(1)}s that run on ${pf.name}, those for your Minecraft version first; older ones are marked and usually work too. Downloads are checked against Modrinth's SHA-512.`
+    : `Only ${kind}s for your Minecraft version that run on ${pf.name} are offered. Downloads are checked against Modrinth's SHA-512.`;
   if (!pf.addons && currentView('server') === 'plugins') showView('server', 'overview');
 }
 
@@ -819,7 +843,9 @@ async function loadServerSummary() {
       row('Players', players ? `${players.online} of ${players.max} online` : s.maxPlayers ? `up to ${s.maxPlayers}` : '–'),
       row('Access', [s.whitelist ? 'Whitelist on' : 'Anyone can join', sub(s.onlineMode ? ' · online mode' : ' · offline mode')]),
       row('Gameplay', [s.difficulty ? s.difficulty[0].toUpperCase() + s.difficulty.slice(1) : '–', s.gamemode ? sub(` · ${s.gamemode}`) : null]),
-      row('Memory', s.process?.rss ? fmt.bytes(s.process.rss) : sub('–')),
+      row('Memory', lastStatus?.heap?.used != null
+        ? [fmt.bytes(lastStatus.heap.used), sub(` in use of a ${fmt.bytes(lastStatus.heap.max)} heap`)]
+        : s.process?.rss ? fmt.bytes(s.process.rss) : sub('–')),
       row(pf.addons === 'mod' ? 'Mods' : 'Plugins', pf.addons ? el('a', { href: '#server/plugins' }, 'Manage') : sub('None')),
       row('Message of the day', s.motd ? s.motd.replace(/§./g, '') : sub('–')));
   } catch (e) {
@@ -827,6 +853,236 @@ async function loadServerSummary() {
   }
 }
 viewLoaders['server/overview'] = loadServerSummary;
+
+// --- Server → Servers: servers rconsole installs and runs itself ---
+const VERIFY_NOTE = { sha256: 'SHA-256 from the publisher', sha1: 'SHA-1 from Mojang', md5: 'MD5 only (all Purpur publishes)', 'sha256-maven': 'SHA-256 from its Maven' };
+const DIST_NOTE = {
+  vanilla: 'Mojang’s own server', paper: 'Fast, plugins', folia: 'Paper on many threads', purpur: 'Paper with more options',
+  fabric: 'Lightweight mods', quilt: 'Fabric-compatible mods', forge: 'Classic mod loader', neoforge: 'Modern Forge mods', velocity: 'Proxy for several servers',
+};
+let serversOpRunning = false;
+let serversTimer;
+let distLoaded = false;
+
+function renderServersOp(op) {
+  const box = $('servers-op');
+  const recent = op && !op.running && op.finishedAt && Date.now() - Date.parse(op.finishedAt) < 60000;
+  box.hidden = !op || (!op.running && !recent);
+  if (!box.hidden) {
+    box.dataset.state = op.running ? 'running' : op.error ? 'failed' : 'done';
+    box.textContent = op.running ? `${op.label}: ${op.step}…` : op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.`;
+  }
+  if (serversOpRunning && op && !op.running) toast(op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.`, op.error ? 'bad' : 'ok');
+  serversOpRunning = Boolean(op?.running);
+  document.querySelectorAll('#server-new [data-op], #server-list button').forEach((b) => (b.disabled = serversOpRunning));
+}
+
+function serverButton(label, iconName, fn, danger) {
+  const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}`, disabled: serversOpRunning || undefined }, icon(iconName), label);
+  btn.addEventListener('click', () => fn(btn));
+  return btn;
+}
+
+function serverStateLabel(s) {
+  if (!s.state.available) return el('span', { class: 'pill bad', title: s.state.error || '' }, 'Not controllable');
+  const active = s.state.active;
+  return el('span', { class: `pill ${active === 'active' ? 'ok' : active === 'failed' ? 'bad' : ''}` }, active === 'active' ? 'Running' : active === 'activating' ? 'Starting' : active === 'deactivating' ? 'Stopping' : active === 'failed' ? 'Crashed' : 'Stopped');
+}
+
+async function serverAction(s, action, button) {
+  if (action !== 'start' && !(await confirmAction({
+    title: `${action === 'stop' ? 'Stop' : 'Restart'} ${s.name}?`,
+    body: 'Players are disconnected; the world is saved first.',
+    confirm: action === 'stop' ? 'Stop' : 'Restart', tone: action === 'stop' ? 'danger' : 'primary', icon: action === 'stop' ? 'stop' : 'restart',
+  }))) return;
+  await busy(button, async () => {
+    try {
+      renderServersOp(await api('POST', `/api/servers/${s.id}/power`, { action }));
+      watchServers();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+async function deleteServer(s, button) {
+  const keep = el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: true }), ' Keep an archive in the backup folder');
+  if (!(await confirmAction({
+    title: `Delete ${s.name}?`,
+    body: `The server stops and its folder is removed: worlds, plugins, mods and settings.${s.id === serversActive ? ' It is the server rconsole shows; another one takes its place.' : ''}`,
+    confirm: 'Delete server', tone: 'danger', icon: 'delete', content: keep,
+  }))) return;
+  const archive = keep.querySelector('input').checked;
+  await busy(button, async () => {
+    try {
+      renderServersOp(await api('DELETE', `/api/servers/${s.id}${archive ? '' : '?archive=0'}`));
+      watchServers();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+async function showServer(s, button) {
+  if (!(await confirmAction({
+    title: `Show ${s.name} in rconsole?`,
+    body: `Console, players, worlds, backups, plugins and updates switch to ${s.name}. rconsole restarts for a moment; ${serversActive ? `${serversActive}` : 'the server it shows now'} keeps running.`,
+    confirm: 'Show', tone: 'primary', icon: 'server',
+  }))) return;
+  await busy(button, async () => {
+    try {
+      await api('POST', `/api/servers/${s.id}/show`);
+      toast(`Switching to ${s.name}. The page reloads when rconsole is back.`);
+      waitForComeback();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+let serversActive = null;
+let lastServersOp = null;
+let serversAttached = false;
+let serversUsedPorts = new Set();
+const freePort = (from) => {
+  let p = from;
+  while (serversUsedPorts.has(p)) p++;
+  return p;
+};
+async function loadServers() {
+  try {
+    const { servers, active, attached, usedPorts, distributions, op, dir } = await api('GET', '/api/servers');
+    serversUsedPorts = new Set(usedPorts || []);
+    serversActive = active;
+    serversAttached = attached;
+    if (!distLoaded) renderDistributions(distributions);
+    const names = Object.fromEntries(distributions.map((d) => [d.id, d.name]));
+    $('servers-info').replaceChildren(
+      servers.length
+        ? `${servers.length} server${servers.length === 1 ? '' : 's'}${active ? `, showing ${active}` : attached ? ', showing the server rconsole is attached to until you press Show' : ''}.`
+        : 'No server yet. rconsole downloads it with the right Java and checks every file.',
+      el('span', { class: 'servers-dir mono', title: dir }, dir));
+    // The shown server first, then game servers, then proxies, by name.
+    const rank = (s) => (s.id === active ? 0 : s.kind === 'server' ? 1 : 2);
+    servers.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+    $('server-list').replaceChildren(...(servers.length
+      ? servers.map((s) => el('tr', {},
+          el('td', { class: 'primary-cell', 'data-label': 'Server' },
+            el('span', { class: 'srv-name' }, el('b', {}, s.name), s.id === active ? el('span', { class: 'pill own' }, 'Shown') : null, s.kind === 'proxy' ? el('span', { class: 'pill' }, 'Proxy') : null),
+            s.name !== s.id ? el('span', { class: 'sub mono' }, s.id) : null),
+          el('td', { class: 'nowrap', 'data-label': 'Software' }, `${names[s.distribution] || s.distribution} ${s.version}`, s.build ? el('span', { class: 'sub' }, typeof s.build === 'number' ? `build ${s.build}` : `loader ${s.build}`) : null),
+          el('td', { class: 'mono num', 'data-label': 'Port' }, String(s.port)),
+          el('td', { class: 'nowrap', 'data-label': 'Memory' }, fmt.bytes(s.memoryMb * 1024 * 1024), el('span', { class: 'sub' }, `Java ${s.java}`)),
+          el('td', { 'data-label': 'State' }, serverStateLabel(s)),
+          el('td', { class: 'act' }, atLeast('admin') ? [
+            s.state.active === 'active'
+              ? [serverButton('Restart', 'restart', (b) => serverAction(s, 'restart', b)), serverButton('Stop', 'stop', (b) => serverAction(s, 'stop', b))]
+              : serverButton('Start', 'play', (b) => serverAction(s, 'start', b)),
+            s.id !== active && s.kind === 'server' ? serverButton('Show', 'server', (b) => showServer(s, b)) : null,
+            serverButton('Delete', 'delete', (b) => deleteServer(s, b), true),
+          ] : null)))
+      : [emptyRow(6, el('b', {}, 'No servers yet. '), atLeast('admin') ? 'Press New server to pick the software and version.' : 'An admin can install one.')]));
+    renderServersOp(op);
+    lastServersOp = op;
+    if (!servers.length && !op?.running && !op?.result && atLeast('admin') && serverForm.hidden) toggleServerForm(true);
+  } catch (e) {
+    $('server-list').replaceChildren(emptyRow(6, `Can't list servers: ${e.message}`));
+  }
+}
+viewLoaders['server/servers'] = loadServers;
+
+// Polls while an install, start or delete runs. rconsole restarts when the
+// first server is installed or the shown one is deleted; the page then
+// waits for it and reloads onto the new state.
+function watchServers() {
+  clearTimeout(serversTimer);
+  const shown = serversActive;
+  serversTimer = setTimeout(async () => {
+    try {
+      await loadServers();
+    } catch {}
+    if (serversOpRunning) return watchServers();
+    const op = lastServersOp;
+    if (!op || op.error) return;
+    const restarts = (!shown && !serversAttached && /^Create server /.test(op.label) && !/\(Velocity /.test(op.label)) || (shown && op.label === `Delete server ${shown}`);
+    if (restarts) {
+      toast('rconsole is switching servers. The page reloads when it is back.');
+      waitForComeback();
+    }
+  }, 2000);
+}
+
+const serverForm = $('server-new');
+function toggleServerForm(open) {
+  serverForm.hidden = !open;
+  $('server-new-toggle').setAttribute('aria-expanded', open);
+}
+$('server-new-toggle').addEventListener('click', () => toggleServerForm(serverForm.hidden));
+$('server-new-cancel').addEventListener('click', () => toggleServerForm(false));
+
+function renderDistributions(list) {
+  distLoaded = true;
+  $('dist-grid').replaceChildren(...list.map((d) => el('label', { class: 'dist-card', title: VERIFY_NOTE[d.verify] || '' },
+    el('input', { type: 'radio', name: 'distribution', value: d.id, required: true, onchange: () => loadVersions(d) }),
+    el('b', {}, d.name),
+    el('span', { class: 'note' }, DIST_NOTE[d.id] || (d.kind === 'proxy' ? 'Proxy' : 'Server')))));
+}
+
+const option = (value, label) => el('option', { value }, label);
+async function loadVersions(d) {
+  const f = serverForm.elements;
+  f.version.replaceChildren(option('', 'Loading versions…'));
+  f.build.replaceChildren(option('', 'Newest stable'));
+  f.port.value = freePort(d.kind === 'proxy' ? 25577 : 25565);
+  if (!f.id.value) f.id.value = d.kind === 'proxy' ? 'proxy' : 'survival';
+  $('server-new-note').textContent = `${d.name}: ${VERIFY_NOTE[d.verify]}. rconsole downloads the server and the Java it needs and sets up RCON with a random password.`;
+  try {
+    const { versions } = await api('GET', `/api/distributions/${d.id}/versions`);
+    f.version.replaceChildren(...versions.slice(0, 80).map((v) => option(v, v)));
+    loadBuilds();
+  } catch (e) {
+    f.version.replaceChildren(option('', 'Versions unavailable'));
+    toast(e.message, 'bad');
+  }
+}
+
+async function loadBuilds() {
+  const f = serverForm.elements;
+  const dist = f.distribution.value;
+  f.build.replaceChildren(option('', 'Newest stable'));
+  if (!dist || !f.version.value || dist === 'vanilla') return;
+  try {
+    const { builds } = await api('GET', `/api/distributions/${dist}/versions/${encodeURIComponent(f.version.value)}/builds`);
+    f.build.append(...builds.map((b) => option(String(b.id), `${typeof b.id === 'number' ? `#${b.id}` : b.id}${b.channel && !/stable|release/i.test(b.channel) ? ` (${b.channel.toLowerCase()})` : ''}`)));
+  } catch {}
+}
+serverForm.elements.version.addEventListener('change', loadBuilds);
+
+serverForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = serverForm.elements;
+  if (!f.distribution.value) return toast('Pick the server software.', 'bad');
+  const proxy = f.distribution.value === 'velocity';
+  if (!proxy && !f.eula.checked) return toast('Accept the Minecraft EULA to install a server.', 'bad');
+  const buildRaw = f.build.value;
+  const body = {
+    id: f.id.value.trim(), name: f.id.value.trim(), distribution: f.distribution.value, version: f.version.value,
+    build: buildRaw === '' ? null : /^\d+$/.test(buildRaw) && ['paper', 'folia', 'velocity', 'purpur'].includes(f.distribution.value) ? Number(buildRaw) : buildRaw,
+    port: Number(f.port.value), memoryMb: Number(f.memoryMb.value), flags: f.flags.value,
+    start: f.start.checked, autostart: f.autostart.checked, eula: !proxy && f.eula.checked,
+  };
+  await busy(serverForm.querySelector('.btn-primary'), async () => {
+    try {
+      renderServersOp(await api('POST', '/api/servers', body));
+      toast(`Installing ${body.id}. This takes a minute or two.`);
+      serverForm.reset();
+      toggleServerForm(false);
+      watchServers();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
 
 // --- running operation (world switch, restore, power) ---
 let opWasRunning = false;
@@ -1648,16 +1904,21 @@ $('plugin-search').addEventListener('submit', async (e) => {
       $('plugin-results').replaceChildren(...(results.length
         ? results.map((r) => el('tr', {},
             el('td', { class: 'primary-cell', 'data-label': 'Plugin' }, el('div', { class: 'plugin' }, pluginIcon(r.icon),
-              el('div', {}, el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(r.slug)}`, target: '_blank', rel: 'noopener' }, r.title), el('span', { class: 'sub clamp' }, r.description)))),
+              el('div', {}, el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(r.slug)}`, target: '_blank', rel: 'noopener' }, r.title),
+                r.exact ? null : el('span', { class: 'pill compat', title: 'No release for your Minecraft version yet. Plugins usually keep working on newer versions; check the server log after the restart.' }, `Up to ${r.newestGame || 'an older version'}`),
+                el('span', { class: 'sub clamp' }, r.description)))),
             el('td', { 'data-label': 'Author' }, r.author),
             el('td', { class: 'num', 'data-label': 'Downloads' }, new Intl.NumberFormat(undefined, { notation: 'compact' }).format(r.downloads)),
             el('td', { class: 'act' }, r.installed
               ? el('span', { class: 'pill own' }, icon('check'), 'Installed')
               : pluginButton('Install', 'download', async (b) => {
-                  if (!(await confirmAction({ title: `Install ${r.title}?`, body: `The newest release for this server is downloaded from Modrinth, checked, and loaded on the next start.`, confirm: 'Install', icon: 'plugins' }))) return;
-                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id }, (x) => `Installed ${x.file}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
+                  const body = r.exact
+                    ? 'The newest release for this server is downloaded from Modrinth, checked, and loaded on the next start.'
+                    : `${r.title} has no release for your Minecraft version yet; its newest release (made for up to ${r.newestGame || 'an older version'}) is installed. Plugins usually keep working on newer versions. Check the server log after the restart.`;
+                  if (!(await confirmAction({ title: `Install ${r.title}?`, body, confirm: 'Install', icon: 'plugins' }))) return;
+                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id }, (x) => `Installed ${x.file}${x.exact === false ? ` (made for ${x.gameVersions.slice(-1)[0] || 'an older version'})` : ''}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
                 }, { primary: true }))))
-        : [emptyRow(4, `Nothing on Modrinth matches “${q}” for this server.`)]));
+        : [emptyRow(4, `Nothing on Modrinth matches “${q}” for this server software.`)]));
     } catch (err) {
       toast(err.message, 'bad');
     }
@@ -1866,7 +2127,7 @@ async function loadUpdates(refresh) {
       ? o.newerVersions.map((v) => el('tr', {},
           el('td', { class: 'primary-cell', 'data-label': 'Version' }, `Minecraft ${v}`),
           el('td', { class: 'act' }, el('button', { class: 'btn btn-sm', 'data-update': true, disabled: updateBusy || undefined, onclick: (e) => upgradeVersion(v, e.currentTarget) }, icon('updates'), 'Upgrade…'))))
-      : [emptyRow(2, o.current ? `Minecraft ${o.current.version} is the newest version Paper supports.` : '–')]));
+      : [emptyRow(2, o.current ? `Minecraft ${o.current.version} is the newest version ${name} supports.` : '–')]));
     return { updates: o.newerBuilds.length, error: o.error };
   } catch (e) {
     $('upd-source').textContent = e.message;
@@ -2055,11 +2316,11 @@ function waitForComeback() {
 async function upgradeVersion(version, btn) {
   try {
     const { builds } = await busy(btn, () => api('GET', `/api/updates/builds?version=${encodeURIComponent(version)}`));
-    if (!builds.length) return toast(`No Paper builds for ${version} yet.`, 'bad');
-    const b = builds[0];
+    // Vanilla has no builds: the version is the download.
+    const b = builds[0] || { id: null, channel: '' };
     startUpdate({ version, build: b.id }, {
       title: `Upgrade to Minecraft ${version}?`,
-      body: `Paper build ${b.id} (${(b.channel || '').toLowerCase()}). This converts the world to ${version}. Rolling back the jar afterwards does not undo that; only restoring the backup does.`,
+      body: `${b.id == null ? 'The server' : `Build ${b.id}${b.channel ? ` (${b.channel.toLowerCase()})` : ''}`}. This converts the world to ${version}. Rolling back the jar afterwards does not undo that; only restoring the backup does.`,
       confirm: 'Upgrade',
       tone: 'danger',
       icon: 'updates',
@@ -2279,8 +2540,16 @@ async function loadMetrics() {
     statList('ms-players', [['Now', lastOf(m.players) ?? '–'], ['Peak', pl.length ? Math.max(...pl) : '–']]);
     lineChart($('mc-cpu'), { ...base, label: 'CPU', max: 1, yFmt: pct, series: [{ values: m.cpu, label: 'Host', fmt: pct }, { values: m.pcpu, label: 'Minecraft', fmt: pct, cls: 'alt' }] });
     statList('ms-cpu', [['Host', lastOf(m.cpu) != null ? pct(lastOf(m.cpu)) : '–'], ['Minecraft', lastOf(m.pcpu) != null ? pct(lastOf(m.pcpu)) : '–']]);
-    lineChart($('mc-mem'), { ...base, label: 'Memory', max: 1, yFmt: pct, series: [{ values: m.mem, label: 'Host used', fmt: pct }] });
-    statList('ms-mem', [['Host', lastOf(m.mem) != null ? pct(lastOf(m.mem)) : '–'], ['Minecraft RSS', lastOf(m.rss) != null ? fmt.bytes(lastOf(m.rss)) : '–']]);
+    const heapSeries = (m.heap || []).some((v) => v != null);
+    lineChart($('mc-mem'), { ...base, label: 'Memory', max: 1, yFmt: pct, series: [
+      ...(heapSeries ? [{ values: m.heap, label: 'Java heap in use', fmt: pct }] : []),
+      { values: m.mem, label: 'Host used', fmt: pct },
+    ] });
+    statList('ms-mem', [
+      ...(heapSeries ? [['Java heap', lastOf(m.heap) != null ? pct(lastOf(m.heap)) : '–']] : []),
+      ['Host', lastOf(m.mem) != null ? pct(lastOf(m.mem)) : '–'],
+      ['Minecraft RSS', lastOf(m.rss) != null ? fmt.bytes(lastOf(m.rss)) : '–'],
+    ]);
   } catch (e) {
     $('m-info').textContent = `Can't load metrics: ${e.message}`;
   }

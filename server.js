@@ -15,6 +15,9 @@ const { Jobs } = require('./lib/jobs');
 const { Updates } = require('./lib/updates');
 const { Power } = require('./lib/power');
 const { Ops } = require('./lib/ops');
+const { Servers } = require('./lib/servers');
+const active = require('./lib/active');
+const distributions = require('./lib/distributions');
 const { Worlds } = require('./lib/worlds');
 const { Maintenance } = require('./lib/maintenance');
 const { readProperties } = require('./lib/access');
@@ -42,17 +45,25 @@ const { Oidc, roleFor } = require('./lib/oidc');
 const { SsoSettings } = require('./lib/sso');
 const properties = require('./lib/properties');
 
-if (!config.rconPassword) {
-  console.error('Missing required environment variable RCON_PASSWORD');
+const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
+
+// A server rconsole installed itself takes the place of MC_DIR/MC_SERVICE
+// (lib/active.js). Without one and without RCON_PASSWORD, rconsole starts
+// anyway so the first server can be created from the browser.
+const legacyServer = fs.existsSync(path.join(config.mcDir, 'server.properties'));
+const activeInstance = active.pick({ serversDir: config.serversDir, stateDir: config.stateDir, legacy: legacyServer, log });
+if (activeInstance) Object.assign(config, active.overrides(config.serversDir, activeInstance));
+else config.activeServer = null;
+if (!activeInstance && !config.rconPassword && fs.existsSync(path.join(config.mcDir, 'server.properties'))) {
+  console.error('Missing required environment variable RCON_PASSWORD (for the server in MC_DIR)');
   process.exit(1);
 }
-
-const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
+if (!config.rconPassword) log(activeInstance ? `WARNING: ${activeInstance.id} has no RCON password in server.properties` : 'No server yet: create one under Servers (RCON_PASSWORD is only needed for a server rconsole did not install)');
 
 const rcon = new Rcon({ host: config.rconHost, port: config.rconPort, password: config.rconPassword });
 const logTail = new LogTail(path.join(config.mcDir, 'logs', 'latest.log'));
-const stats = new Stats({ rcon, mcDir: config.mcDir });
-const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner, log });
+const stats = new Stats({ rcon, mcDir: config.mcDir, heapMax: activeInstance ? activeInstance.memoryMb * 1024 * 1024 : null });
+const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner, log, instance: config.activeServer });
 const activeWorld = async () => (await readProperties(config.mcDir))['level-name'] || 'world';
 const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: config.backupKeep, log, activeWorld });
 const power = new Power({ unit: config.mcService, log });
@@ -62,7 +73,10 @@ const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs
 const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
 const pending = new Pending({ stateDir: config.stateDir, power });
 const platform = platformLib.detector(config.mcDir);
-const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon });
+const activeInstance$ = () => (config.activeServer ? servers.get(config.activeServer) : null);
+// Errors reading the active server's instance.json surface instead of
+// falling back to the MC_DIR updates, which would install the wrong jar.
+const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon, instance: activeInstance$ });
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform });
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
@@ -74,6 +88,36 @@ const selfUpdate = new SelfUpdate({ dir: __dirname, stateDir: config.stateDir, r
 const audit = new Audit({ stateDir: config.stateDir, log, onRecord: (e) => notify.onAudit(e) });
 // Operations run in the background after the request returned 202; record how they ended.
 ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target: st.label, ok: !st.error, ...(st.error ? { error: st.error } : {}) });
+// Servers rconsole installed itself (SERVERS_DIR). Their own operation slot,
+// so installing a server doesn't block the current one's restarts.
+const serverOps = new Ops({ log });
+serverOps.onFinish = ops.onFinish;
+const servers = new Servers({ serversDir: config.serversDir, jobs, ops: serverOps, log });
+// rconsole restarts (systemd brings it back) to switch servers, but never
+// in the middle of an update, operation or countdown: those would stop
+// halfway, with the server down.
+function restartWhenIdle() {
+  // serverOps is checked once its own operation (the create or delete that
+  // asked for the restart) has had time to finish.
+  const busy = () => ops.busy() || serverOps.busy() || Boolean(updates.running) || countdown.endsAt != null;
+  const tick = () => (busy() ? setTimeout(tick, 2000) : setTimeout(() => process.exit(75), 500));
+  setTimeout(tick, 1500);
+}
+
+// The first server becomes the active one; rconsole restarts (systemd brings
+// it back) to run every view on it.
+servers.onCreated = (id, kind) => {
+  if (config.activeServer || legacyServer || kind !== 'server') return;
+  active.setActive(config.stateDir, id);
+  log(`servers: ${id} is now the active server; restarting rconsole`);
+  restartWhenIdle();
+};
+// Deleting the active server moves rconsole to the next one (or to none).
+servers.onDeleted = (id) => {
+  if (id !== config.activeServer) return;
+  log(`servers: the active server ${id} was deleted; restarting rconsole`);
+  restartWhenIdle();
+};
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });
@@ -468,6 +512,11 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
   ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
   ['POST', /^\/api\/offsite\/download$/, (p, b) => ['offsite download', b.name]],
+  ['POST', /^\/api\/servers$/, (p, b) => ['server create', `${b.id} (${b.distribution} ${b.version}${b.build ? ` #${b.build}` : ''}), EULA accepted`]],
+  ['POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, ([id], b) => [`server ${b.action}`, id]],
+  ['POST', /^\/api\/servers\/([a-z0-9-]+)\/console$/, ([id], b) => ['command', `${id}: /${String(b.command || '').replace(/^\//, '')}`]],
+  ['POST', /^\/api\/servers\/([a-z0-9-]+)\/show$/, ([id]) => ['server show', id]],
+  ['DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b, q) => ['server delete', `${id}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
@@ -733,6 +782,70 @@ route('GET', /^\/api\/status$/, async () => ({
   platform: (({ id, name, family, mcVersion, build, loaderVersion, addons, updates: auto }) => ({ id, name, family, mcVersion, build, loaderVersion, addons: addons?.kind || null, updates: Boolean(auto) }))(platform()),
 }));
 
+// --- servers rconsole installs (SERVERS_DIR) ------------------------------------
+// Everything but reading is admin-only (the default for non-GET routes).
+
+route('GET', /^\/api\/servers$/, async () => {
+  const list = await servers.list();
+  // Game ports in use, so the form suggests a free one.
+  const usedPorts = list.map((s) => s.port);
+  if (legacyServer && !config.activeServer) usedPorts.push(Number((await readProperties(config.mcDir))['server-port']) || 25565);
+  return { dir: config.serversDir, active: config.activeServer, attached: legacyServer && !config.activeServer, servers: list, usedPorts, distributions: distributions.list(), op: serverOps.state };
+});
+
+// Publisher lists change a few times a day; asked at most every 10 minutes.
+const catalogCache = new Map();
+async function catalog(key, fn) {
+  const hit = catalogCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.value;
+  const value = await fn();
+  catalogCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
+route('GET', /^\/api\/distributions\/([a-z]+)\/versions$/, async (req, res, [id]) => {
+  try {
+    return { versions: await catalog(`v:${id}`, () => distributions.versions(id)) };
+  } catch (err) {
+    throw httpError(/Unknown/.test(err.message) ? 404 : 502, err.message);
+  }
+});
+
+route('GET', /^\/api\/distributions\/([a-z]+)\/versions\/([0-9.]+)\/builds$/, async (req, res, [id, version]) => {
+  try {
+    return { builds: (await catalog(`b:${id}:${version}`, () => distributions.builds(id, version))).slice(0, 50) };
+  } catch (err) {
+    throw httpError(/Unknown|Invalid/.test(err.message) ? 400 : 502, err.message);
+  }
+});
+
+route('POST', /^\/api\/servers$/, async (req) => {
+  const b = await readJson(req);
+  const wish = { id: b.id, name: b.name, distribution: b.distribution, version: b.version, build: b.build ?? null, memoryMb: b.memoryMb, port: b.port, flags: b.flags, autostart: b.autostart === true, eula: b.eula === true };
+  return [202, servers.create(wish, { user: req.user, start: b.start !== false })];
+});
+
+route('POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, async (req, res, [id]) => [202, await servers.action(id, (await readJson(req)).action, { user: req.user })]);
+
+route('POST', /^\/api\/servers\/([a-z0-9-]+)\/console$/, async (req, res, [id]) => {
+  await servers.send(id, (await readJson(req)).command);
+  return { ok: true };
+});
+
+// Shows another server in every view: rconsole restarts onto it.
+route('POST', /^\/api\/servers\/([a-z0-9-]+)\/show$/, async (req, res, [id]) => {
+  const i = servers.get(id);
+  if (i.kind !== 'server') throw httpError(400, 'A proxy has no worlds or players to show');
+  if (id === config.activeServer) throw httpError(409, `${id} is already shown`);
+  if (ops.busy() || updates.running) throw httpError(409, 'Wait until the running operation or update has finished');
+  active.setActive(config.stateDir, id);
+  log(`servers: ${req.user} switched rconsole to ${id}; restarting`);
+  restartWhenIdle();
+  return { ok: true, restarting: true };
+});
+
+route('DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, async (req, res, [id]) => [202, servers.remove(id, { archive: new URL(req.url, 'http://x').searchParams.get('archive') !== '0', user: req.user })]);
+
 // --- server power & maintenance ---------------------------------------------
 
 const delayOf = (v, def = 60) => {
@@ -911,7 +1024,8 @@ route('GET', /^\/api\/updates\/builds$/, async (req) => ({
 
 route('POST', /^\/api\/updates$/, async (req) => {
   const { version, build, rollback, backup, restartSeconds } = await readJson(req);
-  return [202, updates.start({ version: String(version || ''), build: Number(build), rollback: Boolean(rollback), backup: backup !== false, restartSeconds, user: req.user })];
+  const b = typeof build === 'string' && !/^\d+$/.test(build) ? build : build == null || build === '' ? null : Number(build);
+  return [202, updates.start({ version: String(version || ''), build: b, rollback: Boolean(rollback), backup: backup !== false, restartSeconds, user: req.user })];
 });
 
 route('GET', /^\/api\/tasks$/, async () => ({ tasks: scheduler.list() }));
@@ -1150,6 +1264,7 @@ scheduler.load().then(() => {
   logTail.on('line', (line) => {
     if (/ (joined|left) the game$| lost connection: /.test(line)) stats.invalidate('players');
   });
+  servers.autostart().catch((err) => log(`servers: autostart: ${err.message}`));
   server.listen(config.webPort, config.webHost, () => {
     log(`rconsole listening on http://${config.webHost}:${config.webPort}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);

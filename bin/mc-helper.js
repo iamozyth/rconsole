@@ -20,17 +20,20 @@ const config = require('../lib/config');
 const { readProperties } = require('../lib/access');
 const properties = require('../lib/properties');
 const settings = require('../lib/settings');
-const paper = require('../lib/paper');
+const distributions = require('../lib/distributions');
 const names = require('../lib/names');
 const modrinth = require('../lib/modrinth');
 const { FILE_RE: PLUGIN_FILE_RE } = require('../lib/plugins');
 const platform = require('../lib/platform');
 const configs = require('../lib/configs');
+const servers = require('./mc-servers');
+const instances = require('../lib/instances');
 
-const MC = config.mcDir;
+// MC_DIR, or the folder of the server a request names (see main()).
+let MC = config.mcDir;
 const BK = config.backupDir;
 const jobsDir = path.join(BK, '.jobs');
-const jar = path.join(MC, config.mcJar);
+let jar = path.join(MC, config.mcJar);
 
 const fail = (msg) => {
   throw new Error(msg);
@@ -258,8 +261,8 @@ async function paperUpdate({ version, build, rollback }) {
   // Which project (paper/folia) is decided here from MC_DIR, not by rconsole.
   const pf = platform.detect(MC);
   if (!pf.updates) fail(`Automatic updates aren't available for ${pf.name}`);
-  const download = await paper.download(version, build, pf.updates);
-  const body = await fetchVerified(download.url, 'sha256', download.sha256, paper.USER_AGENT);
+  const download = await distributions.resolve(pf.updates, version, build);
+  const body = await fetchVerified(download.url, download.algo, download.hash, distributions.USER_AGENT);
   const tmp = path.join(MC, `.${config.mcJar}.download`);
   try {
     fs.writeFileSync(tmp, body, { mode: 0o640 });
@@ -269,7 +272,7 @@ async function paperUpdate({ version, build, rollback }) {
   } finally {
     fs.rmSync(tmp, { force: true });
   }
-  return { version, build, sha256: download.sha256, size: download.size };
+  return { version, build, sha256: download.hash, size: download.size };
 }
 
 // --- plugins ------------------------------------------------------------------
@@ -430,6 +433,7 @@ const TASKS = {
   'plugin-remove': pluginRemove,
   'plugin-rollback': pluginRollback,
   'config-write': configWrite,
+  ...servers.TASKS,
 };
 
 function writeResult(file, result) {
@@ -444,6 +448,7 @@ async function main() {
   let kind;
   let args;
   let resultFile;
+  let instance = null;
 
   if (mode === 'job') {
     if (!names.JOB_ID_RE.test(arg || '')) fail('Invalid job id');
@@ -451,6 +456,7 @@ async function main() {
     kind = String(request.kind);
     args = request.args && typeof request.args === 'object' ? request.args : {};
     resultFile = `${arg}.json`;
+    instance = request.instance ?? null;
   } else if (mode === 'backup') {
     [kind, args, resultFile] = ['backup', { stamp: arg }, `backup-${arg}.json`];
   } else if (mode === 'update') {
@@ -467,6 +473,13 @@ async function main() {
     process.exit(1);
   }
   try {
+    // The active server rconsole works on. Only a valid instance in
+    // SERVERS_DIR is accepted; every path check then applies to its folder.
+    if (instance !== null && !Object.hasOwn(servers.TASKS, kind)) {
+      const i = instances.read(config.serversDir, instance);
+      MC = path.join(config.serversDir, i.id);
+      jar = path.join(MC, i.launch?.type === 'jar' ? i.launch.path : 'server.jar');
+    }
     const result = await TASKS[kind](args);
     writeResult(resultFile, { ok: true, kind, ...result });
     console.log(`${kind}: ok`);
