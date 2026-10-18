@@ -96,3 +96,9 @@ test('read refuses an instance folder that is a link; list reports what it skips
   assert.deepStrictEqual(instances.list(dir, (name) => skipped.push(name)), []);
   assert.deepStrictEqual(skipped, ['survival']);
 });
+
+test('command: Java 8 servers start without the GC log flag (-Xlog needs Java 9)', () => {
+  const argv = instances.command(instances.validate({ ...base, version: '1.16.5', java: 8 }), '/j');
+  assert.ok(!argv.some((a) => a.startsWith('-Xlog')));
+  assert.ok(instances.command(instances.validate(base), '/j').some((a) => a.startsWith('-Xlog:gc:')));
+});

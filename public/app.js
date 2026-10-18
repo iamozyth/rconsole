@@ -941,9 +941,16 @@ async function showServer(s, button) {
 let serversActive = null;
 let lastServersOp = null;
 let serversAttached = false;
+let serversUsedPorts = new Set();
+const freePort = (from) => {
+  let p = from;
+  while (serversUsedPorts.has(p)) p++;
+  return p;
+};
 async function loadServers() {
   try {
-    const { servers, active, attached, distributions, op, dir } = await api('GET', '/api/servers');
+    const { servers, active, attached, usedPorts, distributions, op, dir } = await api('GET', '/api/servers');
+    serversUsedPorts = new Set(usedPorts || []);
     serversActive = active;
     serversAttached = attached;
     if (!distLoaded) renderDistributions(distributions);
@@ -989,7 +996,7 @@ function watchServers() {
     if (serversOpRunning) return watchServers();
     const op = lastServersOp;
     if (!op || op.error) return;
-    const restarts = (!shown && !serversAttached && /^Create server /.test(op.label)) || (shown && op.label === `Delete server ${shown}`);
+    const restarts = (!shown && !serversAttached && /^Create server /.test(op.label) && !/\(Velocity /.test(op.label)) || (shown && op.label === `Delete server ${shown}`);
     if (restarts) {
       toast('rconsole is switching servers. The page reloads when it is back.');
       waitForComeback();
@@ -1018,7 +1025,7 @@ async function loadVersions(d) {
   const f = serverForm.elements;
   f.version.replaceChildren(option('', 'Loading versions…'));
   f.build.replaceChildren(option('', 'Newest stable'));
-  f.port.value = d.kind === 'proxy' ? 25577 : f.port.value === '25577' ? 25565 : f.port.value;
+  f.port.value = freePort(d.kind === 'proxy' ? 25577 : 25565);
   if (!f.id.value) f.id.value = d.kind === 'proxy' ? 'proxy' : 'survival';
   $('server-new-note').textContent = `${d.name}: ${VERIFY_NOTE[d.verify]}. rconsole downloads the server and the Java it needs and sets up RCON with a random password.`;
   try {

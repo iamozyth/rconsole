@@ -93,19 +93,30 @@ ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target
 const serverOps = new Ops({ log });
 serverOps.onFinish = ops.onFinish;
 const servers = new Servers({ serversDir: config.serversDir, jobs, ops: serverOps, log });
+// rconsole restarts (systemd brings it back) to switch servers, but never
+// in the middle of an update, operation or countdown: those would stop
+// halfway, with the server down.
+function restartWhenIdle() {
+  // serverOps is checked once its own operation (the create or delete that
+  // asked for the restart) has had time to finish.
+  const busy = () => ops.busy() || serverOps.busy() || Boolean(updates.running) || countdown.endsAt != null;
+  const tick = () => (busy() ? setTimeout(tick, 2000) : setTimeout(() => process.exit(75), 500));
+  setTimeout(tick, 1500);
+}
+
 // The first server becomes the active one; rconsole restarts (systemd brings
 // it back) to run every view on it.
 servers.onCreated = (id, kind) => {
   if (config.activeServer || legacyServer || kind !== 'server') return;
   active.setActive(config.stateDir, id);
   log(`servers: ${id} is now the active server; restarting rconsole`);
-  setTimeout(() => process.exit(75), 1500);
+  restartWhenIdle();
 };
 // Deleting the active server moves rconsole to the next one (or to none).
 servers.onDeleted = (id) => {
   if (id !== config.activeServer) return;
   log(`servers: the active server ${id} was deleted; restarting rconsole`);
-  setTimeout(() => process.exit(75), 1500);
+  restartWhenIdle();
 };
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
@@ -774,11 +785,27 @@ route('GET', /^\/api\/status$/, async () => ({
 // --- servers rconsole installs (SERVERS_DIR) ------------------------------------
 // Everything but reading is admin-only (the default for non-GET routes).
 
-route('GET', /^\/api\/servers$/, async () => ({ dir: config.serversDir, active: config.activeServer, attached: legacyServer && !config.activeServer, servers: await servers.list(), distributions: distributions.list(), op: serverOps.state }));
+route('GET', /^\/api\/servers$/, async () => {
+  const list = await servers.list();
+  // Game ports in use, so the form suggests a free one.
+  const usedPorts = list.map((s) => s.port);
+  if (legacyServer && !config.activeServer) usedPorts.push(Number((await readProperties(config.mcDir))['server-port']) || 25565);
+  return { dir: config.serversDir, active: config.activeServer, attached: legacyServer && !config.activeServer, servers: list, usedPorts, distributions: distributions.list(), op: serverOps.state };
+});
+
+// Publisher lists change a few times a day; asked at most every 10 minutes.
+const catalogCache = new Map();
+async function catalog(key, fn) {
+  const hit = catalogCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.value;
+  const value = await fn();
+  catalogCache.set(key, { at: Date.now(), value });
+  return value;
+}
 
 route('GET', /^\/api\/distributions\/([a-z]+)\/versions$/, async (req, res, [id]) => {
   try {
-    return { versions: await distributions.versions(id) };
+    return { versions: await catalog(`v:${id}`, () => distributions.versions(id)) };
   } catch (err) {
     throw httpError(/Unknown/.test(err.message) ? 404 : 502, err.message);
   }
@@ -786,7 +813,7 @@ route('GET', /^\/api\/distributions\/([a-z]+)\/versions$/, async (req, res, [id]
 
 route('GET', /^\/api\/distributions\/([a-z]+)\/versions\/([0-9.]+)\/builds$/, async (req, res, [id, version]) => {
   try {
-    return { builds: (await distributions.builds(id, version)).slice(0, 50) };
+    return { builds: (await catalog(`b:${id}:${version}`, () => distributions.builds(id, version))).slice(0, 50) };
   } catch (err) {
     throw httpError(/Unknown|Invalid/.test(err.message) ? 400 : 502, err.message);
   }
@@ -810,9 +837,10 @@ route('POST', /^\/api\/servers\/([a-z0-9-]+)\/show$/, async (req, res, [id]) => 
   const i = servers.get(id);
   if (i.kind !== 'server') throw httpError(400, 'A proxy has no worlds or players to show');
   if (id === config.activeServer) throw httpError(409, `${id} is already shown`);
+  if (ops.busy() || updates.running) throw httpError(409, 'Wait until the running operation or update has finished');
   active.setActive(config.stateDir, id);
   log(`servers: ${req.user} switched rconsole to ${id}; restarting`);
-  setTimeout(() => process.exit(75), 1500);
+  restartWhenIdle();
   return { ok: true, restarting: true };
 });
 

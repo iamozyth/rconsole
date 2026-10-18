@@ -83,6 +83,13 @@ test('create: a second server gets its own RCON port and may not reuse the game 
   await assert.rejects(TASKS['server-create'](wish), /already exists/);
 });
 
+test('create: the port of a server rconsole attaches to is taken too', async () => {
+  fs.mkdirSync(process.env.MC_DIR, { recursive: true });
+  fs.writeFileSync(path.join(process.env.MC_DIR, 'server.properties'), 'server-port=25599\n');
+  await assert.rejects(TASKS['server-create']({ ...wish, id: 'clash', port: 25599 }), /Port 25599/);
+  fs.rmSync(path.join(process.env.MC_DIR, 'server.properties'));
+});
+
 test('create: a checksum mismatch leaves nothing behind', async () => {
   const real = JAR.toString();
   JAR.write('tampered!!!!!!');
@@ -123,7 +130,8 @@ test('update: a failed mod loader install puts the old files back', async () => 
 
 test('delete: archives the server into the backup folder, then removes it', async () => {
   const r = await TASKS['server-delete']({ id: 'creative' });
-  assert.match(r.archived, /^server-creative-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.tar\.gz$/);
+  assert.match(r.archived, /^deleted-servers\/creative-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.tar\.gz$/);
+  assert.ok(!require('../lib/names').parseBackupName(require('path').basename(r.archived)) || !fs.existsSync(path.join(BK, require('path').basename(r.archived))), 'not listed as a world backup');
   assert.ok(!fs.existsSync(path.join(SV, 'creative')));
   const listing = execFileSync('tar', ['-tzf', path.join(BK, r.archived)], { encoding: 'utf8' });
   assert.match(listing, /^creative\/instance\.json$/m);

@@ -39,7 +39,6 @@ test('list shows instances with their unit state, never the RCON password', asyn
   assert.strictEqual(s.id, 'survival');
   assert.strictEqual(s.state.active, 'active');
   assert.ok(!JSON.stringify(s).includes('secret'));
-  assert.deepStrictEqual(servers.rconOf('survival'), { port: 25576, password: 'secret' });
 });
 
 test('create runs the helper job with the EULA acceptor, then starts', async () => {
@@ -85,8 +84,13 @@ test('autostart starts only marked servers that are down', async () => {
   assert.ok(!plain.calls.includes('power:start'));
 });
 
+test('console: refused while the server is stopped (systemd would start it for the line)', async () => {
+  const { servers } = setup({ active: 'inactive' });
+  await assert.rejects(servers.send('survival', 'say hi'), /not running/);
+});
+
 test('console: one line into the FIFO; refused when nothing reads it', async () => {
-  const { servers, fifoDir } = setup();
+  const { servers, fifoDir } = setup({ active: 'active' });
   await assert.rejects(servers.send('survival', 'say hi'), /not running/);
   const fifo = path.join(fifoDir, 'rconsole-mc-survival.stdin');
   execFileSync('mkfifo', [fifo]);

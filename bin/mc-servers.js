@@ -112,6 +112,27 @@ async function javaInstall({ major }) {
 
 // --- create --------------------------------------------------------------------
 
+// Game ports already taken: the other installed servers' and that of a
+// server rconsole attaches to in MC_DIR.
+function usedGamePorts() {
+  const used = new Set(instances.list(SV).map((i) => i.port));
+  try {
+    const p = properties.toObject(properties.parse(fs.readFileSync(path.join(config.mcDir, 'server.properties'), 'utf8')));
+    used.add(Number(p['server-port']) || 25565);
+  } catch {}
+  return used;
+}
+
+// Velocity binds 0.0.0.0:25565 unless told otherwise; its own default
+// config, with the chosen port, becomes velocity.toml.
+function writeVelocityConfig(dir, jarFile, port) {
+  const defaults = require('../lib/zip').readFileEntry(path.join(dir, jarFile), 'default-velocity.toml');
+  if (!defaults) fail('The Velocity jar has no default configuration');
+  const toml = defaults.toString('utf8').replace(/^bind = ".*"$/m, `bind = "0.0.0.0:${port}"`);
+  if (!toml.includes(`bind = "0.0.0.0:${port}"`)) fail('Could not set the Velocity port');
+  fs.writeFileSync(path.join(dir, 'velocity.toml'), toml, { mode: 0o640, flag: 'wx' });
+}
+
 function usedRconPorts() {
   const used = new Set();
   for (const i of instances.list(SV)) {
@@ -172,7 +193,7 @@ async function serverCreate(args) {
   if (wish.kind === 'server' && !eula?.by) fail('The Minecraft EULA must be accepted first');
   const dir = path.join(SV, wish.id);
   if (fs.existsSync(dir)) fail(`A server named ${wish.id} already exists`);
-  if (instances.list(SV).some((i) => i.port === wish.port)) fail(`Port ${wish.port} is used by another server`);
+  if (usedGamePorts().has(wish.port)) fail(`Port ${wish.port} is used by another server`);
 
   const resolved = await distributions.resolve(wish.distribution, wish.version, wish.build);
   const major = await java.majorFor(wish.distribution, wish.version);
@@ -190,6 +211,7 @@ async function serverCreate(args) {
     }
     const launch = findLaunch(staging, resolved);
     if (!launch) fail(`The ${resolved.distribution} installer finished, but no server to start was found`);
+    if (wish.kind === 'proxy') writeVelocityConfig(staging, launch.path, wish.port);
     if (wish.kind === 'server') {
       writeServerProperties(staging, { port: wish.port, motd: wish.name });
       fs.writeFileSync(path.join(staging, 'eula.txt'), `# Accepted in rconsole by ${eula.by} on ${eula.at}: https://aka.ms/MinecraftEULA\neula=true\n`, { mode: 0o640 });
@@ -232,15 +254,22 @@ const snapshotItems = (dir) => fs.readdirSync(dir, { withFileTypes: true })
   .filter((e) => (e.isFile() && /\.(jar|sh|bat)$|^user_jvm_args\.txt$/.test(e.name)) || (e.isDirectory() && e.name === 'libraries'))
   .map((e) => e.name);
 
-async function snapshot(dir) {
-  const snap = path.join(dir, SNAPSHOT);
+// Copies the files an installer touches into <dir>/<to>. A copy that fails
+// halfway is removed again and the live files are left alone.
+async function snapshot(dir, to) {
+  const snap = path.join(dir, to);
   fs.rmSync(snap, { recursive: true, force: true });
   fs.mkdirSync(snap, { mode: 0o750 });
-  for (const name of snapshotItems(dir)) await run('cp', ['-a', '--', path.join(dir, name), path.join(snap, name)]);
+  try {
+    for (const name of snapshotItems(dir)) await run('cp', ['-a', '--', path.join(dir, name), path.join(snap, name)]);
+  } catch (err) {
+    fs.rmSync(snap, { recursive: true, force: true });
+    throw err;
+  }
 }
 
-async function restoreSnapshot(dir) {
-  const snap = path.join(dir, SNAPSHOT);
+async function restoreSnapshot(dir, from = SNAPSHOT) {
+  const snap = path.join(dir, from);
   if (!fs.existsSync(snap)) fail('Nothing to roll back to');
   for (const name of snapshotItems(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
   for (const name of fs.readdirSync(snap)) fs.renameSync(path.join(snap, name), path.join(dir, name));
@@ -275,11 +304,15 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
   const body = await download(resolved);
   const dl = path.join(dir, tmpName(`.${resolved.file}`));
   fs.writeFileSync(dl, body, { mode: 0o640, flag: 'wx' });
+  // In-place installs snapshot the current files to .rconsole-next first: a
+  // failed install comes back from it, and only a successful one replaces
+  // the snapshot Roll back uses.
   const inPlace = resolved.install === 'installer';
+  const NEXT = `${SNAPSHOT}-next`;
+  if (inPlace) await snapshot(dir, NEXT);
   let launch;
   try {
     if (inPlace) {
-      await snapshot(dir);
       fs.renameSync(dl, path.join(dir, resolved.file));
       try {
         await run(path.join(javaRoot(), String(major), 'bin', 'java'), ['-jar', resolved.file, ...resolved.installArgs], { cwd: dir, timeoutMs: 14 * 60 * 1000 });
@@ -293,10 +326,14 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
     launch = findLaunch(dir, resolved);
     if (!launch) fail(`The ${resolved.distribution} update finished, but no server to start was found`);
   } catch (err) {
-    if (inPlace) await restoreSnapshot(dir).catch(() => {});
+    if (inPlace) await restoreSnapshot(dir, NEXT).catch(() => {});
     throw err;
   } finally {
     fs.rmSync(dl, { force: true });
+  }
+  if (inPlace) {
+    fs.rmSync(path.join(dir, SNAPSHOT), { recursive: true, force: true });
+    fs.renameSync(path.join(dir, NEXT), path.join(dir, SNAPSHOT));
   }
   writeInstance(dir, { ...current, version: resolved.version, build: resolved.build, java: major, launch, previous: { ...was, snapshot: inPlace } });
   pruneJars(dir, new Set([launch.path, was.launch?.path].filter((p) => p && !p.includes('/'))));
@@ -312,8 +349,12 @@ async function serverDelete({ id, archive = true }) {
   instances.read(SV, id);
   let archived = null;
   if (archive) {
-    archived = `server-${id}-${names.timestamp()}.tar.gz`;
-    const partial = path.join(config.backupDir, tmpName(archived));
+    // Not next to the world backups, so it never shows up as one of them.
+    const into = path.join(config.backupDir, 'deleted-servers');
+    fs.mkdirSync(into, { recursive: true, mode: 0o750 });
+    if (!fs.lstatSync(into).isDirectory()) fail(`${into} is not a folder`);
+    archived = `deleted-servers/${id}-${names.timestamp()}.tar.gz`;
+    const partial = path.join(into, tmpName(path.basename(archived)));
     const fd = fs.openSync(partial, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o640);
     try {
       await new Promise((resolve, reject) => {
@@ -340,8 +381,8 @@ async function serverDelete({ id, archive = true }) {
 
 module.exports = {
   TASKS: { 'java-install': javaInstall, 'server-create': serverCreate, 'server-update': serverUpdate, 'server-delete': serverDelete },
-  NETWORK: ['java-install', 'server-create', 'server-update'],
   inspectJre,
+  writeVelocityConfig,
   checkTree,
   findLaunch,
 };
