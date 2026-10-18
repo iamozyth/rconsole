@@ -258,6 +258,7 @@ const snapshotItems = (dir) => fs.readdirSync(dir, { withFileTypes: true })
 // halfway is removed again and the live files are left alone.
 async function snapshot(dir, to) {
   const snap = path.join(dir, to);
+  noLinks(snap);
   fs.rmSync(snap, { recursive: true, force: true });
   fs.mkdirSync(snap, { mode: 0o750 });
   try {
@@ -268,9 +269,31 @@ async function snapshot(dir, to) {
   }
 }
 
+// The server writes its own folder (and instance.json), so a plugin could
+// plant links there; this job may write all of SERVERS_DIR. Nothing it
+// moves, copies or lets an installer write may be a link.
+function noLinks(p) {
+  const st = fs.lstatSync(p, { throwIfNoEntry: false });
+  if (st?.isSymbolicLink()) fail(`${path.basename(p)} is a link; refusing to touch it`);
+  return st;
+}
+
+function noLinksBelow(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isSymbolicLink()) fail(`${path.relative(SV, p)} is a link; refusing to update in place`);
+    if (e.isDirectory()) noLinksBelow(p);
+  }
+}
+
 async function restoreSnapshot(dir, from = SNAPSHOT) {
   const snap = path.join(dir, from);
-  if (!fs.existsSync(snap)) fail('Nothing to roll back to');
+  const st = noLinks(snap);
+  if (!st?.isDirectory()) fail('Nothing to roll back to');
+  for (const name of fs.readdirSync(snap)) {
+    const e = fs.lstatSync(path.join(snap, name));
+    if (!e.isFile() && !e.isDirectory()) fail(`${from}/${name} is a link or special file`);
+  }
   for (const name of snapshotItems(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
   for (const name of fs.readdirSync(snap)) fs.renameSync(path.join(snap, name), path.join(dir, name));
   fs.rmSync(snap, { recursive: true, force: true });
@@ -309,7 +332,14 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
   // the snapshot Roll back uses.
   const inPlace = resolved.install === 'installer';
   const NEXT = `${SNAPSHOT}-next`;
-  if (inPlace) await snapshot(dir, NEXT);
+  if (inPlace) {
+    // The installer writes libraries/, scripts and jars here and would
+    // follow links a plugin planted, into another server's folder.
+    for (const name of ['libraries', 'run.sh', 'run.bat', 'user_jvm_args.txt', SNAPSHOT]) noLinks(path.join(dir, name));
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) if (e.isSymbolicLink() && /\.jar$/.test(e.name)) fail(`${e.name} is a link; refusing to update in place`);
+    if (fs.existsSync(path.join(dir, 'libraries'))) noLinksBelow(path.join(dir, 'libraries'));
+    await snapshot(dir, NEXT);
+  }
   let launch;
   try {
     if (inPlace) {

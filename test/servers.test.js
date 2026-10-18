@@ -185,3 +185,25 @@ test('helper jobs naming a server work in its folder; unknown servers are refuse
   const bad = job('b'.repeat(32), { kind: 'backup', args: { stamp: '2026-10-16_20-00-01' }, instance: '../mc' });
   assert.strictEqual(bad.ok, false);
 });
+
+test('rollback refuses a snapshot that is a link (a plugin pointing it at another server)', async () => {
+  const dir = path.join(SV, 'modded');
+  const other = path.join(SV, 'victim');
+  fs.mkdirSync(path.join(other, 'world'), { recursive: true });
+  fs.writeFileSync(path.join(other, 'secret.txt'), 'B');
+  const i = JSON.parse(fs.readFileSync(path.join(dir, 'instance.json'), 'utf8'));
+  i.previous = { version: '26.3', build: '0.19.3', java: 25, launch: { type: 'jar', path: 'fabric-server-launch.jar' }, snapshot: true };
+  fs.writeFileSync(path.join(dir, 'instance.json'), JSON.stringify(i));
+  fs.symlinkSync('../victim', path.join(dir, '.rconsole-previous'));
+  await assert.rejects(TASKS['server-update']({ id: 'modded', rollback: true }), /link/);
+  assert.ok(fs.existsSync(path.join(other, 'secret.txt')));
+  assert.ok(!fs.existsSync(path.join(dir, 'secret.txt')));
+  fs.rmSync(path.join(dir, '.rconsole-previous'));
+});
+
+test('in-place update refuses planted links in libraries/', async () => {
+  const dir = path.join(SV, 'modded');
+  fs.symlinkSync('../../victim', path.join(dir, 'libraries', 'evil'));
+  await assert.rejects(TASKS['server-update']({ id: 'modded', version: '26.3', build: '0.19.5' }), /link/);
+  fs.rmSync(path.join(dir, 'libraries', 'evil'));
+});
