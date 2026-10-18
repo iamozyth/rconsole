@@ -154,6 +154,38 @@ test('users: SSO accounts never take over local ones and have no password', asyn
   assert.strictEqual(users.upsertSso({ iss: 'https://idp/', sub: '9', email: 'Jo.Doe+x@example.com', role: 'viewer' }), 'jo.doe-x');
 });
 
+test('users: linking ties a local account to a provider user, merging the account it got', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-sso-link-'));
+  const users = new Users(dir);
+  await users.setPassword('masseo', 'password-1234');
+  users.setTotp('masseo', 'JBSWY3DPEHPK3PXP', ['AAAAA-BBBBB']);
+  const ident = { iss: 'https://idp/', sub: '1', username: 'masseo', name: 'Masseo', role: 'viewer' };
+  assert.strictEqual(users.localNamesake(ident), 'masseo');
+  assert.strictEqual(users.upsertSso(ident), 'masseo-2');
+  assert.strictEqual(users.localNamesake(ident), null); // has an account now
+  const before = users.get('masseo').changed;
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepStrictEqual(users.linkSso('masseo', ident), { name: 'masseo', merged: 'masseo-2' });
+  const u = users.get('masseo');
+  assert.deepStrictEqual([u.hash, u.totp, u.recovery, u.role, u.sso.sub, u.sso.name], [undefined, null, undefined, 'viewer', '1', 'Masseo']);
+  assert.notStrictEqual(u.changed, before); // its password sessions end
+  assert.strictEqual(users.get('masseo-2'), null);
+  assert.strictEqual(users.upsertSso({ ...ident, role: 'admin' }), 'masseo'); // the provider user now lands here
+  assert.strictEqual(users.roleOf('masseo'), 'admin');
+  await assert.rejects(users.setPassword('masseo', 'password-1234'), /single sign-on/);
+
+  await users.setPassword('jo', 'password-1234');
+  assert.throws(() => users.linkSso('masseo', { ...ident, sub: '2' }), /already linked/);
+  assert.throws(() => users.linkSso('nobody', ident), /No such user/);
+  assert.throws(() => users.linkSso('jo', { ...ident, role: 'owner' }), /Role must be/);
+
+  users.unlinkSso('masseo');
+  assert.strictEqual(users.get('masseo').sso, undefined);
+  assert.strictEqual(users.findSso('https://idp/', '1'), null);
+  await users.setPassword('masseo', 'password-1234'); // a local account again
+  assert.throws(() => users.unlinkSso('jo'), /not linked/);
+});
+
 // The whole flow through rconsole: start → provider → callback → session.
 const freePort = () => new Promise((resolve) => {
   const s = net.createServer().listen(0, '127.0.0.1', () => {
@@ -249,6 +281,66 @@ test('sso: through rconsole, roles from groups, denied without one, local fallba
     const out = await (await fetch(`${srv.base}/api/logout`, { method: 'POST', headers: { cookie: fresh.session, origin: srv.base } })).json();
     assert.ok(out.redirect.startsWith(`${idp.origin}/end-session?id_token_hint=`));
     assert.match(out.redirect, /post_logout_redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A\d+%2Flogin/);
+  } finally {
+    srv.stop();
+    await idp.close();
+  }
+});
+
+test('sso: a local account is linked from its own password session', { timeout: 60000 }, async () => {
+  const idp = await fakeIdp();
+  const srv = await startServer({ OIDC_ISSUER: idp.issuer, OIDC_CLIENT_ID: 'rconsole', OIDC_CLIENT_SECRET: 'idp-secret', OIDC_NAME: 'authentik' });
+  const passwordLogin = () => fetch(`${srv.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json', origin: srv.base }, body: JSON.stringify({ username: 'masseo', password: 'password-1234' }) });
+  const meOf = async (cookie) => (await fetch(`${srv.base}/api/me`, { headers: { cookie } })).json();
+  try {
+    // Signed in with the provider first: a separate account, as before.
+    assert.strictEqual((await meOf((await browserSignIn(srv.base)).session)).user, 'masseo-2');
+    assert.match(srv.log(), /got the new account masseo-2, not the local masseo\. .*user link masseo masseo-2/);
+
+    // Without a password session (or from a link on another site, which
+    // doesn't carry the Strict cookie) linking doesn't start.
+    const anon = await fetch(`${srv.base}/auth/oidc/start?link=1`, { redirect: 'manual' });
+    assert.strictEqual(anon.headers.get('location'), '/login?error=sso_link');
+
+    const pw = await passwordLogin();
+    const pwSession = pw.headers.get('set-cookie').split(';')[0];
+    const start = await fetch(`${srv.base}/auth/oidc/start?link=1`, { redirect: 'manual', headers: { cookie: pwSession } });
+    assert.strictEqual(start.status, 302);
+    const atIdp = await fetch(start.headers.get('location'), { redirect: 'manual' });
+    const cb = await fetch(atIdp.headers.get('location'), { redirect: 'manual', headers: { cookie: start.headers.get('set-cookie').split(';')[0] } });
+    assert.strictEqual(cb.status, 200);
+    assert.match(await cb.text(), /url=\/\?linked#settings\/account/);
+    const session = cb.headers.getSetCookie().map((c) => c.split(';')[0]).find((c) => c.startsWith('rconsole_session=') && c.length > 20);
+    const me = await meOf(session);
+    assert.deepStrictEqual([me.user, me.via, me.role], ['masseo', 'sso', 'admin']);
+
+    const users = new Users(srv.state);
+    assert.strictEqual(users.get('masseo-2'), null, 'the earlier SSO account was merged');
+    assert.strictEqual((await fetch(`${srv.base}/api/me`, { headers: { cookie: pwSession } })).status, 401, 'password session ended');
+    assert.notStrictEqual((await passwordLogin()).status, 200, 'no password any more');
+    assert.strictEqual((await meOf((await browserSignIn(srv.base)).session)).user, 'masseo', 'the provider user lands on the linked account');
+
+    // An SSO session can't start another link.
+    const again = await fetch(`${srv.base}/auth/oidc/start?link=1`, { redirect: 'manual', headers: { cookie: session } });
+    assert.strictEqual(again.headers.get('location'), '/login?error=sso_link');
+  } finally {
+    srv.stop();
+    await idp.close();
+  }
+});
+
+test('sso: a link fails when the account changed while at the provider', { timeout: 60000 }, async () => {
+  const idp = await fakeIdp();
+  const srv = await startServer({ OIDC_ISSUER: idp.issuer, OIDC_CLIENT_ID: 'rconsole', OIDC_CLIENT_SECRET: 'idp-secret' });
+  try {
+    const pw = await fetch(`${srv.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json', origin: srv.base }, body: JSON.stringify({ username: 'masseo', password: 'password-1234' }) });
+    const start = await fetch(`${srv.base}/auth/oidc/start?link=1`, { redirect: 'manual', headers: { cookie: pw.headers.get('set-cookie').split(';')[0] } });
+    await new Promise((r) => setTimeout(r, 5));
+    await new Users(srv.state).setPassword('masseo', 'password-5678'); // e.g. the password was reset meanwhile
+    const atIdp = await fetch(start.headers.get('location'), { redirect: 'manual' });
+    const cb = await fetch(atIdp.headers.get('location'), { redirect: 'manual', headers: { cookie: start.headers.get('set-cookie').split(';')[0] } });
+    assert.strictEqual(cb.headers.get('location'), '/login?error=sso_link');
+    assert.strictEqual(new Users(srv.state).get('masseo').sso, undefined);
   } finally {
     srv.stop();
     await idp.close();

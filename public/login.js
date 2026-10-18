@@ -136,6 +136,7 @@ const SSO_ERRORS = {
   sso_unavailable: (n) => `Can't reach ${n} right now. Try again in a moment.`,
   sso_locked: () => 'Too many failed sign-ins from this address. Try again in 15 minutes.',
   sso_off: () => 'Single sign-on isn\'t set up on this server.',
+  sso_link: (n) => `Couldn't link your account to ${n}. Sign in with your password and start again from Settings → Account.`,
 };
 
 // With SSO on, the password form waits behind "Use a local account". Password

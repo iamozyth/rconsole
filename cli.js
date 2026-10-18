@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// User management: node cli.js user <add|passwd|remove|list|role|totp|totp-off> [name]
+// User management: node cli.js user <add|passwd|remove|list|role|totp|totp-off|link|unlink> [name]
 
 const readline = require('readline');
 const config = require('./lib/config');
@@ -104,6 +104,28 @@ const commands = {
     console.log(`${name} is now ${role}. Their sessions were signed out.`);
     if (users.get(name)?.sso) console.log('Note: this is an SSO account; its next sign-in sets the role from the provider\'s groups again.');
   },
+  // Ties a local account to the provider user of an SSO account and removes
+  // that SSO account: for when someone signed in with the provider before
+  // linking, and got "name-2".
+  async link(name) {
+    name = need(name);
+    const from = process.argv[5]?.toLowerCase();
+    if (!from) throw new Error('Usage: user link <local account> <SSO account to merge into it>');
+    const local = users.get(name);
+    const other = users.get(from);
+    if (!local) throw new Error(`No such user: ${name}`);
+    if (!other?.sso) throw new Error(`${from} is not an SSO account (node cli.js user list shows them)`);
+    if (local.sso) throw new Error(`${name} is already an SSO account`);
+    const { iss, sub, name: display, email } = other.sso;
+    users.linkSso(name, { iss, sub, name: display, email, role: users.roleOf(from) });
+    console.log(`${name} now signs in with single sign-on as ${display || email || sub}; ${from} was merged into it and removed.`);
+    console.log(`Its password and 2FA were removed and its sessions signed out. Its role (${users.roleOf(name)}) follows the provider's groups from the next sign-in.`);
+  },
+  async unlink(name) {
+    name = need(name);
+    users.unlinkSso(name);
+    console.log(`${name} no longer signs in with single sign-on. Give it a password with: node cli.js user passwd ${name}`);
+  },
   async 'totp-off'(name) {
     users.setTotp(need(name), null);
     console.log(`2FA disabled for ${name}.`);
@@ -116,6 +138,7 @@ async function main() {
     console.log(`Usage: node cli.js user <${Object.keys(commands).join('|')}> [name]`);
     console.log('       node cli.js user add <name> [--role admin|moderator|viewer]');
     console.log('       node cli.js user role <name> [admin|moderator|viewer]');
+    console.log('       node cli.js user link <local account> <SSO account to merge into it>');
     console.log(`State directory: ${config.stateDir}`);
     process.exit(group ? 1 : 0);
   }
