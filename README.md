@@ -310,6 +310,8 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user r
 | `METRICS_TOKEN` | (none)                   | Enables `/metrics` for Prometheus with this bearer token |
 | `MAP_URL`       | (none)                   | squaremap/BlueMap web server, e.g. `http://127.0.0.1:8100` |
 | `SELF_UPDATE_CHECK` | `1`                  | `0` turns off the background check for rconsole updates |
+| `SELF_UPDATE_SIGNERS` | (none)             | Allowed-signers file (root's): self-update installs only release tags signed by these SSH keys, see [Signed updates](#signed-updates-only) |
+| `REQUIRE_2FA`   | `off`                    | `admin` or `all`: local accounts of those roles must have 2FA to sign in |
 | `MODRINTH_API`  | `https://api.modrinth.com/v2` | Modrinth API for the plugin manager             |
 
 ## Single sign-on (authentik)
@@ -397,6 +399,20 @@ journalctl -u rconsole-selfupdate                  # what it did
 ```
 
 Set `SELF_UPDATE_CHECK=0` in `/etc/rconsole.env` to turn off the background check.
+
+### Signed updates only
+
+By default the updater trusts whatever is on `main` on GitHub. To install only releases you signed yourself, so that a stolen GitHub account or token can't push code that runs as root on your server:
+
+1. Sign release tags with an SSH key: `git tag -s v4.1.0 -m v4.1.0 && git push origin v4.1.0` (with `git config gpg.format ssh` and `user.signingkey ~/.ssh/id_ed25519.pub`). In the GitHub repository, set the Actions variable `SIGNED_TAGS=true`, so a version bump on `main` no longer publishes an unsigned tag first.
+2. On the server, list the keys you trust, owned by root:
+   ```sh
+   echo "* $(cat id_ed25519.pub)" | sudo tee /etc/rconsole-signers
+   sudo chmod 644 /etc/rconsole-signers
+   ```
+3. Add `SELF_UPDATE_SIGNERS=/etc/rconsole-signers` to `/etc/rconsole.env` and restart rconsole.
+
+From then on, **Update rconsole** moves to the newest `v*` tag with a valid signature from one of those keys, and only forward. The Updates view compares against the latest GitHub release instead of `main`.
 
 ## Updates
 
@@ -557,8 +573,9 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 - **Accounts** live in `/var/lib/rconsole/users.json` with scrypt password hashes. They're managed with `cli.js` on the server only; there is no web signup.
 - **Single sign-on** (optional): OpenID Connect authorization code flow with PKCE, a `nonce`, and a single-use `state` kept in a short-lived cookie signed by rconsole, so a sign-in only completes in the browser that started it (no login CSRF) and nothing server-side can be flooded. ID tokens are verified locally against the provider's published keys (RS256, PS256 or ES256 only; unsigned and HMAC tokens are refused) along with issuer, audience and expiry. The provider must use HTTPS. Roles come from groups at every sign-in; SSO accounts have no password and are matched by the provider's subject ID, never by name.
 - **Roles**: `admin` (everything; accounts from before roles existed are admins), `moderator` (sees everything an admin sees except the audit log and notification and offsite settings; runs only moderation commands: say, tell, kick, ban and pardon, whitelist add and remove, tp, gamemode, spectate and common mute or warn plugin commands) and `viewer` (read-only: console, charts, settings, no player addresses). The server enforces the role on every request; the interface hides what a role can't do. `node cli.js user add <name> --role moderator`, `node cli.js user role <name> viewer`; changing a role signs that user out.
-- **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days (SSO sessions after `OIDC_SESSION_HOURS`), and are revoked when the password or role changes or the user is removed. Sessions are kept in memory, so restarting rconsole signs everyone out.
-- **2FA**: optional TOTP per user, with replay protection.
+- **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days (SSO sessions after `OIDC_SESSION_HOURS`), and are revoked when the password or role changes or the user is removed. Only the SHA-256 of each token is stored (`STATE_DIR/sessions.json`, mode 600), so restarting rconsole keeps everyone signed in.
+- **2FA**: optional TOTP per user, with replay protection and ten one-time recovery codes. `REQUIRE_2FA=admin` (or `all`) makes it mandatory.
+- **HSTS** is sent when the reverse proxy reports HTTPS.
 - **Brute force**: 5 failed logins from one client IP within 15 minutes lock that IP for 15 minutes. Failures are not counted per username alone, so nobody can lock the real user out of their account by guessing wrong on purpose.
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.
 - **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.

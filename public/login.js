@@ -5,6 +5,7 @@ const form = $('login');
 const f = form.elements;
 const submit = $('submit');
 let step = 'password';
+let recovery = false; // a recovery code instead of the authenticator's
 
 $('host').textContent = location.hostname;
 
@@ -36,6 +37,7 @@ function showStep(next) {
   f.code.required = code;
   $('title').textContent = code ? 'Two-step verification' : 'Sign in to rconsole';
   $('lede').textContent = code ? `Enter the 6-digit code from your authenticator app for ${f.username.value.trim()}.` : 'Run your Minecraft server from anywhere.';
+  if (!code) useRecovery(false);
   form.dataset.step = next;
   showError('');
   setBusy('');
@@ -58,8 +60,23 @@ for (const type of ['keydown', 'keyup']) {
 }
 f.password.addEventListener('blur', () => ($('caps').hidden = true));
 
+// Lost phone: one of the codes printed when 2FA was set up, each works once.
+function useRecovery(on) {
+  recovery = on;
+  Object.assign(f.code, on ? { inputMode: 'text', pattern: '[A-Za-z2-7]{5}-?[A-Za-z2-7]{5}', maxLength: 11, placeholder: 'ABCDE-FGHIJ', autocomplete: 'off' } : { inputMode: 'numeric', pattern: '[0-9 ]{6,7}', maxLength: 7, placeholder: '000 000', autocomplete: 'one-time-code' });
+  f.code.value = '';
+  $('use-recovery').textContent = on ? 'Use the authenticator app' : 'Use a recovery code';
+  if (step === 'code') $('lede').textContent = on ? `Enter one of your recovery codes for ${f.username.value.trim()}. Each works once.` : `Enter the 6-digit code from your authenticator app for ${f.username.value.trim()}.`;
+  showError('');
+}
+$('use-recovery').addEventListener('click', () => {
+  useRecovery(!recovery);
+  f.code.focus();
+});
+
 // Six digits typed or pasted: submit without an extra tap.
 f.code.addEventListener('input', () => {
+  if (recovery) return void (f.code.value = f.code.value.toUpperCase().replace(/[^A-Z2-7-]/g, ''));
   const digits = f.code.value.replace(/\D/g, '').slice(0, 6);
   f.code.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
   if (digits.length === 6 && submit.dataset.state !== 'busy') form.requestSubmit();
@@ -77,7 +94,8 @@ form.addEventListener('submit', async (e) => {
   showError('');
   const missing = [f.username, f.password].find((i) => !i.value.trim());
   if (missing) return showError(`Enter your ${missing.name}.`, missing), missing.focus();
-  if (step === 'code' && f.code.value.replace(/\D/g, '').length !== 6) return showError('Enter all 6 digits.', f.code), f.code.focus();
+  if (step === 'code' && recovery && !/^[A-Z2-7]{5}-?[A-Z2-7]{5}$/.test(f.code.value)) return showError('A recovery code has 10 letters and digits, like ABCDE-FGHIJ.', f.code), f.code.focus();
+  if (step === 'code' && !recovery && f.code.value.replace(/\D/g, '').length !== 6) return showError('Enter all 6 digits.', f.code), f.code.focus();
   setBusy('busy');
   try {
     const res = await fetch('/api/login', {

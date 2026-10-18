@@ -12,7 +12,7 @@ load_rconsole_env() {
   [ -r "$file" ] || return 0
   while IFS='=' read -r key value; do
     case "$key" in
-      MC_DIR|BACKUP_DIR|SERVERS_DIR|MC_USER|MC_GROUP|MC_SERVICE|RCONSOLE_DIR|NODE_BIN)
+      MC_DIR|BACKUP_DIR|SERVERS_DIR|MC_USER|MC_GROUP|MC_SERVICE|RCONSOLE_DIR|NODE_BIN|SELF_UPDATE_SIGNERS)
         value="${value%\"}"; value="${value#\"}"
         printf -v "$key" '%s' "$value"
         export "${key?}"

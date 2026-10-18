@@ -5,7 +5,7 @@
 
 const readline = require('readline');
 const config = require('./lib/config');
-const { Users, newTotpSecret, totpUri, verifyTotp, ROLES } = require('./lib/auth');
+const { Users, newTotpSecret, totpUri, verifyTotp, newRecoveryCodes, ROLES } = require('./lib/auth');
 
 // --role admin|moderator|viewer for `user add`
 const roleFlag = () => {
@@ -88,8 +88,13 @@ const commands = {
     console.log(`  URI:    ${totpUri(name, secret)}\n`);
     const code = (await ask('Enter the 6-digit code to confirm: ')).trim();
     if (verifyTotp(secret, code) === null) throw new Error('Code did not match, 2FA not enabled');
-    users.setTotp(name, secret);
-    console.log(`2FA enabled for ${name}.`);
+    const recovery = newRecoveryCodes();
+    users.setTotp(name, secret, recovery);
+    console.log(`2FA enabled for ${name}.\n`);
+    console.log('Recovery codes: each signs in once in place of the 6-digit code, if the phone is lost.');
+    console.log('Keep them somewhere safe; they are not shown again (run user totp again for new ones).\n');
+    for (let i = 0; i < recovery.length; i += 2) console.log(`  ${recovery[i]}   ${recovery[i + 1] || ''}`);
+    console.log('');
   },
   async role(name) {
     name = need(name);
