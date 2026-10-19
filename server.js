@@ -659,6 +659,7 @@ const AUDIT_NAMES = [
   ['PUT', /^\/api\/sso$/, (p, b) => ['sso settings', b.enabled === false ? 'off' : `${b.name || 'on'}${b.localLogin === false ? ', local accounts off' : ''}`]],
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', (({ current }, latest) => (latest && latest !== current ? `${current} → ${latest}` : current))(selfUpdate.summary(), selfUpdate.check?.latest?.sha?.slice(0, 7))]],
   ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
+  ['POST', /^\/api\/me\/password$/, () => ['password change', '']],
   ['POST', /^\/api\/problems\/mute$/, (p, b) => [b.all ? 'problems unmuted' : b.muted === false ? 'problem unmuted' : 'problem muted', String(b.key || '').slice(0, 120)]],
   ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
   ['PUT', /^\/api\/map$/, (p, b) => ['map', String(b.url || 'off').slice(0, 100)]],
@@ -689,6 +690,7 @@ const ROLE_RULES = [
   ['POST', /^\/api\/logout$/, 'viewer'],
   ['POST', /^\/api\/command$/, 'moderator'], // moderators: MODERATOR_COMMANDS only
   ['POST', /^\/api\/problems\/seen$/, 'moderator'],
+  ['POST', /^\/api\/me\/password$/, 'viewer'], // their own
   ['POST', /^\/api\/chat$/, 'moderator'],
   ['GET', /^\/api\/players\/history$/, 'moderator'], // addresses of players
   ['GET', /^\/api\/audit$/, 'admin'],
@@ -897,6 +899,35 @@ route('GET', /^\/api\/about$/, () => ({
   trustProxy: config.trustProxy,
   jobRunner: config.jobRunner,
 }));
+
+// Settings → Account: a local account changes its own password. The current
+// password proves it's the owner (not someone at an unlocked screen); wrong
+// guesses count toward the sign-in lockout. Every other session ends; this
+// one gets a fresh cookie.
+route('POST', /^\/api\/me\/password$/, async (req, res) => {
+  const { current, password } = await readJson(req);
+  const ip = clientIp(req);
+  const keys = [`ip:${ip}`, `user:${ip}|${req.user}`];
+  const u = users.get(req.user);
+  if (!u?.hash) throw httpError(409, 'This account signs in with single sign-on; change the password there.');
+  const wait = throttle.blocked(...keys);
+  if (wait) throw httpError(429, `Too many failed attempts. Try again in ${Math.ceil(wait / 60)} min.`, { 'Retry-After': wait });
+  if (!(await verifyPassword(String(current || '').slice(0, 1024), u.hash))) {
+    throttle.fail(...keys);
+    throw httpError(403, 'The current password is wrong.');
+  }
+  if (String(password || '') === String(current)) throw httpError(400, 'Choose a password different from the current one.');
+  try {
+    await users.setPassword(req.user, String(password || '').slice(0, 1024));
+  } catch (err) {
+    throw httpError(400, err.message);
+  }
+  throttle.reset(...keys);
+  sessions.destroy(cookies(req)[COOKIE]);
+  res.setHeader('Set-Cookie', sessionCookie(req, sessions.create(req.user), COOKIE_MAX_AGE));
+  log(`auth: ${req.user} changed their password`);
+  return { ok: true };
+});
 
 route('GET', /^\/api\/me$/, (req) => {
   const s = sessions.get(cookies(req)[COOKIE]);

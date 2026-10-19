@@ -151,7 +151,7 @@ test('notify: click target, icon, buttons, quiet hours and one-tap actions', asy
   await settle();
   assert.deepStrictEqual(got.map((g) => g.title), ['Unknown connection from 176.65.149.198', '2 unknown addresses today']);
   const last = got[1];
-  assert.strictEqual(last.click, 'https://rconsole.example.com/#players/security');
+  assert.strictEqual(last.click, 'https://rconsole.example.com/#players/addresses');
   assert.strictEqual(last.icon, 'https://rconsole.example.com/notify-icon.png');
   assert.strictEqual(last.markdown, undefined); // plain text: iOS shows Markdown literally
   assert.match(last.sequence_id, /^scanners-\d{4}-\d{2}-\d{2}$/);

@@ -13,7 +13,7 @@
 <script src="/commands.js" defer></script>
 <script src="/app.js" defer></script>
 </head>
-<body class="app" data-area="console">
+<body class="app" data-area="dashboard">
 
 <!-- Pictograms: filled geometry on a 24-unit grid, 45° and 90° only. -->
 <svg class="sprite" aria-hidden="true" focusable="false">
@@ -62,20 +62,32 @@
   <symbol id="pg-bell" viewBox="0 0 24 24"><path d="M12 2.5a1.5 1.5 0 0 1 1.5 1.5v.7A6.5 6.5 0 0 1 18.5 11v4.5L21 18v1.5H3V18l2.5-2.5V11a6.5 6.5 0 0 1 5-6.3V4A1.5 1.5 0 0 1 12 2.5zM9.5 21h5a2.5 2.5 0 0 1-5 0z"/></symbol>
   <symbol id="pg-key" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M15.5 2.5a6 6 0 1 1-1.9 11.7l-1.4 1.4H10v2.2H7.8v2.2H5.6L4 21.6H2.5V18l7.3-7.3A6 6 0 0 1 15.5 2.5zm1.6 3.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z"/></symbol>
   <symbol id="pg-copy" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M8 2.5h12.5V17H17v4.5H3.5V7H8zm2.4 2.4V7H17v7.6h1.1V4.9zM5.9 9.4v9.7h8.7V9.4z"/></symbol>
+  <symbol id="pg-chev" viewBox="0 0 24 24"><path d="M6.7 8.6 12 13.9l5.3-5.3 1.7 1.7-7 7-7-7z"/></symbol>
+  <symbol id="pg-dashboard" viewBox="0 0 24 24"><path d="M3 3h8v10H3zm10 0h8v6h-8zM3 15h8v6H3zm10-4h8v10h-8z"/></symbol>
+  <symbol id="pg-pin" viewBox="0 0 24 24"><path d="M8 2.5h8v2h-1.2v5.2l3.4 3.4v2.4h-5v6l-1.2 1-1.2-1v-6H5.8v-2.4l3.4-3.4V4.5H8z"/></symbol>
+  <symbol id="pg-mute" viewBox="0 0 24 24"><path d="M4.1 2.4 21.6 19.9l-1.7 1.7-3-3H3V18l2.5-2.5V11c0-.9.2-1.8.5-2.6L2.4 4.1zM12 2.5a1.5 1.5 0 0 1 1.5 1.5v.7A6.5 6.5 0 0 1 18.5 11v3.4L8.3 4.2A6.4 6.4 0 0 1 10.5 4.7V4A1.5 1.5 0 0 1 12 2.5zM9.5 21h5a2.5 2.5 0 0 1-5 0z"/></symbol>
 </svg>
 
 <!-- Navigation: side rail on desktop, bottom tab bar on phones -->
 <aside class="rail">
   <div class="wordmark"><svg class="mark" aria-hidden="true"><use href="#pg-mark"/></svg><span>rconsole</span></div>
+  <div class="switcher" id="switcher">
+    <button class="switcher-btn" id="switcher-btn" aria-haspopup="true" aria-expanded="false" aria-controls="switcher-menu" title="Switch server">
+      <span class="sw-dot" id="sw-dot" aria-hidden="true"></span>
+      <span class="sw-text"><span class="sw-kicker">Server</span><b id="sw-name">…</b></span>
+      <svg class="sw-chev" aria-hidden="true"><use href="#pg-chev"/></svg>
+    </button>
+    <div class="switcher-menu" id="switcher-menu" role="menu" hidden></div>
+  </div>
   <nav class="nav" role="tablist" aria-label="Areas">
-    <button role="tab" data-tab="console" aria-selected="true" aria-controls="tab-console"><span class="tile"><svg><use href="#pg-console"/></svg></span><span class="label">Console</span></button>
-    <span class="nav-group" role="presentation">Community</span>
+    <button role="tab" data-tab="dashboard" aria-selected="true" aria-controls="tab-dashboard"><span class="tile"><svg><use href="#pg-dashboard"/></svg></span><span class="label">Dashboard</span></button>
+    <button role="tab" data-tab="console" aria-selected="false" aria-controls="tab-console"><span class="tile"><svg><use href="#pg-console"/></svg></span><span class="label">Console</span></button>
     <button role="tab" data-tab="players" aria-selected="false" aria-controls="tab-players"><span class="tile"><svg><use href="#pg-players"/></svg></span><span class="label">Players</span></button>
-    <button role="tab" data-phone="more" data-tab="map" aria-selected="false" aria-controls="tab-map"><span class="tile"><svg><use href="#pg-map"/></svg></span><span class="label">Map</span></button>
     <span class="nav-group" role="presentation">Manage</span>
-    <button role="tab" data-tab="worlds" aria-selected="false" aria-controls="tab-worlds"><span class="tile"><svg><use href="#pg-worlds"/></svg></span><span class="label">Worlds</span></button>
+    <button role="tab" data-phone="more" data-tab="world" aria-selected="false" aria-controls="tab-world"><span class="tile"><svg><use href="#pg-worlds"/></svg></span><span class="label">World</span></button>
+    <button role="tab" data-phone="more" data-tab="backups" aria-selected="false" aria-controls="tab-backups"><span class="tile"><svg><use href="#pg-backups"/></svg></span><span class="label">Backups</span></button>
     <button role="tab" data-tab="server" aria-selected="false" aria-controls="tab-server"><span class="tile"><svg><use href="#pg-server"/></svg></span><span class="label">Server</span></button>
-    <button role="tab" data-phone="more" data-tab="schedule" aria-selected="false" aria-controls="tab-schedule"><span class="tile"><svg><use href="#pg-schedule"/></svg></span><span class="label">Schedule</span></button>
+    <button role="tab" data-phone="more" data-tab="automation" aria-selected="false" aria-controls="tab-automation"><span class="tile"><svg><use href="#pg-schedule"/></svg></span><span class="label">Automation</span></button>
     <span class="nav-group" role="presentation">Monitor</span>
     <button role="tab" data-phone="more" data-tab="insights" aria-selected="false" aria-controls="tab-insights"><span class="tile"><svg><use href="#pg-insights"/></svg></span><span class="label">Insights</span></button>
     <span class="nav-sep" role="presentation"></span>
@@ -100,22 +112,22 @@
 <div class="column">
   <header class="topbar">
     <div class="area-title">
-      <svg class="area-pg" aria-hidden="true"><use id="area-icon" href="#pg-console"/></svg>
-      <h1 id="area-name">Console</h1>
+      <svg class="area-pg" aria-hidden="true"><use id="area-icon" href="#pg-dashboard"/></svg>
+      <h1 id="area-name">Dashboard</h1>
     </div>
     <span class="conn" id="conn" data-state="pending"><span class="conn-dot"></span><span id="status">Connecting…</span></span>
     <span class="maint-badge" id="maint-badge" hidden><svg><use href="#pg-maintenance"/></svg>Maintenance</span>
     <dl class="health" aria-label="Server health">
       <div class="readout"><dt>TPS</dt><dd id="s-tps">–</dd></div>
       <div class="readout"><dt>Players</dt><dd id="s-players">–</dd></div>
-      <div class="readout"><dt>Game time</dt><dd id="s-time">–</dd></div>
-      <div class="readout"><dt>CPU</dt><dd id="s-cpu">–</dd></div>
+      <div class="readout extra"><dt>Game time</dt><dd id="s-time">–</dd></div>
+      <div class="readout extra"><dt>CPU</dt><dd id="s-cpu">–</dd></div>
       <div class="readout"><dt id="s-mem-label">Memory</dt><dd id="s-mem">–</dd></div>
-      <div class="readout"><dt>Disk free</dt><dd id="s-disk">–</dd></div>
-      <div class="readout"><dt>Host up</dt><dd id="s-uptime">–</dd></div>
+      <div class="readout extra"><dt>Disk free</dt><dd id="s-disk">–</dd></div>
+      <div class="readout extra"><dt>Host up</dt><dd id="s-uptime">–</dd></div>
     </dl>
+    <button class="btn btn-quiet btn-icon bell" id="bell" aria-label="Problems" aria-haspopup="dialog" title="Problems"><svg><use href="#pg-bell"/></svg><span class="bell-count" id="bell-count" hidden></span></button>
     <button class="btn btn-quiet btn-icon mobile-only" id="palette-open-m" aria-label="Search and run"><svg><use href="#pg-search"/></svg></button>
-    <button class="btn btn-quiet btn-icon mobile-only" id="logout-m" aria-label="Sign out"><svg><use href="#pg-signout"/></svg></button>
   </header>
 
   <div class="countdown" id="restart-banner" role="status" hidden>
@@ -130,13 +142,35 @@
   </div>
 
   <main id="main">
-    <!-- Console -->
+    <!-- Dashboard: everything that needs attention, at a glance -->
+    <section class="area" id="tab-dashboard" role="tabpanel">
+      <div class="dash-tiles" id="dash-tiles"></div>
+      <div class="dash-grid">
+        <section class="panel">
+          <header class="panel-head"><div class="head-text"><h2>Last 6 hours</h2><p class="note" id="dash-chart-note">TPS and players online.</p></div><a class="btn btn-quiet btn-sm" href="#insights/metrics">All metrics</a></header>
+          <div class="panel-body dash-charts"><div class="chart" id="dash-tps"></div><div class="chart" id="dash-players"></div></div>
+        </section>
+        <section class="panel">
+          <header class="panel-head"><h2>Online now</h2><span class="count" id="dash-count"></span><a class="btn btn-quiet btn-sm" href="#players">All players</a></header>
+          <ul class="people" id="dash-online"></ul>
+        </section>
+        <section class="panel">
+          <header class="panel-head"><div class="head-text"><h2>Daily activity</h2><p class="note">Hours played per day, from the server logs.</p></div></header>
+          <div class="panel-body"><div class="chart" id="ph-daily"></div></div>
+        </section>
+        <section class="panel" id="dash-activity-panel">
+          <header class="panel-head"><h2 id="dash-activity-title">Recent activity</h2><a class="btn btn-quiet btn-sm" id="dash-activity-more" href="#insights/activity" data-min-role="admin">All activity</a></header>
+          <ol class="activity" id="dash-activity"></ol>
+        </section>
+      </div>
+    </section>
+
     <section class="area" id="tab-console" role="tabpanel">
       <div class="panel console">
         <div class="toolbar">
-          <div class="segmented" role="radiogroup" aria-label="Show">
+          <div class="segmented" role="radiogroup" aria-label="Show" id="log-view">
             <button role="radio" aria-checked="true" data-view="all">All output</button>
-            <button role="radio" aria-checked="false" data-view="chat">Chat &amp; joins</button>
+            <button role="radio" aria-checked="false" data-view="chat">Chat</button>
           </div>
           <label class="search"><svg><use href="#pg-search"/></svg><input id="filter" type="search" placeholder="Filter log" autocomplete="off" aria-label="Filter log"></label>
           <button class="btn btn-quiet btn-sm" id="follow" aria-pressed="true" aria-label="Pause scrolling"><svg><use id="follow-icon" href="#pg-pause"/></svg><span id="follow-label">Pause scroll</span></button>
@@ -144,6 +178,7 @@
         </div>
         <div class="log-status" id="log-status" role="status" hidden><svg><use href="#pg-alert"/></svg><span id="log-status-text"></span></div>
         <div class="log" id="log" aria-live="off" tabindex="0" aria-label="Server log"></div>
+        <ol class="chat-list" id="chat-list" aria-live="polite" hidden></ol>
         <form class="prompt" id="form" autocomplete="off" data-min-role="moderator">
           <div class="cmd-pop">
             <ul class="cmd-suggest" id="cmd-suggest" role="listbox" aria-label="Command suggestions" hidden></ul>
@@ -154,6 +189,11 @@
           <kbd class="hint-key" aria-hidden="true">/</kbd>
           <button class="btn btn-primary btn-sm" aria-label="Run command"><svg><use href="#pg-send"/></svg><span class="desktop-only">Run</span></button>
         </form>
+        <form class="chat-send" id="chat-form" data-min-role="moderator" autocomplete="off" hidden>
+          <select class="field" name="to" aria-label="Send to"><option value="">Everyone</option></select>
+          <input class="field" name="message" maxlength="256" placeholder="Message everyone…" aria-label="Message">
+          <button class="btn btn-primary"><svg><use href="#pg-send"/></svg><span class="desktop-only">Send</span></button>
+        </form>
       </div>
 
       <div class="side">
@@ -162,8 +202,8 @@
           <ul class="people" id="online"></ul>
         </section>
         <section class="panel" data-min-role="admin">
-          <header class="panel-head"><h2>Quick actions</h2></header>
-          <div class="quick">
+          <header class="panel-head"><h2>Quick actions</h2><button class="btn btn-quiet btn-sm" id="quick-edit" title="Add your own commands"><svg><use href="#pg-add"/></svg>Add</button></header>
+          <div class="quick" id="quick">
             <button class="btn" data-c="save-all"><svg><use href="#pg-save"/></svg>Save world</button>
             <button class="btn" data-c="weather clear"><svg><use href="#pg-clear"/></svg>Clear weather</button>
             <button class="btn" data-c="time set day"><svg><use href="#pg-day"/></svg>Set day</button>
@@ -188,50 +228,45 @@
       </div>
     </section>
 
-    <!-- Players -->
+    <!-- Players: everyone the server knows, and addresses -->
     <section class="area" id="tab-players" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Players sections">
-        <button role="tab" data-view="access" aria-selected="true">Access</button>
-        <button role="tab" data-view="chat" aria-selected="false">Chat</button>
-        <button role="tab" data-view="history" aria-selected="false" data-min-role="moderator">History</button>
-        <button role="tab" data-view="security" aria-selected="false" data-min-role="moderator">Security</button>
+        <button role="tab" data-view="people" aria-selected="true">People</button>
+        <button role="tab" data-view="addresses" aria-selected="false" data-min-role="moderator">Addresses</button>
       </div>
-      <div class="view" data-view="access">
-      <div class="area-error" id="access-error" role="alert" hidden></div>
-      <div class="grid-2">
+      <div class="view" data-view="people">
+        <div class="area-error" id="access-error" role="alert" hidden></div>
+        <dl class="kpis" id="ph-kpis"></dl>
         <section class="panel">
-          <header class="panel-head">
-            <h2>Whitelist</h2><span class="count" id="n-whitelist"></span>
-            <label class="switch" data-min-role="admin"><input type="checkbox" role="switch" id="wl-toggle"><span id="wl-state">Off</span></label>
+          <header class="panel-head people-head">
+            <div class="segmented" role="radiogroup" aria-label="Show" id="pp-filter">
+              <button role="radio" aria-checked="true" data-f="all">All</button>
+              <button role="radio" aria-checked="false" data-f="online">Online</button>
+              <button role="radio" aria-checked="false" data-f="whitelist">Whitelisted</button>
+              <button role="radio" aria-checked="false" data-f="op">Operators</button>
+              <button role="radio" aria-checked="false" data-f="banned">Banned</button>
+            </div>
+            <label class="search"><svg><use href="#pg-search"/></svg><input id="ph-filter" type="search" placeholder="Find a player" aria-label="Find a player" maxlength="16" autocomplete="off"></label>
+            <label class="switch" data-min-role="admin"><input type="checkbox" role="switch" id="wl-toggle"><span id="wl-state">Whitelist off</span></label>
           </header>
-          <form class="add" data-min-role="moderator" data-cmd="whitelist add {v}" data-kind="player" data-label="Add to whitelist">
-            <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
-            <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Add</button>
+          <form class="add people-add" id="pp-add" data-min-role="moderator" autocomplete="off">
+            <input class="field" name="name" placeholder="Player name" aria-label="Player name" maxlength="16" required>
+            <button class="btn btn-primary" name="act" value="whitelist"><svg><use href="#pg-add"/></svg>Whitelist</button>
+            <button class="btn" name="act" value="op" data-min-role="admin"><svg><use href="#pg-op"/></svg>Make op</button>
+            <button class="btn btn-quiet danger" name="act" value="ban"><svg><use href="#pg-ban"/></svg>Ban…</button>
           </form>
-          <ul class="people" id="list-whitelist"></ul>
+          <table class="table people-table">
+            <thead><tr><th>Player</th><th>Access</th><th>Last seen</th><th class="num">Playtime</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="pp-list"></tbody>
+          </table>
+          <p class="note table-foot" id="ph-info"></p>
         </section>
+      </div>
 
+      <div class="view" data-view="addresses" hidden>
+        <div class="advice" id="sec-advice"></div>
         <section class="panel">
-          <header class="panel-head"><h2>Operators</h2><span class="count" id="n-ops"></span></header>
-          <form class="add" data-min-role="admin" data-cmd="op {v}" data-kind="player" data-confirm="op" data-label="Make operator">
-            <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
-            <button class="btn btn-primary"><svg><use href="#pg-op"/></svg>Make op</button>
-          </form>
-          <ul class="people" id="list-ops"></ul>
-        </section>
-
-        <section class="panel">
-          <header class="panel-head"><h2>Banned players</h2><span class="count" id="n-bans"></span></header>
-          <form class="add" data-min-role="moderator" data-cmd="ban {v}" data-kind="player" data-confirm="ban" data-label="Ban player">
-            <input class="field" placeholder="Player name" aria-label="Player name" maxlength="16" required>
-            <input class="field" placeholder="Reason (optional)" aria-label="Reason" data-reason>
-            <button class="btn btn-danger"><svg><use href="#pg-ban"/></svg>Ban</button>
-          </form>
-          <ul class="people" id="list-bans"></ul>
-        </section>
-
-        <section class="panel">
-          <header class="panel-head"><h2>Banned IPs</h2><span class="count" id="n-ipbans"></span></header>
+          <header class="panel-head"><h2>Banned addresses</h2><span class="count" id="n-ipbans"></span></header>
           <form class="add" data-min-role="moderator" data-cmd="ban-ip {v}" data-kind="ip" data-confirm="ban" data-label="Ban IP address">
             <input class="field" placeholder="IP or online player" aria-label="IP address or online player" required>
             <input class="field" placeholder="Reason (optional)" aria-label="Reason" data-reason>
@@ -239,44 +274,6 @@
           </form>
           <ul class="people" id="list-ipbans"></ul>
         </section>
-      </div>
-      </div>
-
-      <div class="view" data-view="chat" hidden>
-        <section class="panel chat-panel">
-          <header class="panel-head">
-            <div class="head-text"><h2>Chat</h2><p class="note" id="chat-info">Live from the server log. What you send appears in game as <b>[Web]</b> and your name.</p></div>
-            <span class="count" id="chat-count"></span>
-          </header>
-          <ol class="chat-list" id="chat-list" aria-live="polite"></ol>
-          <form class="chat-send" id="chat-form" data-min-role="moderator" autocomplete="off">
-            <select class="field" name="to" aria-label="Send to"><option value="">Everyone</option></select>
-            <input class="field" name="message" maxlength="256" placeholder="Message everyone…" aria-label="Message">
-            <button class="btn btn-primary"><svg><use href="#pg-send"/></svg>Send</button>
-          </form>
-        </section>
-      </div>
-
-      <div class="view" data-view="history" hidden>
-        <dl class="kpis" id="ph-kpis"></dl>
-        <section class="panel">
-          <header class="panel-head"><div class="head-text"><h2>Daily activity</h2><p class="note">Hours played per day over the last 30 days, from the server logs.</p></div></header>
-          <div class="panel-body"><div class="chart" id="ph-daily"></div></div>
-        </section>
-        <section class="panel">
-          <header class="panel-head">
-            <div class="head-text"><h2>Everyone who played</h2><p class="note" id="ph-info"></p></div>
-            <input class="field ph-filter" id="ph-filter" type="search" placeholder="Filter by name" aria-label="Filter players" maxlength="16">
-          </header>
-          <table class="table">
-            <thead><tr><th>Player</th><th>Last seen</th><th>First seen</th><th class="num">Sessions</th><th class="num">Playtime</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
-            <tbody id="ph-list"></tbody>
-          </table>
-        </section>
-      </div>
-
-      <div class="view" data-view="security" hidden>
-        <div class="advice" id="sec-advice"></div>
         <section class="panel">
           <header class="panel-head">
             <div class="head-text"><h2>Unknown connection attempts</h2><p class="note" id="sec-info">Clients that connected but never logged in, from addresses no player has used. Mostly scanners that search the internet for open Minecraft servers.</p></div>
@@ -289,47 +286,47 @@
       </div>
     </section>
 
-    <!-- Worlds -->
-    <section class="area" id="tab-worlds" role="tabpanel" hidden>
+
+    <!-- World: the worlds on disk and the live map -->
+    <section class="area" id="tab-world" role="tabpanel" hidden>
+      <div class="subnav segmented" role="tablist" aria-label="World sections">
+        <button role="tab" data-view="worlds" aria-selected="true">Worlds</button>
+        <button role="tab" data-view="map" aria-selected="false">Map</button>
+      </div>
+      <div class="view" data-view="worlds">
       <section class="panel">
         <header class="panel-head">
           <div class="head-text"><h2>Worlds</h2><p class="note" id="worlds-info"></p></div>
-          <button class="btn btn-primary" id="world-new-toggle" aria-expanded="false" aria-controls="world-new"><svg><use href="#pg-add"/></svg>New world</button>
+          <button class="btn btn-primary" id="world-new-toggle" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-add"/></svg>New world</button>
         </header>
-        <form class="world-new panel-body" id="world-new" hidden autocomplete="off">
-          <label class="fld"><span>Name</span><input class="field" name="name" maxlength="32" placeholder="e.g. creative" required pattern="[A-Za-z0-9_-]{1,32}"></label>
-          <label class="fld"><span>Seed</span><input class="field mono" name="seed" maxlength="64" placeholder="Random"></label>
-          <label class="fld"><span>Type</span>
-            <select class="field" name="type">
-              <option value="normal">Default</option>
-              <option value="large_biomes">Large biomes</option>
-              <option value="amplified">Amplified</option>
-              <option value="flat">Superflat</option>
-            </select>
-          </label>
-          <label class="fld"><span>Switch to it</span>
-            <select class="field" name="seconds">
-              <option value="10">Restart in 10 seconds</option>
-              <option value="60" selected>Restart in 1 minute</option>
-              <option value="300">Restart in 5 minutes</option>
-            </select>
-          </label>
-          <div class="form-actions">
-            <p class="note">The server restarts into the new world and generates it on first start.</p>
-            <button class="btn btn-quiet" type="button" id="world-new-cancel">Cancel</button>
-            <button class="btn btn-primary"><svg><use href="#pg-worlds"/></svg>Create and switch</button>
-          </div>
-        </form>
         <table class="table">
           <thead><tr><th>World</th><th>Dimensions</th><th class="num">Size</th><th>Last played</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
           <tbody id="world-list"></tbody>
         </table>
       </section>
+      </div>
+      <div class="view" data-view="map" hidden>
+        <div class="map-frame" id="map-frame" hidden><a class="btn btn-sm map-open" id="map-open" target="_blank" rel="noopener noreferrer"><svg><use href="#pg-map"/></svg>Open in new tab</a><iframe id="map-iframe" title="World map" referrerpolicy="no-referrer" sandbox="allow-scripts allow-popups"></iframe></div>
+        <section class="panel" id="map-setup" hidden>
+          <header class="panel-head"><div class="head-text"><h2>Set up the live map</h2><p class="note" id="map-note">rconsole shows BlueMap, squaremap or Dynmap here, behind your rconsole sign-in, so the map doesn't need to be public.</p></div></header>
+          <div class="panel-body stack" id="map-found" hidden></div>
+          <ol class="panel-body steps" id="map-steps">
+            <li><b>Install a map plugin.</b> Server → Plugins, search “squaremap” or “BlueMap”, install, then restart the server. <button class="btn btn-sm" id="map-install">Find squaremap</button></li>
+            <li><b>Keep it private.</b> Let the plugin's web server listen on <code>127.0.0.1</code> only; squaremap: <code>internal-webserver.bind: 127.0.0.1</code>.</li>
+            <li><b>Come back here.</b> rconsole finds the plugin and its port and offers to show it.</li>
+          </ol>
+        </section>
+      </div>
+    </section>
 
+
+    <!-- Backups: on this machine, offsite, and when they run -->
+    <section class="area" id="tab-backups" role="tabpanel" hidden>
       <section class="panel">
         <header class="panel-head">
           <div class="head-text"><h2>Backups</h2><p class="note" id="backup-info"></p></div>
-          <button class="btn btn-primary" id="backup-now"><svg><use href="#pg-backups"/></svg><span>Back up active world</span></button>
+          <a class="btn btn-quiet" href="#automation" data-min-role="admin"><svg><use href="#pg-schedule"/></svg>Schedule</a>
+          <button class="btn btn-primary" id="backup-now" data-min-role="admin"><svg><use href="#pg-backups"/></svg><span>Back up now</span></button>
         </header>
         <div class="job" id="backup-state" hidden></div>
         <table class="table">
@@ -337,11 +334,10 @@
           <tbody id="backup-list"></tbody>
         </table>
       </section>
-
       <section class="panel" id="os-panel" data-min-role="admin">
         <header class="panel-head">
           <div class="head-text"><h2>Offsite copies</h2><p class="note" id="os-info">Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.</p></div>
-          <a class="btn" id="os-edit" href="#settings/backups"><svg><use href="#pg-settings"/></svg><span>Set up</span></a>
+          <button class="btn" id="os-edit" aria-haspopup="dialog"><svg><use href="#pg-settings"/></svg><span>Set up</span></button>
         </header>
         <div class="job" id="os-state" hidden></div>
         <table class="table" id="os-table" hidden>
@@ -351,43 +347,11 @@
       </section>
     </section>
 
-    <!-- Schedule -->
-    <section class="area" id="tab-schedule" role="tabpanel" hidden>
-      <section class="panel">
-        <header class="panel-head"><h2>New task</h2></header>
-        <form id="task-form" class="task-form panel-body">
-          <label class="fld"><span>Type</span>
-            <select class="field" name="type">
-              <option value="restart">Restart with countdown</option>
-              <option value="backup">Backup</option>
-              <option value="command">Command</option>
-            </select>
-          </label>
-          <label class="fld"><span>Time</span><input class="field" type="time" name="time" value="04:00" required></label>
-          <label class="fld" data-for="restart"><span>Warning (min)</span><input class="field" type="number" name="warnMinutes" value="5" min="0" max="60"></label>
-          <label class="fld wide" data-for="command" hidden><span>Command</span><input class="field mono" name="command" placeholder="say Hello" spellcheck="false"></label>
-          <label class="fld"><span>Name</span><input class="field" name="name" placeholder="Optional"></label>
-          <fieldset class="fld days">
-            <legend>Days <span class="note">— none selected runs daily</span></legend>
-            <div class="day-row">
-              <label><input type="checkbox" value="1"><span>Mon</span></label>
-              <label><input type="checkbox" value="2"><span>Tue</span></label>
-              <label><input type="checkbox" value="3"><span>Wed</span></label>
-              <label><input type="checkbox" value="4"><span>Thu</span></label>
-              <label><input type="checkbox" value="5"><span>Fri</span></label>
-              <label><input type="checkbox" value="6"><span>Sat</span></label>
-              <label><input type="checkbox" value="0"><span>Sun</span></label>
-            </div>
-          </fieldset>
-          <div class="form-actions">
-            <p class="form-error" id="task-error" role="alert"></p>
-            <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Add task</button>
-          </div>
-        </form>
-      </section>
 
+    <!-- Automation: scheduled tasks -->
+    <section class="area" id="tab-automation" role="tabpanel" hidden>
       <section class="panel">
-        <header class="panel-head"><h2>Scheduled tasks</h2><span class="count" id="n-tasks"></span></header>
+        <header class="panel-head"><div class="head-text"><h2>Scheduled tasks</h2><p class="note">Restarts with a countdown, backups and commands, at set times.</p></div><span class="count" id="n-tasks"></span><button class="btn btn-primary" id="task-new" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-add"/></svg>New task</button></header>
         <table class="table">
           <thead><tr><th>Task</th><th>When</th><th>Next run</th><th>Last result</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
           <tbody id="task-list"></tbody>
@@ -395,14 +359,14 @@
       </section>
     </section>
 
+
     <!-- Server -->
     <section class="area" id="tab-server" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Server sections">
         <button role="tab" data-view="overview" aria-selected="true">Overview</button>
-        <button role="tab" data-view="servers" aria-selected="false">Servers</button>
         <button role="tab" data-view="properties" aria-selected="false">Properties</button>
         <button role="tab" data-view="plugins" aria-selected="false">Plugins</button>
-        <button role="tab" data-view="configs" aria-selected="false" data-min-role="admin">Configs</button>
+        <button role="tab" data-view="files" aria-selected="false" data-min-role="admin">Files</button>
         <button role="tab" data-view="updates" aria-selected="false">Updates</button>
       </div>
 
@@ -457,66 +421,6 @@
 
       </div>
 
-      <div class="view" data-view="servers" hidden>
-        <section class="panel">
-          <header class="panel-head">
-            <div class="head-text"><h2>Servers</h2><p class="note" id="servers-info">Servers rconsole installed and runs itself.</p></div>
-            <button class="btn btn-primary" id="server-new-toggle" aria-expanded="false" aria-controls="server-new" data-min-role="admin"><svg><use href="#pg-add"/></svg>New server</button>
-          </header>
-          <div class="job" id="servers-op" role="status" hidden></div>
-          <form class="server-new panel-body" id="server-new" hidden autocomplete="off">
-            <fieldset class="fld wide dist-pick">
-              <legend>Software</legend>
-              <div class="dist-grid" id="dist-grid"></div>
-            </fieldset>
-            <label class="fld"><span>Minecraft version</span><select class="field" name="version" required><option value="">Choose software first</option></select></label>
-            <label class="fld"><span>Build</span><select class="field" name="build"><option value="">Newest stable</option></select></label>
-            <label class="fld"><span>Name</span><input class="field" name="id" maxlength="32" placeholder="e.g. survival" required pattern="[a-z0-9][a-z0-9-]{0,31}" title="Lowercase letters, digits and dashes"></label>
-            <label class="fld"><span>Port</span><input class="field mono" name="port" type="number" min="1024" max="65535" value="25565" required></label>
-            <label class="fld"><span>Memory</span>
-              <select class="field" name="memoryMb">
-                <option value="1024">1 GB</option>
-                <option value="2048">2 GB</option>
-                <option value="4096" selected>4 GB</option>
-                <option value="6144">6 GB</option>
-                <option value="8192">8 GB</option>
-                <option value="12288">12 GB</option>
-                <option value="16384">16 GB</option>
-              </select>
-            </label>
-            <label class="fld"><span>Java tuning</span>
-              <select class="field" name="flags">
-                <option value="aikar" selected>Aikar's flags (recommended)</option>
-                <option value="zgc">Generational ZGC (Java 21+, 12 GB and more)</option>
-                <option value="default">Java defaults (G1)</option>
-              </select>
-            </label>
-            <label class="fld" id="server-new-proxy" hidden><span>Players join through</span>
-              <select class="field" name="proxy"><option value="">Directly (no proxy)</option></select>
-            </label>
-            <label class="fld" data-kind="server"><span>Your Minecraft name</span><input class="field" name="owner" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="whitelisted, optional" title="3 to 16 letters, digits or _"></label>
-            <p class="note wide" id="server-new-memory" hidden></p>
-            <div class="fld wide checks">
-              <label class="check"><input type="checkbox" name="start" checked> Start when installed</label>
-              <label class="check"><input type="checkbox" name="autostart" checked> Start after a reboot</label>
-              <label class="check" data-kind="server" title="Whitelist on (you are added), no player addresses in the log, simulation distance 6, chunk writes off the main thread; on Paper also anti-xray and faster explosions."><input type="checkbox" name="recommended" checked> Recommended security and performance settings</label>
-              <label class="check" title="The server may only open its game and RCON ports, and the extra ports listed. Map and voice chat plugins need theirs listed."><input type="checkbox" name="portLock"> Lock network ports</label>
-              <label class="fld" id="server-new-extra" hidden><span>Extra ports</span><input class="field mono" name="extraPorts" placeholder="e.g. 8100, 24454" pattern="\s*(\d{4,5}\s*(,\s*\d{4,5}\s*)*)?"></label>
-              <label class="check eula"><input type="checkbox" name="eula"> I accept the <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft EULA</a></label>
-            </div>
-            <div class="form-actions">
-              <p class="note" id="server-new-note">rconsole downloads the server and the Java it needs, checks every file against the publisher's checksum, and sets up RCON with a random password.</p>
-              <button class="btn btn-quiet" type="button" id="server-new-cancel">Cancel</button>
-              <button class="btn btn-primary" data-op><svg><use href="#pg-server"/></svg>Install server</button>
-            </div>
-          </form>
-          <table class="table">
-            <thead><tr><th>Server</th><th>Software</th><th>Port</th><th>Memory</th><th>State</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
-            <tbody id="server-list"></tbody>
-          </table>
-        </section>
-      </div>
-
       <div class="view" data-view="properties" hidden>
         <form class="settings" id="settings-form" novalidate>
           <div class="grid-2" id="settings-groups"></div>
@@ -542,7 +446,7 @@
             <button class="btn" id="plugins-refresh"><svg><use href="#pg-refresh"/></svg>Check for updates</button>
           </header>
           <table class="table">
-            <thead><tr><th>Plugin</th><th>Source</th><th class="num">Size</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+            <thead><tr><th>Plugin</th><th class="num">Size</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
             <tbody id="plugin-list"></tbody>
           </table>
         </section>
@@ -560,7 +464,7 @@
         </section>
       </div>
 
-      <div class="view" data-view="configs" hidden>
+      <div class="view" data-view="files" hidden>
         <section class="panel cfg-panel">
           <div class="cfg-layout">
             <aside class="cfg-tree">
@@ -596,18 +500,6 @@
           </ul>
         </section>
 
-        <section class="panel self-panel" id="self-panel" hidden>
-          <header class="panel-head">
-            <div class="head-text"><h2>What's new in rconsole</h2><p class="note" id="self-note" hidden>Updating restarts rconsole and signs everyone out; if the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p></div>
-            <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update rconsole</button>
-          </header>
-          <div class="panel-body stack">
-            <div class="version" hidden><span id="self-current">–</span><span class="pill" id="self-pill" hidden></span></div>
-            <div class="job" id="self-status" hidden></div>
-            <ol class="changelog" id="self-changes" hidden></ol>
-            <p class="note" id="self-info"></p>
-          </div>
-        </section>
 
         <section class="panel" id="upd-server">
           <header class="panel-head">
@@ -648,13 +540,28 @@
         </section>
       </div>
     </section>
+
+    <!-- Servers: every server rconsole runs (reached from the switcher) -->
+    <section class="area" id="tab-servers" role="tabpanel" hidden>
+      <section class="panel">
+        <header class="panel-head">
+          <div class="head-text"><h2>Servers</h2><p class="note" id="servers-info">Servers rconsole installed and runs itself.</p></div>
+          <button class="btn btn-primary" id="server-new-toggle" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-add"/></svg>New server</button>
+        </header>
+        <div class="job" id="servers-op" role="status" hidden></div>
+        <table class="table">
+          <thead><tr><th>Server</th><th>Software</th><th>Port</th><th>Memory</th><th>State</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="server-list"></tbody>
+        </table>
+      </section>
+    </section>
+
     <!-- Insights -->
     <section class="area" id="tab-insights" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Insights sections">
         <button role="tab" data-view="metrics" aria-selected="true">Metrics</button>
-        <button role="tab" data-view="problems" aria-selected="false">Problems</button>
-        <button role="tab" data-view="logs" aria-selected="false">Log search</button>
-        <button role="tab" data-view="audit" aria-selected="false" data-min-role="admin">Audit</button>
+        <button role="tab" data-view="logs" aria-selected="false">Logs</button>
+        <button role="tab" data-view="activity" aria-selected="false" data-min-role="admin">Activity</button>
       </div>
 
       <div class="view" data-view="metrics">
@@ -683,20 +590,6 @@
         </div>
       </div>
 
-      <div class="view" data-view="problems" hidden>
-        <section class="panel">
-          <header class="panel-head">
-            <div class="head-text"><h2>Problems</h2><p class="note" id="pr-info">Crashes, plugin failures and errors from the server log.</p></div>
-            <div class="segmented" role="radiogroup" aria-label="Time range" id="pr-range">
-              <button role="radio" aria-checked="true" data-days="1">24 h</button>
-              <button role="radio" aria-checked="false" data-days="7">7 days</button>
-            </div>
-            <button class="btn" id="pr-seen" data-min-role="moderator"><svg><use href="#pg-check"/></svg>Mark all as seen</button>
-          </header>
-          <ul class="problems" id="pr-list"></ul>
-        </section>
-      </div>
-
       <div class="view" data-view="logs" hidden>
         <section class="panel">
           <form class="panel-body log-search" id="ls-form" role="search">
@@ -711,7 +604,7 @@
         </section>
       </div>
 
-      <div class="view" data-view="audit" hidden>
+      <div class="view" data-view="activity" hidden>
         <section class="panel">
           <form class="panel-body audit-filters" id="au-form">
             <label class="fld"><span>User</span><select class="field" name="user"><option value="">Everyone</option></select></label>
@@ -726,26 +619,15 @@
         </section>
       </div>
     </section>
-    <!-- Map -->
-    <section class="area" id="tab-map" role="tabpanel" hidden>
-      <div class="map-frame" id="map-frame" hidden><a class="btn btn-sm map-open" id="map-open" target="_blank" rel="noopener noreferrer"><svg><use href="#pg-map"/></svg>Open in new tab</a><iframe id="map-iframe" title="World map" referrerpolicy="no-referrer" sandbox="allow-scripts allow-popups"></iframe></div>
-      <section class="panel" id="map-setup" hidden>
-        <header class="panel-head"><div class="head-text"><h2>Set up the live map</h2><p class="note">rconsole shows squaremap (or BlueMap) here, behind your rconsole sign-in, so the map doesn't need to be public.</p></div></header>
-        <ol class="panel-body steps">
-          <li><b>Install squaremap.</b> Server → Plugins, search “squaremap”, install, then restart the server. <button class="btn btn-sm" id="map-install">Find squaremap</button></li>
-          <li><b>Keep it private.</b> In <code>plugins/squaremap/config.yml</code> set <code>internal-webserver.bind: 127.0.0.1</code> and a free <code>port</code>, e.g. <code>8100</code>.</li>
-          <li><b>Point rconsole at it.</b> Add <code>MAP_URL=http://127.0.0.1:8100</code> to <code>/etc/rconsole.env</code> and restart rconsole.</li>
-        </ol>
-      </section>
-    </section>
+
 
     <!-- Settings: rconsole itself (the Minecraft server's own settings are under Server) -->
     <section class="area" id="tab-settings" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Settings sections">
         <button role="tab" data-view="account" aria-selected="true">Account</button>
+        <button role="tab" data-view="signin" aria-selected="false" data-min-role="admin">Users &amp; sign-in</button>
         <button role="tab" data-view="notifications" aria-selected="false" data-min-role="admin">Notifications</button>
-        <button role="tab" data-view="backups" aria-selected="false" data-min-role="admin">Backups</button>
-        <button role="tab" data-view="about" aria-selected="false" data-min-role="admin">About</button>
+        <button role="tab" data-view="system" aria-selected="false" data-min-role="admin">System</button>
       </div>
 
       <div class="view" data-view="account">
@@ -756,6 +638,9 @@
           </header>
           <dl class="set-facts" id="acct-facts"></dl>
         </section>
+      </div>
+
+      <div class="view" data-view="signin" hidden>
         <section class="panel" data-min-role="admin">
           <header class="panel-head">
             <div class="head-text"><h2>Single sign-on</h2><p class="note" id="sso-note">Let people sign in with authentik, Keycloak, Auth0 or another OpenID Connect provider. Their groups there decide their role here.</p></div>
@@ -816,13 +701,10 @@
             <button class="btn" id="ntfy-test"><svg><use href="#pg-bell"/></svg>Send test</button>
           </header>
           <form class="panel-body notify-form" id="notify-form" autocomplete="off">
+            <h3 class="form-section wide">Where alerts go</h3>
             <label class="fld"><span>Topic URL</span><input class="field" name="url" type="url" placeholder="https://ntfy.sh/your-secret-topic" maxlength="200"></label>
             <label class="fld"><span>Access token (optional)</span><input class="field" name="token" type="password" placeholder="tk_…" maxlength="200" autocomplete="new-password"></label>
-            <div class="fld wide">
-              <span>rconsole URL</span>
-              <div class="row"><input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200"><button type="button" class="btn" id="ntfy-here">Use this address</button></div>
-              <p class="note">Tapping a notification opens the matching page here, and buttons can act on it. Must be reachable from your phone.</p>
-            </div>
+            <p class="note wide" id="ntfy-url-note">Tapping a notification opens the matching page here. The address comes from Settings → System → Rconsole URL.</p>
             <fieldset class="fld wide discord"><legend>Discord</legend>
               <div class="discord-grid">
                 <label class="fld"><span>Webhook for alerts</span><input class="field mono" name="dcUrl" type="password" maxlength="200" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"></label>
@@ -832,6 +714,7 @@
               </div>
               <p class="note">In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL. Works with or without ntfy; mentions are switched off.</p>
             </fieldset>
+            <h3 class="form-section wide">What to send</h3>
             <fieldset class="fld wide"><legend>Notify me when</legend><div class="notify-events" id="notify-events"></div></fieldset>
             <fieldset class="fld wide quiet"><legend>Quiet hours</legend>
               <div class="row quiet-row">
@@ -852,56 +735,211 @@
         </section>
       </div>
 
-      <div class="view" data-view="backups" hidden>
-        <section class="panel">
-          <header class="panel-head">
-            <div class="head-text"><h2>Backups on this machine</h2><p class="note">Made before updates and world changes, on demand under Worlds, and on a timetable under Schedule.</p></div>
-            <a class="btn" href="#schedule"><svg><use href="#pg-schedule"/></svg>Schedule backups</a>
-          </header>
-          <dl class="set-facts" id="bk-facts"></dl>
-        </section>
-        <section class="panel" id="os-setup">
-          <header class="panel-head">
-            <div class="head-text"><h2>Offsite copies</h2><p class="note" id="os-setup-note">Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO. The copies themselves are listed under Worlds.</p></div>
-          </header>
-        <form class="panel-body offsite-form" id="os-form" autocomplete="off">
-          <label class="fld wide"><span>Endpoint</span><input class="field" name="endpoint" type="url" placeholder="https://s3.eu-central-003.backblazeb2.com" maxlength="300"></label>
-          <label class="fld"><span>Bucket</span><input class="field" name="bucket" placeholder="my-minecraft-backups" maxlength="63" autocapitalize="none" spellcheck="false"></label>
-          <label class="fld"><span>Region</span><input class="field" name="region" placeholder="us-east-1" maxlength="40" autocapitalize="none" spellcheck="false"></label>
-          <label class="fld"><span>Access key ID</span><input class="field mono" name="accessKeyId" maxlength="300" autocapitalize="none" spellcheck="false"></label>
-          <label class="fld"><span>Secret access key</span><input class="field mono" name="secretAccessKey" type="password" maxlength="300" autocomplete="new-password"></label>
-          <label class="fld"><span>Folder in the bucket</span><input class="field mono" name="prefix" placeholder="rconsole/" maxlength="200" autocapitalize="none" spellcheck="false"></label>
-          <label class="fld"><span>Copies to keep per world</span><input class="field num" name="keep" type="number" min="0" max="1000" placeholder="14"></label>
-          <div class="fld wide">
-            <span>Encryption passphrase (optional)</span>
-            <input class="field" name="passphrase" type="password" maxlength="300" autocomplete="new-password" placeholder="Leave empty to upload unencrypted">
-            <p class="note">Backups are encrypted on this machine (AES-256-GCM) before they leave it. Without the passphrase they can't be restored: keep it in your password manager.</p>
-          </div>
-          <div class="fld wide row quiet-row">
-            <label class="switch"><input type="checkbox" role="switch" name="auto"><span>Upload every new backup</span></label>
-            <label class="check"><input type="checkbox" name="pathStyle"><span>Path-style URLs (needed for MinIO and most providers)</span></label>
-          </div>
-          <div class="form-actions"><p class="note" id="os-note"></p><button type="button" class="btn" id="os-test">Test connection</button><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
-        </form>
-        </section>
-      </div>
-
-      <div class="view" data-view="about" hidden>
+      <div class="view" data-view="system" hidden>
         <section class="panel">
           <header class="panel-head">
             <div class="head-text"><h2>rconsole</h2><p class="note" id="about-note"></p></div>
-            <a class="btn" href="#server/updates"><svg><use href="#pg-updates"/></svg>Check for updates</a>
           </header>
           <dl class="set-facts" id="about-facts"></dl>
+        </section>
+        <section class="panel self-panel" id="self-panel" hidden>
+          <header class="panel-head">
+            <div class="head-text"><h2>What's new in rconsole</h2><p class="note" id="self-note" hidden>Updating restarts rconsole and signs everyone out; if the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p></div>
+            <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update rconsole</button>
+          </header>
+          <div class="panel-body stack">
+            <div class="version" hidden><span id="self-current">–</span><span class="pill" id="self-pill" hidden></span></div>
+            <div class="job" id="self-status" hidden></div>
+            <ol class="changelog" id="self-changes" hidden></ol>
+            <p class="note" id="self-info"></p>
+          </div>
         </section>
         <section class="panel">
           <header class="panel-head"><div class="head-text"><h2>Set on the server</h2><p class="note">These come from <code>/etc/rconsole.env</code>; change them there and restart rconsole (<code>sudo systemctl restart rconsole</code>).</p></div></header>
           <dl class="set-facts" id="env-facts"></dl>
         </section>
+        <section class="panel" data-min-role="admin">
+          <header class="panel-head"><div class="head-text"><h2>Rconsole URL</h2><p class="note">The address people open rconsole at. Single sign-on sends people back to it, and notifications link to it.</p></div></header>
+          <form class="panel-body row url-form" id="url-form" autocomplete="off">
+            <input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200" aria-label="rconsole URL">
+            <button type="button" class="btn" id="url-here">Use this address</button>
+            <button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button>
+          </form>
+        </section>
       </div>
     </section>
   </main>
 </div>
+
+<dialog class="drawer" id="drawer-world" aria-labelledby="drawer-world-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-world-title">New world</h2></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+          <form class="world-new drawer-form" id="world-new" autocomplete="off">
+            <label class="fld"><span>Name</span><input class="field" name="name" maxlength="32" placeholder="e.g. creative" required pattern="[A-Za-z0-9_-]{1,32}"></label>
+            <label class="fld"><span>Seed</span><input class="field mono" name="seed" maxlength="64" placeholder="Random"></label>
+            <label class="fld"><span>Type</span>
+              <select class="field" name="type">
+                <option value="normal">Default</option>
+                <option value="large_biomes">Large biomes</option>
+                <option value="amplified">Amplified</option>
+                <option value="flat">Superflat</option>
+              </select>
+            </label>
+            <label class="fld"><span>Switch to it</span>
+              <select class="field" name="seconds">
+                <option value="10">Restart in 10 seconds</option>
+                <option value="60" selected>Restart in 1 minute</option>
+                <option value="300">Restart in 5 minutes</option>
+              </select>
+            </label>
+            <div class="form-actions">
+              <p class="note">The server restarts into the new world and generates it on first start.</p>
+              <button class="btn btn-quiet" type="button" id="world-new-cancel">Cancel</button>
+              <button class="btn btn-primary"><svg><use href="#pg-worlds"/></svg>Create and switch</button>
+            </div>
+          </form>
+  </div>
+</dialog>
+<dialog class="drawer" id="drawer-server" aria-labelledby="drawer-server-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-server-title">New server</h2></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+          <form class="server-new drawer-form" id="server-new" autocomplete="off">
+            <fieldset class="fld wide dist-pick">
+              <legend>Software</legend>
+              <div class="dist-grid" id="dist-grid"></div>
+            </fieldset>
+            <label class="fld"><span>Minecraft version</span><select class="field" name="version" required><option value="">Choose software first</option></select></label>
+            <label class="fld"><span>Build</span><select class="field" name="build"><option value="">Newest stable</option></select></label>
+            <label class="fld"><span>Name</span><input class="field" name="id" maxlength="32" placeholder="e.g. survival" required pattern="[a-z0-9][a-z0-9-]{0,31}" title="Lowercase letters, digits and dashes"></label>
+            <label class="fld"><span>Port</span><input class="field mono" name="port" type="number" min="1024" max="65535" value="25565" required></label>
+            <label class="fld"><span>Memory</span>
+              <select class="field" name="memoryMb">
+                <option value="1024">1 GB</option>
+                <option value="2048">2 GB</option>
+                <option value="4096" selected>4 GB</option>
+                <option value="6144">6 GB</option>
+                <option value="8192">8 GB</option>
+                <option value="12288">12 GB</option>
+                <option value="16384">16 GB</option>
+              </select>
+            </label>
+            <label class="fld"><span>Java tuning</span>
+              <select class="field" name="flags">
+                <option value="aikar" selected>Aikar's flags (recommended)</option>
+                <option value="zgc">Generational ZGC (Java 21+, 12 GB and more)</option>
+                <option value="default">Java defaults (G1)</option>
+              </select>
+            </label>
+            <label class="fld" id="server-new-proxy" hidden><span>Players join through</span>
+              <select class="field" name="proxy"><option value="">Directly (no proxy)</option></select>
+            </label>
+            <label class="fld" data-kind="server"><span>Your Minecraft name</span><input class="field" name="owner" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="whitelisted, optional" title="3 to 16 letters, digits or _"></label>
+            <p class="note wide" id="server-new-memory" hidden></p>
+            <div class="fld wide checks">
+              <label class="check"><input type="checkbox" name="start" checked> Start when installed</label>
+              <label class="check"><input type="checkbox" name="autostart" checked> Start after a reboot</label>
+              <label class="check" data-kind="server" title="Whitelist on (you are added), no player addresses in the log, simulation distance 6, chunk writes off the main thread; on Paper also anti-xray and faster explosions."><input type="checkbox" name="recommended" checked> Recommended security and performance settings</label>
+              <label class="check" title="The server may only open its game and RCON ports, and the extra ports listed. Map and voice chat plugins need theirs listed."><input type="checkbox" name="portLock"> Lock network ports</label>
+              <label class="fld" id="server-new-extra" hidden><span>Extra ports</span><input class="field mono" name="extraPorts" placeholder="e.g. 8100, 24454" pattern="\s*(\d{4,5}\s*(,\s*\d{4,5}\s*)*)?"></label>
+            
+            </div>
+            <div class="form-actions">
+              <p class="note" id="server-new-note">rconsole downloads the server and the Java it needs, checks every file against the publisher's checksum, and sets up RCON with a random password.</p>
+              <button class="btn btn-quiet" type="button" id="server-new-cancel">Cancel</button>
+              <button class="btn btn-primary" data-op><svg><use href="#pg-server"/></svg>Install server</button>
+            </div>
+          </form>
+  </div>
+</dialog>
+<dialog class="drawer" id="drawer-task" aria-labelledby="drawer-task-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-task-title">New task</h2></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+          <form id="task-form" class="task-form drawer-form">
+            <label class="fld"><span>Type</span>
+              <select class="field" name="type">
+                <option value="restart">Restart with countdown</option>
+                <option value="backup">Backup</option>
+                <option value="command">Command</option>
+              </select>
+            </label>
+            <label class="fld"><span>Time</span><input class="field" type="time" name="time" value="04:00" required></label>
+            <label class="fld" data-for="restart"><span>Warning (min)</span><input class="field" type="number" name="warnMinutes" value="5" min="0" max="60"></label>
+            <label class="fld wide" data-for="command" hidden><span>Command</span><input class="field mono" name="command" placeholder="say Hello" spellcheck="false"></label>
+            <label class="fld"><span>Name</span><input class="field" name="name" placeholder="Optional"></label>
+            <fieldset class="fld days">
+              <legend>Days</legend>
+              <div class="day-row">
+                <label class="every"><input type="checkbox" value="all" checked><span>Every day</span></label>
+                <label><input type="checkbox" value="1"><span>Mon</span></label>
+                <label><input type="checkbox" value="2"><span>Tue</span></label>
+                <label><input type="checkbox" value="3"><span>Wed</span></label>
+                <label><input type="checkbox" value="4"><span>Thu</span></label>
+                <label><input type="checkbox" value="5"><span>Fri</span></label>
+                <label><input type="checkbox" value="6"><span>Sat</span></label>
+                <label><input type="checkbox" value="0"><span>Sun</span></label>
+              </div>
+            </fieldset>
+            <div class="form-actions">
+              <p class="form-error" id="task-error" role="alert"></p>
+              <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Add task</button>
+            </div>
+          </form>
+  </div>
+</dialog>
+<dialog class="drawer" id="drawer-offsite" aria-labelledby="drawer-offsite-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-offsite-title">Offsite copies</h2><p class="note">Any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.</p></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+          <form class="offsite-form drawer-form" id="os-form" autocomplete="off">
+            <label class="fld wide"><span>Endpoint</span><input class="field" name="endpoint" type="url" placeholder="https://s3.eu-central-003.backblazeb2.com" maxlength="300"></label>
+            <label class="fld"><span>Bucket</span><input class="field" name="bucket" placeholder="my-minecraft-backups" maxlength="63" autocapitalize="none" spellcheck="false"></label>
+            <label class="fld"><span>Region</span><input class="field" name="region" placeholder="us-east-1" maxlength="40" autocapitalize="none" spellcheck="false"></label>
+            <label class="fld"><span>Access key ID</span><input class="field mono" name="accessKeyId" maxlength="300" autocapitalize="none" spellcheck="false"></label>
+            <label class="fld"><span>Secret access key</span><input class="field mono" name="secretAccessKey" type="password" maxlength="300" autocomplete="new-password"></label>
+            <label class="fld"><span>Folder in the bucket</span><input class="field mono" name="prefix" placeholder="rconsole/" maxlength="200" autocapitalize="none" spellcheck="false"></label>
+            <label class="fld"><span>Copies to keep per world</span><input class="field num" name="keep" type="number" min="0" max="1000" placeholder="14"></label>
+            <div class="fld wide">
+              <span>Encryption passphrase (optional)</span>
+              <input class="field" name="passphrase" type="password" maxlength="300" autocomplete="new-password" placeholder="Leave empty to upload unencrypted">
+              <p class="note">Backups are encrypted on this machine (AES-256-GCM) before they leave it. Without the passphrase they can't be restored: keep it in your password manager.</p>
+            </div>
+            <div class="fld wide row quiet-row">
+              <label class="switch"><input type="checkbox" role="switch" name="auto"><span>Upload every new backup</span></label>
+              <label class="check"><input type="checkbox" name="pathStyle"><span>Path-style URLs (needed for MinIO and most providers)</span></label>
+            </div>
+            <div class="form-actions"><p class="note" id="os-note"></p><button type="button" class="btn" id="os-test">Test connection</button><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
+          </form>
+  </div>
+</dialog>
+<dialog class="drawer" id="drawer-problems" aria-labelledby="drawer-problems-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-problems-title">Problems</h2></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+    <div class="drawer-tools">
+      <div class="segmented" role="radiogroup" aria-label="Time range" id="pr-range">
+        <button role="radio" aria-checked="true" data-days="1">24 h</button>
+        <button role="radio" aria-checked="false" data-days="7">7 days</button>
+      </div>
+      <button class="btn btn-sm" id="pr-seen" data-min-role="moderator"><svg><use href="#pg-check"/></svg>Mark all as seen</button>
+    </div>
+    <p class="note" id="pr-info">Crashes, plugin failures and errors from the server log.</p>
+    <ul class="problems" id="pr-list"></ul>
+    <p class="note" id="pr-muted" hidden></p>
+  </div>
+</dialog>
 
 <dialog class="dialog" id="dialog" aria-labelledby="dialog-title">
   <form method="dialog">

@@ -125,6 +125,19 @@ test('http: survives malformed requests, no lockout of other people, viewers see
     // Large API answers too; small ones aren't worth it.
     assert.strictEqual((await fetch(`${base}/api/me`, { headers: { cookie: admin, 'accept-encoding': 'gzip' } })).headers.get('content-encoding'), null);
 
+    // Changing your own password: needs the current one, keeps this session,
+    // ends the others.
+    const other = cookieOf(await login('vic', 'password-1234', '10.0.0.20'));
+    const change = (cookie, body) => fetch(`${base}/api/me/password`, { method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.strictEqual((await change(vic, { current: 'wrong-password', password: 'brand-new-pass' })).status, 403);
+    assert.strictEqual((await change(vic, { current: 'password-1234', password: 'short' })).status, 400);
+    const ok = await change(vic, { current: 'password-1234', password: 'brand-new-pass' });
+    assert.strictEqual(ok.status, 200);
+    const fresh = cookieOf(ok);
+    assert.strictEqual((await fetch(`${base}/api/me`, { headers: { cookie: fresh } })).status, 200);
+    assert.strictEqual((await fetch(`${base}/api/me`, { headers: { cookie: other } })).status, 401);
+    assert.strictEqual((await login('vic', 'brand-new-pass', '10.0.0.21')).status, 200);
+
   } finally {
     child.kill();
   }
