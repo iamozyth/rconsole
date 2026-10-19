@@ -22,6 +22,9 @@ CPUWeight=30
 IOWeight=30
 MemoryHigh=256M
 MemoryMax=512M
+# When memory runs out, the kernel stops a Minecraft server (500) long
+# before rconsole, so the console stays up to show what happened.
+OOMScoreAdjust=-100
 
 # Users and scheduled tasks live in /var/lib/rconsole.
 StateDirectory=rconsole

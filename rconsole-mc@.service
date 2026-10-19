@@ -13,6 +13,10 @@ After=network-online.target rconsole-mc@%i.socket
 Wants=network-online.target
 # The console: rconsole writes commands into this FIFO, the server reads them as stdin.
 Requires=rconsole-mc@%i.socket
+# A server that crashes 5 times in 10 minutes stays down (rconsole shows it
+# as crashed) instead of restarting forever; Start in rconsole clears this.
+StartLimitIntervalSec=10min
+StartLimitBurst=5
 
 [Service]
 User=minecraft
@@ -32,21 +36,37 @@ KillSignal=SIGTERM
 KillMode=mixed
 TimeoutStopSec=3min
 SuccessExitStatus=143
-# rconsole restarts the server by stopping it; crashes come back on their own.
+# rconsole restarts the server by stopping it; crashes come back on their own
+# (up to the start limit above).
 Restart=on-failure
 RestartSec=10
 # The server comes second to nothing but the host; rconsole and its jobs
 # already run with lower weights.
 LimitNOFILE=65536
+# When memory runs out, the kernel kills a server before rconsole, sshd or
+# anything else. Its MemoryMax (heap plus room for the JVM) comes from the
+# drop-in rconsole-limits.service writes for each server.
+OOMScoreAdjust=500
 
-# Sandbox: only the instance folder is writable; Java comes from
-# /srv/minecraft-servers/.java, read-only.
+# Sandbox: the server sees only its own folder (writable, except
+# instance.json, which decides how it is started) and the Java runtimes,
+# read-only. The other servers, the attached server and the backups are
+# hidden, so a plugin can't read their RCON passwords or worlds.
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/srv/minecraft-servers/%i
+TemporaryFileSystem=/srv/minecraft-servers:ro
+BindPaths=/srv/minecraft-servers/%i
+BindReadOnlyPaths=-/srv/minecraft-servers/.java
+ReadOnlyPaths=-/srv/minecraft-servers/%i/instance.json
+InaccessiblePaths=-/srv/minecraft -/srv/minecraft-backups
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
+PrivateIPC=true
+RemoveIPC=true
+ProtectProc=invisible
+# No capabilities at all, so the privileged system calls fail anyway.
+CapabilityBoundingSet=
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
@@ -61,4 +81,5 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
-# Not set: MemoryDenyWriteExecute (the JIT compiler needs it).
+# Not set: MemoryDenyWriteExecute (the JIT compiler needs it), ProcSubset=pid
+# (spark and other plugins read /proc/meminfo and /proc/cpuinfo).

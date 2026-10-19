@@ -34,7 +34,7 @@ async function api(method, url, body) {
     throw new Error('Signed out');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (HTTP ${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (HTTP ${res.status})`), { status: res.status, data });
   return data;
 }
 
@@ -886,7 +886,9 @@ function serverButton(label, iconName, fn, danger) {
 function serverStateLabel(s) {
   if (!s.state.available) return el('span', { class: 'pill bad', title: s.state.error || '' }, 'Not controllable');
   const active = s.state.active;
-  return el('span', { class: `pill ${active === 'active' ? 'ok' : active === 'failed' ? 'bad' : ''}` }, active === 'active' ? 'Running' : active === 'activating' ? 'Starting' : active === 'deactivating' ? 'Stopping' : active === 'failed' ? 'Crashed' : 'Stopped');
+  const loop = active === 'failed' && s.state.result === 'start-limit-hit';
+  return el('span', { class: `pill ${active === 'active' ? 'ok' : active === 'failed' ? 'bad' : ''}`, title: loop ? 'It crashed 5 times in 10 minutes and was left stopped. Check the log, then press Start.' : null },
+    active === 'active' ? 'Running' : active === 'activating' ? 'Starting' : active === 'deactivating' ? 'Stopping' : loop ? 'Crashed repeatedly' : active === 'failed' ? 'Crashed' : 'Stopped');
 }
 
 async function serverAction(s, action, button) {
@@ -940,7 +942,47 @@ async function showServer(s, button) {
   });
 }
 
+// Memory, Java tuning, autostart and port lock of an installed server.
+async function serverSettings(s, button) {
+  const memory = el('select', { class: 'field', name: 'memoryMb' },
+    ...[512, 1024, 2048, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768].concat(s.memoryMb).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b)
+      .map((mb) => option(String(mb), fmt.bytes(mb * 1048576))));
+  memory.value = String(s.memoryMb);
+  const flags = el('select', { class: 'field', name: 'flags' },
+    option('aikar', "Aikar's flags (recommended)"), option('zgc', 'Generational ZGC (Java 21+, 12 GB and more)'), option('default', 'Java defaults (G1)'));
+  flags.value = s.flags;
+  const autostart = el('input', { type: 'checkbox', checked: s.autostart || undefined });
+  const lock = el('input', { type: 'checkbox', checked: s.portLock || undefined });
+  const extra = el('input', { class: 'field mono', value: (s.extraPorts || []).join(', '), placeholder: 'e.g. 8100, 24454' });
+  const note = el('p', { class: 'note' });
+  const extraFld = el('label', { class: 'fld', hidden: !s.portLock || undefined }, el('span', {}, 'Extra ports (maps, voice chat)'), extra);
+  lock.addEventListener('change', () => (extraFld.hidden = !lock.checked));
+  memory.addEventListener('change', () => memoryNote(note, memory, s.id));
+  const content = el('div', { class: 'dialog-form' },
+    el('label', { class: 'fld' }, el('span', {}, 'Memory'), memory), note,
+    el('label', { class: 'fld' }, el('span', {}, 'Java tuning'), flags),
+    el('label', { class: 'check' }, autostart, ' Start after a reboot'),
+    el('label', { class: 'check' }, lock, ' Lock network ports (game, RCON and the extra ports only)'),
+    extraFld);
+  memoryNote(note, memory, s.id);
+  memory.value = String(s.memoryMb);
+  if (!(await confirmAction({ title: `Settings of ${s.name}`, body: 'Changes apply at the next start.', confirm: 'Save', tone: 'primary', icon: 'settings', content }))) return;
+  const body = { memoryMb: Number(memory.value), flags: flags.value, autostart: autostart.checked, portLock: lock.checked, extraPorts: lock.checked ? parsePorts(extra.value) : [] };
+  await busy(button, async () => {
+    try {
+      const op = await sendServerRequest('PATCH', `/api/servers/${s.id}`, body, 'Save anyway?');
+      if (!op) return;
+      renderServersOp(op);
+      watchServers();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
 let serversActive = null;
+let serversMemTotalMb = null;
+let serversList = [];
 let lastServersOp = null;
 let serversAttached = false;
 let serversUsedPorts = new Set();
@@ -951,8 +993,11 @@ const freePort = (from) => {
 };
 async function loadServers() {
   try {
-    const { servers, active, attached, usedPorts, distributions, op, dir } = await api('GET', '/api/servers');
+    const { servers, active, attached, usedPorts, distributions, op, dir, memTotalMb } = await api('GET', '/api/servers');
     serversUsedPorts = new Set(usedPorts || []);
+    serversMemTotalMb = memTotalMb || null;
+    serversList = servers;
+    renderServerFormExtras();
     serversActive = active;
     serversAttached = attached;
     if (!distLoaded) renderDistributions(distributions);
@@ -972,13 +1017,16 @@ async function loadServers() {
             s.name !== s.id ? el('span', { class: 'sub mono' }, s.id) : null),
           el('td', { class: 'nowrap', 'data-label': 'Software' }, `${names[s.distribution] || s.distribution} ${s.version}`, s.build ? el('span', { class: 'sub' }, typeof s.build === 'number' ? `build ${s.build}` : `loader ${s.build}`) : null),
           el('td', { class: 'mono num', 'data-label': 'Port' }, String(s.port)),
-          el('td', { class: 'nowrap', 'data-label': 'Memory' }, fmt.bytes(s.memoryMb * 1024 * 1024), el('span', { class: 'sub' }, `Java ${s.java}`)),
+          el('td', { class: 'nowrap', 'data-label': 'Memory' }, fmt.bytes(s.memoryMb * 1024 * 1024), el('span', { class: 'sub' }, `Java ${s.java}${s.flags === 'zgc' ? ', ZGC' : ''}${s.portLock ? ', ports locked' : ''}`)),
           el('td', { 'data-label': 'State' }, serverStateLabel(s)),
           el('td', { class: 'act' }, atLeast('admin') ? [
             s.state.active === 'active'
               ? [serverButton('Restart', 'restart', (b) => serverAction(s, 'restart', b)), serverButton('Stop', 'stop', (b) => serverAction(s, 'stop', b))]
+              // Starting, or waiting to restart after a crash: Stop ends it.
+              : s.state.active === 'activating' ? serverButton('Stop', 'stop', (b) => serverAction(s, 'stop', b))
               : serverButton('Start', 'play', (b) => serverAction(s, 'start', b)),
             s.id !== active && s.kind === 'server' ? serverButton('Show', 'server', (b) => showServer(s, b)) : null,
+            serverButton('Settings', 'settings', (b) => serverSettings(s, b)),
             serverButton('Delete', 'delete', (b) => deleteServer(s, b), true),
           ] : null)))
       : [emptyRow(6, el('b', {}, 'No servers yet. '), atLeast('admin') ? 'Press New server to pick the software and version.' : 'An admin can install one.')]));
@@ -1013,6 +1061,55 @@ function watchServers() {
 }
 
 const serverForm = $('server-new');
+const PROXY_READY = new Set(['paper', 'folia', 'purpur']);
+const parsePorts = (text) => [...new Set(String(text || '').split(/[\s,]+/).filter(Boolean).map(Number))];
+
+// Memory choices that can't fit on this machine are disabled; the note
+// says how much the servers already claim.
+function memoryNote(box, select, exceptId) {
+  const total = serversMemTotalMb;
+  for (const o of select.options) o.disabled = Boolean(total && Number(o.value) + 512 > total);
+  if (select.selectedOptions[0]?.disabled) select.value = [...select.options].reverse().find((o) => !o.disabled)?.value || select.value;
+  if (!total) return (box.hidden = true);
+  const claimed = serversList.filter((s) => s.id !== exceptId).reduce((sum, s) => sum + s.memoryMb, 0);
+  box.hidden = false;
+  box.textContent = `This machine has ${fmt.bytes(total * 1048576)} of RAM${claimed ? `; the other servers have ${fmt.bytes(claimed * 1048576)} of heap` : ''}. Java needs about 1.5 GB more than the heap you choose.`;
+}
+
+function renderServerFormExtras() {
+  const f = serverForm.elements;
+  const keep = f.proxy.value;
+  const proxies = serversList.filter((s) => s.kind === 'proxy');
+  f.proxy.replaceChildren(option('', 'Directly (no proxy)'), ...proxies.map((p) => option(p.id, `${p.name} (Velocity, port ${p.port})`)));
+  f.proxy.value = proxies.some((p) => p.id === keep) ? keep : '';
+  updateServerFormKind();
+  memoryNote($('server-new-memory'), f.memoryMb);
+}
+
+// Fields that only make sense for game servers, or for Paper behind a proxy.
+function updateServerFormKind() {
+  const f = serverForm.elements;
+  const d = f.distribution.value;
+  const isProxy = d === 'velocity';
+  serverForm.querySelectorAll('[data-kind="server"]').forEach((n) => (n.hidden = isProxy));
+  $('server-new-proxy').hidden = !PROXY_READY.has(d) || !serversList.some((s) => s.kind === 'proxy');
+  $('server-new-extra').hidden = !f.portLock.checked;
+}
+serverForm.elements.portLock.addEventListener('change', updateServerFormKind);
+serverForm.elements.memoryMb.addEventListener('change', () => memoryNote($('server-new-memory'), serverForm.elements.memoryMb));
+
+// Sends a server request; when the servers together could use more memory
+// than the machine has, asks once and sends it again with force.
+async function sendServerRequest(method, url, body, what) {
+  try {
+    return await api(method, url, body);
+  } catch (e) {
+    if (e.data?.confirm !== 'memory') throw e;
+    if (!(await confirmAction({ title: 'Not enough memory for all servers', body: `${e.message} ${what}`, confirm: 'Continue', tone: 'danger', icon: 'alert' }))) return null;
+    return api(method, url, { ...body, force: true });
+  }
+}
+
 function toggleServerForm(open) {
   serverForm.hidden = !open;
   $('server-new-toggle').setAttribute('aria-expanded', open);
@@ -1035,6 +1132,7 @@ async function loadVersions(d) {
   f.build.replaceChildren(option('', 'Newest stable'));
   f.port.value = freePort(d.kind === 'proxy' ? 25577 : 25565);
   if (!f.id.value) f.id.value = d.kind === 'proxy' ? 'proxy' : 'survival';
+  updateServerFormKind();
   $('server-new-note').textContent = `${d.name}: ${VERIFY_NOTE[d.verify]}. rconsole downloads the server and the Java it needs and sets up RCON with a random password.`;
   try {
     const { versions } = await api('GET', `/api/distributions/${d.id}/versions`);
@@ -1070,10 +1168,15 @@ serverForm.addEventListener('submit', async (e) => {
     build: buildRaw === '' ? null : /^\d+$/.test(buildRaw) && ['paper', 'folia', 'velocity', 'purpur'].includes(f.distribution.value) ? Number(buildRaw) : buildRaw,
     port: Number(f.port.value), memoryMb: Number(f.memoryMb.value), flags: f.flags.value,
     start: f.start.checked, autostart: f.autostart.checked, eula: !proxy && f.eula.checked,
+    proxy: !proxy && !$('server-new-proxy').hidden ? f.proxy.value || null : null,
+    recommended: proxy || f.recommended.checked, owner: proxy ? null : f.owner.value.trim() || null,
+    portLock: f.portLock.checked, extraPorts: f.portLock.checked ? parsePorts(f.extraPorts.value) : [],
   };
   await busy(serverForm.querySelector('.btn-primary'), async () => {
     try {
-      renderServersOp(await api('POST', '/api/servers', body));
+      const op = await sendServerRequest('POST', '/api/servers', body, 'Install it anyway?');
+      if (!op) return;
+      renderServersOp(op);
       toast(`Installing ${body.id}. This takes a minute or two.`);
       serverForm.reset();
       toggleServerForm(false);
@@ -1309,6 +1412,7 @@ async function loadWorlds() {
       el('td', { class: 'act' },
         w.active ? null : worldButton('Switch', 'play', () => switchWorld(w.name)),
         w.generated ? worldButton('Back up', 'backups', () => backupWorld(w.name)) : null,
+        w.active && w.generated && serverRunning() && atLeast('admin') ? worldButton('Pre-generate', 'worlds', () => pregenerateWorld(w.name)) : null,
         w.active ? null : worldButton('Delete', 'delete', () => deleteWorld(w.name), true)))));
   } catch (e) {
     $('world-list').replaceChildren(emptyRow(5, `Can't list worlds: ${e.message}`));
@@ -1347,6 +1451,22 @@ async function switchWorld(name) {
 async function backupWorld(name) {
   try {
     renderBackupState((await api('POST', '/api/backups', { world: name })).state);
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function pregenerateWorld(name) {
+  const radius = el('select', { class: 'field' }, ...[1000, 2000, 3000, 5000, 10000].map((r) => el('option', { value: r, selected: r === 2000 || undefined }, `${r.toLocaleString()} blocks around spawn`)));
+  if (!(await confirmAction({
+    title: `Pre-generate ${name}?`,
+    body: 'Chunky generates the land ahead of time, in the background, so exploring players don\'t cause lag later. It takes a while and uses CPU; run it when few players are online. Needs the Chunky plugin (Plugins → search "Chunky").',
+    confirm: 'Start', tone: 'primary', icon: 'worlds',
+    content: el('label', { class: 'fld' }, el('span', {}, 'Area'), radius),
+  }))) return;
+  try {
+    await api('POST', `/api/worlds/${encodeURIComponent(name)}/pregenerate`, { radius: Number(radius.value) });
+    toast(`Chunky is generating ${name}. Progress shows in the console; "chunky pause" pauses it.`);
   } catch (e) {
     toast(e.message, 'bad');
   }
@@ -1410,7 +1530,7 @@ async function loadBackups() {
               offsiteView?.configured ? el('button', { class: 'btn btn-quiet btn-sm', title: 'Copy to the offsite bucket', onclick: (e) => uploadOffsite(f.name, e.currentTarget) }, icon('updates'), 'Upload') : null,
               deleteBackupButton(f.name)));
         })
-      : [emptyRow(5, el('b', {}, 'No backups yet. '), 'A backup archives a world with its nether and end into a .tar.gz while autosave is paused. Add a nightly backup under Schedule.')]));
+      : [emptyRow(5, el('b', {}, 'No backups yet. '), 'A backup archives a world with its nether and end into a .tar.zst (or .tar.gz) while autosave is paused. Add a nightly backup under Schedule.')]));
   } catch (e) {
     $('backup-list').replaceChildren(emptyRow(5, `Can't list backups: ${e.message}`));
   }
@@ -1829,12 +1949,13 @@ function pluginRow(p) {
           el('span', {}, p.modrinth?.title || p.name, ' ',
             !p.enabled ? el('span', { class: 'pill' }, 'Disabled') : null,
             p.update ? el('span', { class: 'pill own' }, icon('updates'), `${p.update.version} available`) : null,
-            p.error ? el('span', { class: 'pill bad' }, icon('alert'), p.error) : null),
+            p.error ? el('span', { class: 'pill bad' }, icon('alert'), p.error) : null,
+            p.changed ? el('span', { class: 'pill bad', title: 'This jar is not the file rconsole downloaded and checked. Something on the server rewrote it, which is how plugin malware spreads. Remove it and reinstall from Modrinth.' }, icon('alert'), 'Changed since installed') : null),
           el('span', { class: 'sub' }, meta || p.file),
           p.description ? el('span', { class: 'sub clamp' }, p.description) : null))),
     el('td', { 'data-label': 'Source' }, p.modrinth
       ? el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(p.modrinth.slug || p.modrinth.projectId)}`, target: '_blank', rel: 'noopener' }, 'Modrinth')
-      : el('span', { class: 'sub' }, 'Unknown source')),
+      : el('span', { class: 'sub', title: 'Modrinth doesn\'t know this exact file, so rconsole can\'t check where it came from. Only run jars from sources you trust.' }, 'Not verified')),
     el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(p.size)),
     el('td', { class: 'act' },
       p.update ? pluginButton('Update', 'updates', (b) => updatePlugin(p, b), { primary: true }) : null,
@@ -3195,7 +3316,7 @@ async function loadProblems() {
     const unseen = g.filter((x) => x.unseen && x.severity !== 'warning').length;
     $('pr-info').textContent = g.length
       ? `${g.length} kind${g.length === 1 ? '' : 's'} of problem${g.length === 1 ? '' : 's'} in the last ${problemDays === 1 ? '24 hours' : '7 days'}${unseen ? `, ${unseen} new` : ''}.${o.timedOut ? ' Older logs were skipped (time limit).' : ''}`
-      : 'Crashes, plugin failures and errors from the server log.';
+      : 'Crashes, plugin failures and errors from the server log, and memory or RCON trouble on this machine.';
     $('pr-seen').disabled = !g.some((x) => x.unseen);
     $('pr-list').replaceChildren(...(g.length ? g.map((x) => el('li', { class: `problem ${x.severity}${x.unseen ? ' unseen' : ''}` },
       el('span', { class: 'problem-icon' }, icon(x.severity === 'warning' ? 'schedule' : 'alert')),
@@ -3204,10 +3325,11 @@ async function loadProblems() {
           el('b', {}, x.kind === 'lag' && x.maxBehindMs ? `${x.title} (up to ${(x.maxBehindMs / 1000).toFixed(1)} s behind)` : x.title),
           x.plugin ? el('span', { class: 'pill' }, x.plugin) : null,
           x.unseen && x.severity !== 'warning' ? el('span', { class: 'pill bad' }, 'New') : null),
-        x.message ? el('code', { class: 'problem-msg' }, x.message) : null,
+        // Machine conditions are sentences, not log lines, and hold right now.
+        x.message ? el(x.kind === 'host' ? 'p' : 'code', { class: x.kind === 'host' ? 'problem-text' : 'problem-msg' }, x.message) : null,
         x.detail ? el('code', { class: 'problem-detail' }, x.detail) : null,
-        el('span', { class: 'problem-meta' }, `${x.count}× · last ${fmt.relative(new Date(x.last).toISOString())}${x.count > 1 ? ` · first ${fmt.relative(new Date(x.first).toISOString())}` : ''}`)),
-      x.message || x.kind === 'lag'
+        el('span', { class: 'problem-meta' }, x.kind === 'host' ? 'Now, on this machine' : `${x.count}× · last ${fmt.relative(new Date(x.last).toISOString())}${x.count > 1 ? ` · first ${fmt.relative(new Date(x.first).toISOString())}` : ''}`)),
+      (x.message && x.kind !== 'host') || x.kind === 'lag'
         ? el('button', { class: 'btn btn-sm', onclick: () => searchLogsFor(x.kind === 'lag' ? "Can't keep up" : x.message) }, icon('search'), 'Show in logs')
         : null))
       : [el('li', { class: 'problems-empty' }, el('span', { class: 'problem-icon ok' }, icon('check')), el('div', {}, el('b', {}, 'No problems found. '), `Nothing went wrong in the last ${problemDays === 1 ? '24 hours' : '7 days'}.`))]));

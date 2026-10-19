@@ -50,7 +50,26 @@ test('command: aikar flags, equal heap bounds, the jar and nogui', () => {
 test('command: Forge and NeoForge start from their args file', () => {
   const i = instances.validate({ ...base, distribution: 'neoforge', build: '26.3.0.86', flags: 'default', launch: { type: 'argsfile', path: 'libraries/net/neoforged/neoforge/26.3.0.86/unix_args.txt' } });
   const argv = instances.command(i, '/j');
-  assert.deepStrictEqual(argv, ['/j/bin/java', '-Xms1024M', '-Xmx4096M', '-Xlog:gc:file=logs/gc.log:time:filecount=2,filesize=4M', '@libraries/net/neoforged/neoforge/26.3.0.86/unix_args.txt', 'nogui']);
+  assert.deepStrictEqual(argv, ['/j/bin/java', '-Xms1024M', '-Xmx4096M', '-XX:+UseG1GC', '-Xlog:gc:file=logs/gc.log:time:filecount=2,filesize=4M', '@libraries/net/neoforged/neoforge/26.3.0.86/unix_args.txt', 'nogui']);
+});
+
+test('command: ZGC on Java 21+ (generational flag only before 23), Aikar on older Java', () => {
+  const zgc = (java) => instances.command(instances.validate({ ...base, java, memoryMb: 16384, flags: 'zgc' }), '/j');
+  assert.ok(zgc(25).includes('-XX:+UseZGC') && !zgc(25).includes('-XX:+ZGenerational'));
+  assert.ok(zgc(21).includes('-XX:+ZGenerational'));
+  assert.ok(zgc(25).includes('-Xms16384M'));
+  assert.ok(zgc(17).includes('-XX:+UseG1GC') && !zgc(17).includes('-XX:+UseZGC'));
+});
+
+test('ports, proxy and memory ceiling', () => {
+  const i = instances.validate({ ...base, rconPort: 25576, proxy: 'lobby', portLock: true, extraPorts: [8100, 8100, 24454] });
+  assert.deepStrictEqual([i.rconPort, i.proxy, i.portLock, i.extraPorts], [25576, 'lobby', true, [8100, 24454]]);
+  assert.deepStrictEqual([instances.validate(base).rconPort, instances.validate(base).extraPorts], [null, []]);
+  for (const bad of [{ extraPorts: [80] }, { extraPorts: Array.from({ length: 9 }, (_, n) => 9000 + n) }, { extraPorts: '8100' }, { rconPort: 22 }, { proxy: '../x' }, { flags: ['aikar'] }]) {
+    assert.throws(() => instances.validate({ ...base, ...bad }), undefined, JSON.stringify(bad));
+  }
+  assert.strictEqual(instances.memoryMaxMb({ memoryMb: 4096 }), 6144);
+  assert.strictEqual(instances.memoryMaxMb({ memoryMb: 1024 }), 2560);
 });
 
 test('command: a proxy gets no nogui', () => {

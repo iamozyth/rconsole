@@ -29,7 +29,13 @@ render_unit() {
   for v in "$mc" "$bk" "$sv" "$user" "$group" "$svc" "$dir" "$node"; do
     [[ "$v" =~ ^[A-Za-z0-9._/@-]+$ ]] || { echo "units: unsafe value: $v" >&2; return 1; }
   done
-  sed -e "s#/srv/minecraft-backups#@BK@#g" \
+  # rconsole-mc@ hides MC_DIR and BACKUP_DIR from the servers; not when
+  # SERVERS_DIR lies inside one of them (paths are already this host's).
+  local hide=()
+  [[ "$sv/" == "$mc/"* ]] || hide+=("-$mc")
+  [[ "$sv/" == "$bk/"* ]] || hide+=("-$bk")
+  sed -e "s#^InaccessiblePaths=-/srv/minecraft -/srv/minecraft-backups\$#InaccessiblePaths=${hide[*]}#" \
+      -e "s#/srv/minecraft-backups#@BK@#g" \
       -e "s#/srv/minecraft-servers#@SV@#g" \
       -e "s#/srv/minecraft#${mc}#g" \
       -e "s#@BK@#${bk}#g" \

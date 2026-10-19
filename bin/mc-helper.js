@@ -104,14 +104,17 @@ async function backup({ world, stamp }) {
   const dirs = worldDirs(world);
   if (!dirs.length) fail(`No world folder "${world}" in ${MC}`);
 
-  const name = `${world}-${stamp}.tar.gz`;
+  const zst = useZstd();
+  const name = `${world}-${stamp}.tar.${zst ? 'zst' : 'gz'}`;
   const final = path.join(BK, name);
   const partial = randomName(`${final}.partial`);
   const fd = fs.openSync(partial, EXCL, 0o640);
   try {
     // tar writes to our descriptor, so nothing in BACKUP_DIR is opened by
     // path. Exit 1 = "file changed as we read it", fine for region files.
-    await run('tar', ['-czf', '-', '-C', MC, '--', ...dirs], { okCodes: [0, 1], outFd: fd });
+    // zstd on all cores is several times faster than gzip, so autosave is
+    // paused for a shorter time.
+    await run('tar', [...(zst ? ['-I', 'zstd -T0 -3 -q'] : ['-z']), '-cf', '-', '-C', MC, '--', ...dirs], { okCodes: [0, 1], outFd: fd });
     fs.fchmodSync(fd, 0o640);
     fs.closeSync(fd);
     fs.renameSync(partial, final);
@@ -123,12 +126,23 @@ async function backup({ world, stamp }) {
   return { file: name, world, size: fs.statSync(final).size, dirs };
 }
 
+// zstd when it is installed (BACKUP_COMPRESSION=gzip keeps .tar.gz).
+let zstdFound = null;
+function useZstd() {
+  if (/^gz(ip)?$/i.test(process.env.BACKUP_COMPRESSION || '')) return false;
+  zstdFound ??= require('child_process').spawnSync('zstd', ['--version'], { stdio: 'ignore' }).status === 0;
+  return zstdFound;
+}
+
+// tar's flag for reading an archive, from its name.
+const unpackFlag = (file) => (names.parseBackupName(file)?.compression === 'zst' ? '--zstd' : '-z');
+
 // --- restore ----------------------------------------------------------------
 
 // Lists an archive and refuses anything but plain files and directories under
 // one world's three dimension folders.
-async function inspectArchive(file) {
-  const listing = await run('tar', ['-tvzf', file], { capture: true });
+async function inspectArchive(file, flag = '-z') {
+  const listing = await run('tar', ['-tv', flag, '-f', file], { capture: true });
   const entries = listing.split('\n').filter(Boolean);
   if (!entries.length) fail('The backup is empty');
   const roots = new Set();
@@ -182,7 +196,8 @@ async function restore({ file, target, replace }) {
 }
 
 async function restoreFrom(archive, file, target, replace) {
-  const base = await inspectArchive(archive);
+  const flag = unpackFlag(file);
+  const base = await inspectArchive(archive, flag);
 
   const existing = worldDirs(target);
   if (existing.length && !replace) fail(`A world named "${target}" already exists`);
@@ -197,7 +212,7 @@ async function restoreFrom(archive, file, target, replace) {
     }
     const esc = (s) => s.replace(/[.\\^$*[\]]/g, '\\$&');
     await run('tar', [
-      '-xzf', archive, '-C', MC, '--no-same-owner',
+      '-x', flag, '-f', archive, '-C', MC, '--no-same-owner',
       `--transform=s,^${esc(base)}_nether\\(/\\|$\\),${target}_nether\\1,`,
       `--transform=s,^${esc(base)}_the_end\\(/\\|$\\),${target}_the_end\\1,`,
       `--transform=s,^${esc(base)}\\(/\\|$\\),${target}\\1,`,
@@ -311,6 +326,30 @@ function writeIndex(index) {
   fs.renameSync(`${previousIndexFile}.tmp`, previousIndexFile);
 }
 
+// The sha512 of every jar rconsole installed, per server, in BACKUP_DIR
+// (hidden from the servers). rconsole flags a jar that changed since: a
+// plugin or malware rewriting other jars. Keys leave out ".disabled".
+const pluginKey = (file) => file.replace(/\.disabled$/, '');
+const hashesFile = () => path.join(realDir(path.join(BK, '.plugin-hashes')), `${path.dirname(MC) === config.serversDir ? path.basename(MC) : 'attached'}.json`);
+function recordPlugins(changes) {
+  const file = hashesFile();
+  let known = {};
+  try {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      known = JSON.parse(fs.readFileSync(fd, 'utf8')) || {};
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {}
+  for (const [name, sha512] of Object.entries(changes)) {
+    if (sha512) known[pluginKey(name)] = sha512;
+    else delete known[pluginKey(name)];
+  }
+  writeExclusive(file, JSON.stringify(known));
+}
+const sha512Of = (file) => crypto.createHash('sha512').update(fs.readFileSync(file)).digest('hex');
+
 // Moves a plugin jar out of the way into BACKUP_DIR/.plugin-trash.
 function trashPlugin(file) {
   const dir = realDir(path.join(BK, '.plugin-trash'));
@@ -350,6 +389,7 @@ async function pluginInstall({ versionId, replace }) {
   } finally {
     fs.rmSync(tmp, { force: true });
   }
+  recordPlugins({ ...(replace && replace !== file.filename ? { [replace]: null } : {}), [file.filename]: file.sha512 });
   return { file: file.filename, version: version.version_number, projectId: version.project_id, replaced: replace || null };
 }
 
@@ -368,7 +408,9 @@ async function pluginRemove({ file }) {
   useAddonDir();
   pluginFile(file);
   if (!exists(path.join(pluginsDir, file))) fail(`${file} not found`);
-  return { removed: file, trashed: trashPlugin(file) };
+  const trashed = trashPlugin(file);
+  recordPlugins({ [file]: null });
+  return { removed: file, trashed };
 }
 
 async function pluginRollback({ file }) {
@@ -381,6 +423,8 @@ async function pluginRollback({ file }) {
   fs.renameSync(path.join(previousDir, previous), path.join(pluginsDir, previous));
   delete index[file];
   writeIndex(index);
+  // The old jar comes from rconsole's own copy, as it was when replaced.
+  recordPlugins({ [file]: null, [previous]: sha512Of(path.join(pluginsDir, previous)) });
   return { file: previous, rolledBackFrom: file };
 }
 

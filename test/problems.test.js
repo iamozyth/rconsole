@@ -80,3 +80,20 @@ test('problems: live lines alert once per new group, with the exception line', a
   assert.strictEqual(got[1].title, 'Server stopped unexpectedly');
   assert.strictEqual((await p.scan({ days: 1 })).groups[0].message, 'systemd: exit-code');
 });
+
+test('machine conditions from the checks join the list while they last', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-problems-'));
+  fs.mkdirSync(path.join(dir, 'logs'));
+  let checks = [{ kind: 'host', severity: 'warning', title: 'The machine is swapping', message: '900 MB of memory is in swap.' }];
+  const p = new Problems({ mcDir: dir, stateDir: dir, checks: () => checks });
+  const { groups } = await p.scan({ days: 1 });
+  assert.deepStrictEqual(groups.map((g) => [g.kind, g.title]), [['host', 'The machine is swapping']]);
+  // A warning never counts as a new problem in the badge.
+  assert.deepStrictEqual(await p.summary(), { unseen: 0, critical: 0 });
+  checks = [];
+  p.cache.clear();
+  assert.deepStrictEqual((await p.scan({ days: 1 })).groups, []);
+  // A broken check doesn't break the list.
+  const q = new Problems({ mcDir: dir, stateDir: dir, checks: () => { throw new Error('boom'); } });
+  assert.deepStrictEqual((await q.scan({ days: 1 })).groups, []);
+});

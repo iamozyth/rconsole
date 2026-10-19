@@ -487,12 +487,21 @@
             <label class="fld"><span>Java tuning</span>
               <select class="field" name="flags">
                 <option value="aikar" selected>Aikar's flags (recommended)</option>
-                <option value="default">Java defaults</option>
+                <option value="zgc">Generational ZGC (Java 21+, 12 GB and more)</option>
+                <option value="default">Java defaults (G1)</option>
               </select>
             </label>
+            <label class="fld" id="server-new-proxy" hidden><span>Players join through</span>
+              <select class="field" name="proxy"><option value="">Directly (no proxy)</option></select>
+            </label>
+            <label class="fld" data-kind="server"><span>Your Minecraft name</span><input class="field" name="owner" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="whitelisted, optional" title="3 to 16 letters, digits or _"></label>
+            <p class="note wide" id="server-new-memory" hidden></p>
             <div class="fld wide checks">
               <label class="check"><input type="checkbox" name="start" checked> Start when installed</label>
               <label class="check"><input type="checkbox" name="autostart" checked> Start after a reboot</label>
+              <label class="check" data-kind="server" title="Whitelist on (you are added), no player addresses in the log, simulation distance 6, chunk writes off the main thread; on Paper also anti-xray and faster explosions."><input type="checkbox" name="recommended" checked> Recommended security and performance settings</label>
+              <label class="check" title="The server may only open its game and RCON ports, and the extra ports listed. Map and voice chat plugins need theirs listed."><input type="checkbox" name="portLock"> Lock network ports</label>
+              <label class="fld" id="server-new-extra" hidden><span>Extra ports</span><input class="field mono" name="extraPorts" placeholder="e.g. 8100, 24454" pattern="\s*(\d{4,5}\s*(,\s*\d{4,5}\s*)*)?"></label>
               <label class="check eula"><input type="checkbox" name="eula"> I accept the <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft EULA</a></label>
             </div>
             <div class="form-actions">

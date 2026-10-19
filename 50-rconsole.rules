@@ -1,7 +1,7 @@
 // /etc/polkit-1/rules.d/50-rconsole.rules
-// Lets the rconsole user start its helper jobs, start its own updater, and
-// start/stop/restart the Minecraft service and the servers it installed
-// (rconsole-mc@<id>). Nothing else.
+// Lets the rconsole user start its helper jobs, start its own updater and
+// limits helper, and start/stop/restart the Minecraft service and the
+// servers it installed (rconsole-mc@<id>). Nothing else.
 polkit.addRule(function (action, subject) {
   if (action.id !== "org.freedesktop.systemd1.manage-units" || subject.user !== "rconsole") return;
   var unit = action.lookup("unit");
@@ -10,7 +10,10 @@ polkit.addRule(function (action, subject) {
   if (verb === "start" && unit === "rconsole-selfupdate.service") return polkit.Result.YES;
   // Legacy units from rconsole 1.x, kept until they are removed.
   if (verb === "start" && /^rconsole-(backup|update)@[A-Za-z0-9._-]+\.service$/.test(unit)) return polkit.Result.YES;
-  if (/^rconsole-mc@[a-z0-9][a-z0-9-]{0,31}\.service$/.test(unit) && (verb === "start" || verb === "stop" || verb === "restart")) return polkit.Result.YES;
+  // reset-failed: Start after a server hit its start limit (crash loop).
+  if (/^rconsole-mc@[a-z0-9][a-z0-9-]{0,31}\.service$/.test(unit) && (verb === "start" || verb === "stop" || verb === "restart" || verb === "reset-failed")) return polkit.Result.YES;
+  // Per-server limits (memory, ports) and the RCON firewall, as root.
+  if (verb === "start" && unit === "rconsole-limits.service") return polkit.Result.YES;
   // Change "minecraft.service" here if MC_SERVICE differs.
   if (unit === "minecraft.service" && (verb === "start" || verb === "stop" || verb === "restart")) return polkit.Result.YES;
 });

@@ -1,0 +1,44 @@
+# Per-server limits and the RCON firewall (bin/mc-limits.js), as root:
+# systemd drop-ins for rconsole-mc@<id> (MemoryMax, SocketBindAllow) and the
+# nftables table "rconsole". rconsole starts it (polkit) after creating,
+# changing or deleting a server; at boot it restores the firewall.
+[Unit]
+Description=rconsole server limits and RCON firewall
+# nftables.service replaces the whole ruleset; the table goes in after it.
+After=nftables.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/rconsole.env
+Environment=UV_USE_IO_URING=0
+ExecStart=/usr/bin/node /opt/rconsole/bin/mc-limits.js
+# status.json: which RCON ports the firewall closes, shown under Problems.
+RuntimeDirectory=rconsole-limits
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+
+# Root, but only to write unit drop-ins and its nftables table.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_READ_SEARCH
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/systemd/system
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
