@@ -161,7 +161,7 @@ Not under the default license; see [License](#license) and ask for a commercial 
 
 - **Minecraft version and build** (newest stable by default), **name**, **port**, **memory** and **Java tuning** (Aikar's flags, Generational ZGC for big heaps on Java 21+, or Java's defaults with G1). rconsole warns when the servers' memory doesn't fit the machine;
 - **Recommended settings** (on by default): a whitelist with your Minecraft name on it, `enforce-secure-profile`, no player IPs in the log, `simulation-distance=6`, asynchronous chunk writes, and for Paper, Folia and Purpur anti-xray and faster explosions;
-- **Behind a proxy**: registers the server with a Velocity proxy rconsole installed, with modern forwarding and the proxy's secret, and binds it to 127.0.0.1 so the only way in is through the proxy;
+- **Behind a proxy**: registers the server with a Velocity proxy rconsole installed, with modern forwarding and the proxy's secret, and binds it to 127.0.0.1 so the only way in is through the proxy. Every server behind one proxy holds the same secret, and servers on the same machine can reach each other's ports, so a plugin on one of them could join the others as any player: put only servers whose plugins you trust behind a shared proxy;
 - **Lock network ports**: the server may only listen on its game and RCON port and the extra ports you list (a map or voice chat plugin), so a plugin can't open a backdoor listener;
 - whether to **start it** now and **after a reboot**;
 - the **Minecraft EULA**: rconsole only writes `eula=true` after you accept it, and records who did.

@@ -148,12 +148,14 @@ function writeVelocityConfig(dir, jarFile, port) {
 }
 
 // RCON ports in use: from instance.json, or from server.properties for
-// servers made before 4.3 (which kept it only there).
+// servers made before 4.3 (which kept it only there). The server can edit
+// that file, so only a port in the range rconsole hands out counts: it ends
+// up in the port lock and the firewall.
 function rconPortOf(i) {
   if (i.rconPort) return i.rconPort;
   try {
     const port = Number(properties.toObject(properties.parse(fs.readFileSync(path.join(SV, i.id, 'server.properties'), 'utf8')))['rcon.port']);
-    return Number.isInteger(port) ? port : null;
+    return Number.isInteger(port) && port >= RCON_PORTS[0] && port <= RCON_PORTS[1] ? port : null;
   } catch {
     return null;
   }
