@@ -71,3 +71,11 @@ test('a world rconsole can\'t fully read is fixed by the helper and measured aga
     fs.chmodSync(locked, 0o755);
   }
 });
+
+test('dirSize adds up every file of a big folder (parallel stats)', async () => {
+  const dir = tmp();
+  for (let i = 0; i < 150; i++) touch(path.join(dir, 'w', 'region', `r.${i}.0.mca`), 1000);
+  for (let i = 0; i < 40; i++) touch(path.join(dir, 'w', `d${i}`, 'x', 'f'), 10);
+  assert.deepStrictEqual(await dirSize(path.join(dir, 'w')), { size: 150 * 1000 + 40 * 10, unreadable: 0 });
+});
+
