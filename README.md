@@ -44,7 +44,7 @@ On a Debian or Ubuntu host:
 curl -fsSL https://raw.githubusercontent.com/iamozyth/rconsole/main/install.sh | sudo bash
 ```
 
-Then open `http://<your-server>:8080`, sign in, and create your server under **Server → Servers**. If a Minecraft server already runs here as a systemd service, the installer offers to attach to it instead. It explains each step before it changes anything; [details below](#what-the-installer-does).
+Then open `http://<your-server>:8080`, sign in, and create your server with **New server** in the server switcher at the top of the sidebar. If a Minecraft server already runs here as a systemd service, the installer offers to attach to it instead. It explains each step before it changes anything; [details below](#what-the-installer-does).
 
 ## Features
 
@@ -59,10 +59,11 @@ Then open `http://<your-server>:8080`, sign in, and create your server under **S
 - **Live console**: the server log as it happens, filterable, with a chat-and-joins view and a command prompt with history and **autocomplete** for commands, subcommands, players, game modes and game rules, including plugin commands.
 - **Command palette** (Ctrl/⌘ K): jump anywhere, run any action, or type a Minecraft command.
 - **Server power**: start, stop and restart with in-game countdowns; **maintenance mode** that lets only operators in and restores the whitelist afterwards.
-- **Health at a glance**: TPS and MSPT, players, game time, CPU, memory, disk and uptime.
+- **Dashboard**: server state, TPS, players, memory, last backup, problems, updates and disk as tiles, the last six hours as charts, who's online and what changed recently.
+- **Server switcher** at the top of the sidebar for every server rconsole runs.
 
 **Players and security**
-- Whitelist, operators, bans and IP bans with one click.
+- **One player list**: everyone the server knows, with whitelist, operator and ban status, filters and a profile panel per player.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers.
 - **Single sign-on** with authentik, Keycloak, Auth0 or any OpenID Connect provider; roles from its groups, local accounts as a fallback.
@@ -75,25 +76,25 @@ Then open `http://<your-server>:8080`, sign in, and create your server under **S
 - Switch worlds, create new ones (seed and type), delete with an automatic archive.
 - Per-world **backups** with autosave paused during the copy, retention, download, and **restore** over a world or as a new one.
 - **Offsite copies** in any S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO), optionally encrypted before they leave the machine, uploaded after every backup.
-- **Schedule** restarts, backups and commands, daily or weekly.
+- **Automation**: restarts, backups and commands, daily or weekly.
 
 **Updates and plugins**
 - **One check for everything**: rconsole itself, the server software and your plugins or mods.
 - **Server updates** for Paper and Folia, SHA-256 verified. Players are warned, then disconnected; the world is backed up while nobody plays; the server starts on the new build. One-click rollback.
 - **Plugins and mods from Modrinth**: identify installed jars, update with rollback, enable, disable, search and install, SHA-512 verified.
 - **Properties editor** (Server → Properties) for `server.properties` with a review step; live where Minecraft allows it.
-- **Settings** for rconsole itself in one place: your account and everyone's access, notifications, backups, and what's configured on the server.
+- **Settings** for rconsole itself in one place: your account and password, everyone's access and single sign-on, notifications, and the system (version, self-update, what's configured on the server).
 - **Self-update** with automatic rollback if the new version doesn't start.
 
 **Insights and integrations**
 - 24-hour and 7-day **charts** of TPS, players, CPU and memory, with downtime marked.
 - **spark profiler**: one click starts a 30-second profile or a health report and links the result; rconsole offers to install spark if it's missing.
-- **Problems**: crashes, out-of-memory, a hanging server, plugins that fail to load and other errors, found in the log, grouped, with the exception line and a push alert.
+- **Problems** behind the bell in the top bar: crashes, out-of-memory, a hanging server, plugins that fail to load and other errors, found in the log, grouped, with the exception line, a hint where rconsole knows the fix, a push alert, and **Mute** for known, harmless ones.
 - **Log search** across `latest.log` and every rotated `.log.gz`.
-- **Audit trail** of every change and sign-in.
+- **Activity**: an audit trail of every change and sign-in.
 - **Push notifications** through [ntfy](https://ntfy.sh): server down, lag, failed backups, updates, scanners, joins, with one-tap actions and quiet hours.
 - **Discord**: the same alerts as embeds, and an optional relay of chat, joins and leaves into a channel.
-- **Map**: squaremap or BlueMap inside rconsole, behind your sign-in.
+- **Map**: BlueMap, squaremap or Dynmap inside rconsole, behind your sign-in; found automatically.
 - **Prometheus** `/metrics` endpoint.
 
 **Works with** Paper, Purpur, Folia, Spigot, Bukkit, Fabric, Quilt, Forge, NeoForge and vanilla. rconsole detects the server software and adapts plugins, mods and updates to it.
@@ -147,7 +148,7 @@ Not under the default license; see [License](#license) and ask for a commercial 
 
 ## Servers
 
-**Server → Servers** lists the servers rconsole installed, in `SERVERS_DIR` (`/srv/minecraft-servers`), one folder each. **New server** asks for:
+**Servers** (the server switcher at the top of the sidebar → Manage servers) lists the servers rconsole installed, in `SERVERS_DIR` (`/srv/minecraft-servers`), one folder each. **New server** asks for:
 
 - **Software**: each choice says how its downloads are checked.
 
@@ -168,12 +169,12 @@ Not under the default license; see [License](#license) and ask for a commercial 
 
 The install runs in a helper job as the Minecraft user: it works out the download again from the publisher, checks it, installs the Java the version needs (Java 8 before 1.17, 17, 21 or 25 after), runs the Fabric, Quilt, Forge or NeoForge installer, writes `server.properties` with its own RCON port and a random password, and moves the finished folder into place. If anything fails, nothing is left behind.
 
-The first server becomes the one rconsole shows (Console, Players, Worlds and the rest work on it), and rconsole restarts onto it. Each server runs as `rconsole-mc@<name>.service`: as the Minecraft user, seeing only its own folder (not the other servers, the attached server or the backups), unable to change its own `instance.json`, with a memory limit of its heap plus room for Java, without rconsole's settings or secrets in its environment, stopped with SIGTERM so it saves first, restarted by systemd after a crash (five crashes in ten minutes stop it, shown as *Crashed repeatedly*). Its console input is a FIFO (`/run/rconsole-mc-<name>.stdin`) that only rconsole can write to, so commands work before RCON is up, while the server hangs, and on Velocity, which has no RCON.
+The first server becomes the one rconsole shows (Dashboard, Console, Players, World, Backups and the rest work on it; the switcher at the top of the sidebar changes it), and rconsole restarts onto it. Each server runs as `rconsole-mc@<name>.service`: as the Minecraft user, seeing only its own folder (not the other servers, the attached server or the backups), unable to change its own `instance.json`, with a memory limit of its heap plus room for Java, without rconsole's settings or secrets in its environment, stopped with SIGTERM so it saves first, restarted by systemd after a crash (five crashes in ten minutes stop it, shown as *Crashed repeatedly*). Its console input is a FIFO (`/run/rconsole-mc-<name>.stdin`) that only rconsole can write to, so commands work before RCON is up, while the server hangs, and on Velocity, which has no RCON.
 
 - **Updates**: Server → Updates lists newer builds and Minecraft versions of the server's own software and installs them in the usual order (countdown, disconnect, stop, back up the world, install, start). The previous version stays for **Roll back**.
-- **Your old world**: back it up under Worlds before you switch, then restore it over the new server's world from Worlds → Backups.
+- **Your old world**: back it up under Backups before you switch, then restore it over the new server's world from Backups.
 - **Settings** changes memory, Java tuning, the port lock and extra ports of a server; they apply at its next start.
-- **Pre-generate** (Worlds, with the Chunky plugin) generates the chunks around spawn ahead of time, so exploring players don't make the server lag.
+- **Pre-generate** (World, with the Chunky plugin) generates the chunks around spawn ahead of time, so exploring players don't make the server lag.
 - **Delete** stops the server and moves its folder into the backup folder as `server-<name>-<time>.tar.gz` (or removes it, if you say so).
 - Installing, starting, stopping and deleting servers is for admins and recorded in the audit log.
 
@@ -335,7 +336,7 @@ rconsole can hand sign-in to an OpenID Connect provider: [authentik](https://goa
 2. **Applications → Applications → Create**: name `rconsole`, slug `rconsole`, provider from step 1. Optionally bind a policy so only the groups below see the application.
 3. **Directory → Groups**: create `rconsole-admins`, `rconsole-moderators` and `rconsole-viewers`, and add people.
 
-**In rconsole**: **Settings → Account → Single sign-on**. Switch on *Use single sign-on*, copy the redirect URI into authentik, paste the issuer URL, client ID and secret, and press **Save and test**: rconsole checks it can reach the provider and switches it on right away, no restart. Try it in a private window before you sign out. Local accounts stay on as a fallback; you can turn them off from a session signed in with single sign-on (so you know it works).
+**In rconsole**: **Settings → Users & sign-in → Single sign-on**. Switch on *Use single sign-on*, copy the redirect URI into authentik, paste the issuer URL, client ID and secret, and press **Save and test**: rconsole checks it can reach the provider and switches it on right away, no restart. Try it in a private window before you sign out. Local accounts stay on as a fallback; you can turn them off from a session signed in with single sign-on (so you know it works).
 
 **Or in `/etc/rconsole.env`** (then `sudo systemctl restart rconsole`; values set here show as locked in Settings):
 
@@ -347,7 +348,7 @@ OIDC_CLIENT_SECRET=…
 OIDC_NAME=authentik
 ```
 
-`journalctl -u rconsole` shows `sso: authentik via …` when it's on, or which setting is missing. Settings → Account shows the active settings and every account; Insights → Audit lists every SSO sign-in.
+`journalctl -u rconsole` shows `sso: authentik via …` when it's on, or which setting is missing. Settings → Users & sign-in shows the active settings and every account; Insights → Audit lists every SSO sign-in.
 
 - **Groups decide**: someone in none of the three groups is refused (and no account is created). Moving someone to another group changes their role at their next sign-in and ends their sessions with the old role. SSO sessions end after `OIDC_SESSION_HOURS` (12), so removing someone at the provider takes effect within that time at most.
 - **Where the settings live**: saved from Settings in `/var/lib/rconsole/sso.json` (mode 600); `OIDC_*` and `LOCAL_LOGIN` in `/etc/rconsole.env` win over it.
@@ -441,21 +442,22 @@ If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole
 
 ## Player profiles
 
-**Profile** on a player in the console's online list or in Players → History opens their profile:
+Clicking a player under **Players**, on the dashboard or in the console's online list opens their profile, a panel on the right:
 
 - **live, while they're online** (read with `data get entity` over RCON, and kept current while the profile is open: position, health, food, level and selected slot every 4 seconds, the inventory every 20; nothing is asked while it's closed or the tab is in the background): position, dimension, health, food, level, game mode, armor and offhand, hotbar (selected slot marked) and inventory, with counts and enchanted items highlighted;
 - **last saved inventory** from the player's data file, for offline players (and as a fallback when the live reply can't be read);
 - **statistics** from `<world>/players/stats/<uuid>.json` (Minecraft 26.1 and later; `<world>/stats/` before): play time, deaths, mob and player kills, distance walked, blocks mined, jumps, and the most mined, used and killed;
 - **advancements** from `<world>/players/advancements/` (or `<world>/advancements/` before 26.1);
-- **actions** by role: teleport to a player or coordinates, set the game mode (moderators and admins), heal and clear the inventory (admins), kick.
+- **actions** by role: whitelist, operator and ban for anyone, online or not; teleport to a player or coordinates, set the game mode (moderators and admins), heal and clear the inventory (admins), kick;
+- **history** from the logs: first and last visit, sessions, playtime and last address.
 
 ## Chat
 
-Players → **Chat** shows chat messages, `/say` and `/me` lines, joins and leaves as they appear in the server log. Moderators and admins can write to everyone or whisper to one online player; the message appears in game as `[Web] <your name>: …` (sent with `tellraw`, so it can't run commands). Click a name to whisper; hover a message to whisper or kick. Viewers can read along.
+Console → **Chat** shows chat messages, `/say` and `/me` lines, joins and leaves as they appear in the server log. Moderators and admins can write to everyone or whisper to one online player; the message appears in game as `[Web] <your name>: …` (sent with `tellraw`, so it can't run commands). Click a name to whisper; hover a message to whisper or kick. Viewers can read along.
 
 ## Offsite backups
 
-**Settings → Backups → Offsite copies** uploads backups to any S3-compatible bucket (the copies are listed under Worlds): Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO and others. Enter the endpoint (for example `https://s3.eu-central-003.backblazeb2.com` or `https://<account>.r2.cloudflarestorage.com`), bucket, region and an access key that may list, read, write and delete in that bucket; **Test connection** checks it.
+**Backups → Offsite copies** uploads backups to any S3-compatible bucket (the copies are listed there too): Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO and others. Enter the endpoint (for example `https://s3.eu-central-003.backblazeb2.com` or `https://<account>.r2.cloudflarestorage.com`), bucket, region and an access key that may list, read, write and delete in that bucket; **Test connection** checks it.
 
 - **Encryption:** with a passphrase, every backup is encrypted on this machine (AES-256-GCM in 1 MiB chunks, key derived with scrypt) before upload and stored as `<backup>.tar.gz.enc`. Keep the passphrase somewhere safe: without it the copies can't be restored.
 - **Automatic uploads** after every backup (scheduled or manual), one at a time with retries after 1, 5 and 30 minutes; a final failure sends a "backup" notification. Any backup can also be uploaded with **Upload**.
@@ -476,7 +478,7 @@ When TPS drops, [spark](https://spark.lucko.me) shows which plugin, mod, entity 
 
 ## Problems
 
-Insights → **Problems** lists what went wrong in the last 24 hours or 7 days, read from `latest.log` and the rotated logs:
+The **bell** in the top bar lists what went wrong in the last 24 hours or 7 days, read from `latest.log` and the rotated logs:
 
 - **critical:** crashes (crash reports, exceptions in the tick loop), `OutOfMemoryError`, the watchdog's "server has stopped responding", and stops that systemd reports as failed (for example the kernel's OOM killer) even when the log shows nothing;
 - **errors:** plugins or mods that fail to load or enable, exceptions in plugin events and tasks, and any other ERROR line;
@@ -486,7 +488,7 @@ Repeats are grouped (numbers, UUIDs and names don't split a group), with the plu
 
 ## Connection attempts
 
-**Players → Security** lists addresses that connected but never logged in and from which no player has ever logged in, read from all logs (`Name (/1.2.3.4:61000) lost connection`, whitelist refusals, nameless probes). These are mostly scanners that search the internet for open servers; the number after the colon is the scanner's own source port, not a port on your side. The page checks whitelist and online mode, suggests what to change, and offers **Ban IP** and a ready-made `ufw` rule. A dot on Players and an optional ntfy alert flag new attempts.
+**Players → Addresses** lists addresses that connected but never logged in and from which no player has ever logged in, read from all logs (`Name (/1.2.3.4:61000) lost connection`, whitelist refusals, nameless probes). These are mostly scanners that search the internet for open servers; the number after the colon is the scanner's own source port, not a port on your side. The page checks whitelist and online mode, suggests what to change, and offers **Ban IP** and a ready-made `ufw` rule. A dot on Players and an optional ntfy alert flag new attempts.
 
 ## Server software
 
@@ -516,7 +518,7 @@ Messages are published as JSON in plain text (the iOS app does not render Markdo
 
 ### Discord
 
-Under Server → Notifications → **Discord**, paste a channel webhook (channel settings → Integrations → Webhooks → Copy Webhook URL):
+Under Settings → Notifications → **Discord**, paste a channel webhook (channel settings → Integrations → Webhooks → Copy Webhook URL):
 
 - **Alerts**: the same alerts as ntfy (each with its on/off switch), as embeds coloured by priority and linking to rconsole. Discord works with or without ntfy.
 - **Chat**: a second webhook mirrors chat, `/say`, joins and leaves into a channel, batched every few seconds and within Discord's rate limits.
@@ -539,11 +541,11 @@ It exports up/TPS/MSPT/players, host CPU, memory and disk, the Minecraft process
 
 ## Map
 
-1. Install squaremap under **Server → Plugins** and restart the server.
-2. In `plugins/squaremap/config.yml` set `internal-webserver.bind: 127.0.0.1` and a free `port` (e.g. `8100`), so the map isn't public.
-3. Add `MAP_URL=http://127.0.0.1:8100` to `/etc/rconsole.env` and restart rconsole.
+1. Install BlueMap, squaremap or Dynmap under **Server → Plugins** and restart the server.
+2. Let its web server listen on `127.0.0.1` only, so the map isn't public (BlueMap: `ip: "127.0.0.1"` in `plugins/BlueMap/webserver.conf`; squaremap: `internal-webserver.bind: 127.0.0.1`).
+3. Open **World → Map**: rconsole finds the plugin and its port and offers **Use BlueMap** (or squaremap, Dynmap). `MAP_URL=http://127.0.0.1:8100` in `/etc/rconsole.env` still works and wins.
 
-The **Map** area then shows it. The map displays player-controlled text, so rconsole keeps it at arm's length: it runs in a sandbox with its own opaque origin (no access to rconsole's page, cookies or API), and the proxy accepts it through a per-session link instead of your session cookie. The link stops working when you sign out.
+**World → Map** then shows it. The map displays player-controlled text, so rconsole keeps it at arm's length: it runs in a sandbox with its own opaque origin (no access to rconsole's page, cookies or API), and the proxy accepts it through a per-session link instead of your session cookie. The link stops working when you sign out.
 
 ## Plugins
 
@@ -557,7 +559,7 @@ rconsole reads the jars through the `minecraft` group, so they need to be group-
 
 ## Plugin configs
 
-**Server → Configs** (admins) lists the text config files under `plugins/` (Paper, Spigot, Purpur, Folia) or `config/` (Fabric, Quilt, Forge, NeoForge): `.yml .yaml .json .json5 .properties .toml .conf .cfg .txt`, up to 512 KB each.
+**Server → Files** (admins) lists the text config files under `plugins/` (Paper, Spigot, Purpur, Folia) or `config/` (Fabric, Quilt, Forge, NeoForge): `.yml .yaml .json .json5 .properties .toml .conf .cfg .txt`, up to 512 KB each.
 
 - The editor checks the syntax as you type (JSON must parse; YAML can't be indented with tabs) and shows a line diff before saving.
 - Saving runs in `rconsole-job@` as the `minecraft` user: it re-checks the path (no links, no `..`, only existing files), keeps the old version in `.rconsole-previous/`, and writes atomically. **Revert** puts the previous version back.

@@ -56,8 +56,16 @@ const fmt = {
   delay(s) {
     return s >= 60 ? `${s / 60} minute${s === 60 ? '' : 's'}` : `${s} seconds`;
   },
+  // Today 22:52, Yesterday 08:10, then Oct 12, 2026, 4:13 PM.
   date(iso) {
-    return iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '–';
+    if (!iso) return '–';
+    const d = new Date(iso);
+    const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const ago = Math.round((day(new Date()) - day(d)) / 86400000);
+    const time = d.toLocaleTimeString(undefined, { timeStyle: 'short' });
+    if (ago === 0) return `Today ${time}`;
+    if (ago === 1) return `Yesterday ${time}`;
+    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   },
   relative(iso) {
     if (!iso) return '';
@@ -144,6 +152,20 @@ function skeletonList(ul) {
   ul.replaceChildren(...[60, 40].map((w) => el('li', {}, el('span', { class: `skeleton w${w}` }))));
 }
 
+// Drawers: create and set-up forms slide in from the right over the list
+// they add to, so the list stays in view (UniFi style).
+function openDrawer(id, focus) {
+  const d = $(id);
+  if (!d.open) d.showModal();
+  (focus || d.querySelector('input:not([type=hidden]):not([type=radio]):not([type=checkbox]), select'))?.focus();
+}
+const closeDrawer = (id) => $(id).open && $(id).close();
+document.addEventListener('click', (e) => {
+  const d = e.target.closest('dialog.drawer');
+  if (!d) return;
+  if (e.target === d || e.target.closest('[data-close]')) d.close();
+});
+
 const emptyRow = (cols, ...content) => el('tr', {}, el('td', { class: 'empty-state', colspan: cols }, ...content));
 const emptyItem = (...content) => el('li', { class: 'empty-state' }, ...content);
 
@@ -151,17 +173,20 @@ const emptyItem = (...content) => el('li', { class: 'empty-state' }, ...content)
 // Areas
 // ---------------------------------------------------------------------------
 
-// In sidebar order: Console; Community (players, map); Manage (worlds,
-// server, schedule); Monitor (insights); then rconsole's own settings.
+// In sidebar order: Dashboard, Console, Players; Manage (world, backups,
+// server, automation); Monitor (insights); then rconsole's own settings.
+// Servers isn't in the sidebar: the server switcher at the top leads there.
 const AREAS = {
+  dashboard: { name: 'Dashboard', icon: 'dashboard' },
   console: { name: 'Console', icon: 'console' },
   players: { name: 'Players', icon: 'players' },
-  map: { name: 'Map', icon: 'map' },
-  worlds: { name: 'Worlds', icon: 'worlds' },
+  world: { name: 'World', icon: 'worlds' },
+  backups: { name: 'Backups', icon: 'backups' },
   server: { name: 'Server', icon: 'server' },
-  schedule: { name: 'Schedule', icon: 'schedule' },
+  automation: { name: 'Automation', icon: 'schedule' },
   insights: { name: 'Insights', icon: 'insights' },
   settings: { name: 'Settings', icon: 'settings' },
+  servers: { name: 'Servers', icon: 'server', hidden: true },
 };
 // Roles: what the signed-in account may do. The server enforces it; the UI
 // hides what would only fail. Mirrors MODERATOR_COMMANDS in server.js.
@@ -177,19 +202,31 @@ function applyRole(role) {
   myRole = ROLE_RANK[role] != null ? role : 'admin';
   document.body.dataset.role = myRole;
   // Forms that change things are read-only below their role.
-  for (const id of ['settings-form', 'notify-form', 'task-form', 'os-form', 'world-new']) if ($(id)) $(id).inert = !atLeast('admin');
+  for (const id of ['settings-form', 'notify-form', 'task-form', 'os-form', 'world-new', 'server-new', 'url-form']) if ($(id)) $(id).inert = !atLeast('admin');
   if (!atLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
 }
 
 // On phones the tab bar shows these four; the rest live under "More".
-const PHONE_TABS = ['console', 'players', 'worlds', 'server'];
-// Old bookmarks keep working.
+const PHONE_TABS = ['dashboard', 'console', 'players', 'server'];
+// Old bookmarks and links in notifications keep working (4.3 layout).
 const ALIASES = {
-  backups: 'worlds',
+  worlds: 'world/worlds',
+  map: 'world/map',
+  schedule: 'automation',
   updates: 'server/updates',
   notifications: 'settings/notifications',
   'server/settings': 'server/properties', // renamed: it edits server.properties
+  'server/configs': 'server/files',
+  'server/servers': 'servers',
   account: 'settings/account',
+  'settings/about': 'settings/system',
+  'settings/backups': 'backups',
+  'players/access': 'players/people',
+  'players/history': 'players/people',
+  'players/security': 'players/addresses',
+  'players/chat': 'console/chat',
+  'insights/audit': 'insights/activity',
+  'insights/problems': 'dashboard/problems',
 };
 const tabLoaders = {};
 const viewLoaders = {};
@@ -211,7 +248,13 @@ function showView(area, view) {
 function showTab(route) {
   route = ALIASES[route] || route || '';
   let [name, view] = route.split('/');
-  if (!AREAS[name]) name = 'console';
+  if (!AREAS[name]) name = 'dashboard';
+  // Views that are a mode of an area rather than a sub-page.
+  if (name === 'console' && view === 'chat') setLogView('chat');
+  if (view === 'problems') {
+    view = undefined;
+    setTimeout(openProblems, 0);
+  }
   document.body.dataset.area = name;
   $('area-name').textContent = AREAS[name].name;
   $('area-icon').setAttribute('href', `#pg-${AREAS[name].icon}`);
@@ -223,6 +266,8 @@ function showTab(route) {
   }
   for (const s of document.querySelectorAll('.area')) s.hidden = s.id !== `tab-${name}`;
   $('nav-more').classList.toggle('on', !PHONE_TABS.includes(name));
+  closeSwitcher();
+  for (const d of document.querySelectorAll('dialog.drawer[open]')) d.close();
   $('main').scrollTop = 0;
   tabLoaders[name]?.();
   showView(name, view);
@@ -305,9 +350,25 @@ function setFollowing(on) {
   if (on) scrollLog(true);
 }
 
+// "[12:00:00] [Server thread/INFO]: message": time and source dimmed, so the
+// message itself stands out; plugin prefixes like [Essentials] get a tag.
+const LINE_RE = /^(\[[^\]]{5,25}\]) (\[[^\]]{1,80}\]):? ?(.*)$/s;
+function lineContent(text) {
+  const m = text.match(LINE_RE);
+  if (!m) return [text];
+  const [, time, source, rest] = m;
+  const level = source.match(/\/(INFO|WARN|ERROR|FATAL|DEBUG)\]$/)?.[1] || '';
+  const plugin = rest.match(/^\[([A-Za-z0-9_.-]{2,40})\] /);
+  return [
+    el('span', { class: 'l-time' }, time), ' ',
+    el('span', { class: `l-src${level ? ` l-${level.toLowerCase()}` : ''}` }, source), ' ',
+    plugin ? [el('span', { class: 'l-tag' }, plugin[1]), ' ', rest.slice(plugin[0].length)] : rest,
+  ];
+}
+
 function addLine(text, cls = classify(text)) {
   log.querySelector('.log-empty')?.remove();
-  const div = el('div', { class: cls }, text);
+  const div = el('div', { class: cls }, ...(cls === 'cmd' || cls.startsWith('reply') || cls === 'sys' ? [text] : lineContent(text)));
   div.hidden = !visible(div);
   log.append(div);
   while (log.childElementCount > MAX_LINES) log.firstElementChild.remove();
@@ -319,13 +380,29 @@ function refilter() {
   scrollLog(true);
 }
 
-$('filter').addEventListener('input', refilter);
-document.querySelector('.segmented').addEventListener('click', (e) => {
+$('filter').addEventListener('input', () => (view === 'chat' ? renderChat() : refilter()));
+// All output: the log and the command line. Chat: players' messages, joins
+// and leaves, with a box to write to everyone or whisper to one player.
+function setLogView(v) {
+  view = v === 'chat' ? 'chat' : 'all';
+  for (const r of $('log-view').children) r.setAttribute('aria-checked', String(r.dataset.view === view));
+  const chat = view === 'chat';
+  log.hidden = chat;
+  $('chat-list').hidden = !chat;
+  $('form').hidden = chat;
+  $('chat-form').hidden = !chat;
+  $('follow').hidden = chat;
+  $('clear-log').hidden = chat;
+  $('filter').placeholder = chat ? 'Filter chat' : 'Filter log';
+  if (chat) {
+    fillChatTargets();
+    renderChat.done = false;
+    renderChat();
+  } else refilter();
+}
+$('log-view').addEventListener('click', (e) => {
   const b = e.target.closest('[role=radio]');
-  if (!b) return;
-  view = b.dataset.view;
-  for (const r of b.parentElement.children) r.setAttribute('aria-checked', r === b);
-  refilter();
+  if (b) setLogView(b.dataset.view);
 });
 $('follow').addEventListener('click', () => setFollowing(!following));
 $('clear-log').addEventListener('click', () => log.replaceChildren(el('div', { class: 'log-empty' }, 'Cleared. New lines appear as the server writes them.')));
@@ -682,7 +759,46 @@ cmdInput.addEventListener('keydown', (e) => {
   renderHint(suggest(cmdInput.value).hint);
 });
 
-document.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => busy(b, () => run(b.dataset.c))));
+// Quick actions: four built in, plus commands each admin pins in this
+// browser (Add → a label and a command).
+const QUICK_KEY = 'rconsole.quick';
+const savedQuick = () => {
+  try {
+    return JSON.parse(localStorage.getItem(QUICK_KEY) || '[]').filter((q) => q && typeof q.c === 'string' && typeof q.label === 'string').slice(0, 12);
+  } catch {
+    return [];
+  }
+};
+function renderQuick() {
+  $('quick').querySelectorAll('.pinned').forEach((n) => n.remove());
+  for (const [i, q] of savedQuick().entries()) {
+    const b = el('button', { class: 'btn pinned', 'data-c': q.c, title: `/${q.c}` }, icon('pin'), el('span', {}, q.label),
+      el('span', { class: 'unpin', role: 'button', tabindex: 0, 'aria-label': `Remove ${q.label}`, title: 'Remove', onclick: (e) => {
+        e.stopPropagation();
+        const list = savedQuick();
+        list.splice(i, 1);
+        try { localStorage.setItem(QUICK_KEY, JSON.stringify(list)); } catch {}
+        renderQuick();
+      } }, '×'));
+    $('quick').append(b);
+  }
+}
+$('quick').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-c]');
+  if (b && !e.target.closest('.unpin')) busy(b, () => run(b.dataset.c));
+});
+$('quick-edit').addEventListener('click', async () => {
+  const label = el('input', { class: 'field', maxlength: 24, placeholder: 'e.g. Spawn' });
+  const cmd = el('input', { class: 'field mono', maxlength: 200, placeholder: 'e.g. tp @a 0 80 0', spellcheck: 'false' });
+  if (!(await confirmAction({ title: 'Add a quick action', body: 'A button that runs this command. It is kept in this browser.', confirm: 'Add', icon: 'pin',
+    content: el('div', { class: 'dialog-form' }, fld('Label', label), fld('Command', cmd)) }))) return;
+  const c = cmd.value.trim().replace(/^\//, '');
+  if (!c) return;
+  const list = [...savedQuick(), { label: label.value.trim() || c.split(' ')[0], c }];
+  try { localStorage.setItem(QUICK_KEY, JSON.stringify(list)); } catch {}
+  renderQuick();
+});
+renderQuick();
 
 // ---------------------------------------------------------------------------
 // Health, online players, restart countdown
@@ -766,7 +882,7 @@ function renderStatus(s) {
           el('li', { title: `Insert ${name} into the command line`, onclick: () => insertName(name) },
             avatar(name), el('span', { class: 'who-cell' }, el('span', { class: 'name' }, name)),
             el('button', { class: 'btn btn-quiet btn-sm', title: `${name}'s profile`, onclick: (e) => { e.stopPropagation(); openPlayer(name); } }, 'Profile')))
-      : [emptyItem(rcon.ok ? 'Nobody is online. Click a player here to insert their name into a command.' : 'Player list unavailable while RCON is offline.')])
+      : [emptyItem(rcon.ok ? 'Nobody is online right now.' : 'Player list unavailable while RCON is offline.')])
   );
 
   const remaining = s.restart?.remaining;
@@ -777,9 +893,136 @@ function renderStatus(s) {
   renderBackupState(s.backup);
   renderUpdateState(s.update);
   renderSelfSummary(s.self);
-  if (!(document.body.dataset.area === 'players' && currentView('players') === 'security')) renderSecurityBadge(s.security);
+  if (!(document.body.dataset.area === 'players' && currentView('players') === 'addresses')) renderSecurityBadge(s.security);
   renderProblemsBadge(s.problems);
+  if ($('switcher-menu').hidden) renderSwitcher();
+  if (document.body.dataset.area === 'dashboard') renderDashboardTiles();
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard: what needs attention, at a glance (tiles from /api/status, the
+// rest loaded when the dashboard opens)
+// ---------------------------------------------------------------------------
+
+let dashBackups = null;
+let dashUpdates = null;
+
+function tile({ label, value, sub, tone = '', href, onclick, icon: iconName }) {
+  const body = [el('span', { class: 'dt-label' }, iconName ? icon(iconName) : null, label), el('b', { class: 'dt-value' }, value), sub ? el('span', { class: 'dt-sub' }, sub) : null];
+  return href ? el('a', { class: `dash-tile ${tone}`, href }, ...body)
+    : onclick ? el('button', { class: `dash-tile ${tone}`, type: 'button', onclick }, ...body)
+      : el('div', { class: `dash-tile ${tone}` }, ...body);
+}
+
+function renderDashboardTiles() {
+  const s = lastStatus;
+  if (!s) return;
+  const p = s.power || {};
+  const g = s.game || {};
+  const running = s.rcon?.ok;
+  const state = p.available ? POWER_LABEL[p.active] || p.active : running ? 'Running' : 'Offline';
+  const heap = s.heap?.used != null ? s.heap : null;
+  const b = dashBackups;
+  const lastBackup = b?.files?.[0];
+  const backupAge = lastBackup ? Date.now() - Date.parse(lastBackup.created) : null;
+  const prob = s.problems || {};
+  const selfNew = s.self?.available || 0;
+  const tiles = [
+    tile({ label: 'Server', icon: 'power', value: state, tone: running ? 'good' : p.active === 'failed' ? 'bad' : 'warn', href: '#server/overview',
+      sub: running && p.since ? `for ${fmt.relative(p.since).replace(/ ago$/, '')}` : s.maintenance?.enabled ? 'Maintenance mode' : p.result && p.result !== 'success' ? p.result : null }),
+    tile({ label: 'Performance', icon: 'insights', value: g.tps != null ? `${g.tps.toFixed(1)} TPS` : '–', tone: g.tps == null ? '' : g.tps >= 19 ? 'good' : g.tps >= 15 ? 'warn' : 'bad', href: '#insights/metrics',
+      sub: g.mspt != null ? `${g.mspt.toFixed(1)} ms per tick` : running ? null : 'Server not running' }),
+    tile({ label: 'Players', icon: 'players', value: g.players ? `${g.players.online} / ${g.players.max}` : '–', href: '#players',
+      sub: g.players?.players?.length ? g.players.players.slice(0, 3).join(', ') + (g.players.players.length > 3 ? ` +${g.players.players.length - 3}` : '') : 'Nobody online' }),
+    tile({ label: heap ? 'Java heap' : 'Memory', icon: 'server', href: '#insights/metrics',
+      value: heap ? `${fmt.bytes(heap.used)}` : fmt.bytes(s.host.mem.total - s.host.mem.available),
+      sub: heap ? `of ${fmt.bytes(heap.max)} · host ${fmt.bytes(s.host.mem.available)} free` : `of ${fmt.bytes(s.host.mem.total)}`,
+      tone: s.host.mem.available < 300 * 2 ** 20 ? 'warn' : heap ? level(heap.used / heap.max, 0.75, 0.9).replace('meh', 'warn') : '' }),
+    tile({ label: 'Last backup', icon: 'backups', href: '#backups',
+      value: s.backup?.running ? 'Running…' : lastBackup ? fmt.relative(lastBackup.created) : b ? 'None yet' : '–',
+      sub: s.backup?.lastError ? 'The last backup failed' : lastBackup ? `${lastBackup.world}, ${fmt.bytes(lastBackup.size)}` : b ? 'Schedule one under Automation' : null,
+      tone: s.backup?.lastError || (b && !lastBackup) ? 'bad' : backupAge > 2 * 86400000 ? 'warn' : lastBackup ? 'good' : '' }),
+    tile({ label: 'Problems', icon: 'alert', onclick: openProblems,
+      value: prob.unseen ? `${prob.unseen} new` : 'All clear', tone: prob.critical ? 'bad' : prob.unseen ? 'warn' : 'good',
+      sub: prob.critical ? `${prob.critical} critical` : prob.unseen ? 'Errors in the last 24 hours' : 'Nothing new in 24 hours' }),
+    tile({ label: 'Updates', icon: 'updates', href: '#server/updates',
+      value: dashUpdates?.server ? 'Available' : selfNew ? 'rconsole' : 'Up to date', tone: dashUpdates?.server || selfNew ? 'info' : '',
+      sub: [dashUpdates?.server ? `${s.platform?.name || 'Server'} ${dashUpdates.server}` : null, selfNew ? `rconsole: ${selfNew} new change${selfNew === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') || `${s.platform?.name || ''} ${s.platform?.mcVersion || ''}${s.platform?.build ? ` #${s.platform.build}` : ''}`.trim() }),
+    tile({ label: 'Disk', icon: 'save', value: s.host.disk ? `${fmt.bytes(s.host.disk.available)} free` : '–',
+      tone: s.host.disk ? level(1 - s.host.disk.available / s.host.disk.total, 0.8, 0.92).replace('meh', 'warn').replace('good', '') : '',
+      sub: s.host.disk ? `of ${fmt.bytes(s.host.disk.total)} · host up ${fmt.duration(s.host.uptime)}` : null }),
+  ];
+  $('dash-tiles').replaceChildren(...tiles);
+  // Online now: faces, a click opens the profile.
+  const online = g.players?.players || [];
+  $('dash-count').textContent = g.players ? `${g.players.online} / ${g.players.max}` : '';
+  $('dash-online').replaceChildren(...(online.length
+    ? online.map((name) => el('li', { class: 'clickable', onclick: () => openPlayer(name) }, avatar(name), el('span', { class: 'who-cell' }, el('span', { class: 'name' }, name)), el('span', { class: 'meta' }, 'Profile')))
+    : [emptyItem(running ? 'Nobody is online right now.' : 'The player list shows when the server runs.')]));
+}
+
+function activityItem(when, who, what, detail, bad) {
+  return el('li', { class: bad ? 'bad' : '' }, el('time', { title: fmt.date(when) }, fmt.relative(when)), el('span', {}, el('b', {}, who), ` ${what}`, detail ? el('span', { class: 'sub' }, ` ${detail}`) : null));
+}
+
+// Below admin there is no audit log to show: joins and leaves from the log.
+function renderJoins() {
+  if (atLeast('admin')) return;
+  $('dash-activity-title').textContent = 'Joins and leaves';
+  const ev = chatEvents.filter((e) => e.kind === 'join' || e.kind === 'leave').slice(-8).reverse();
+  $('dash-activity').replaceChildren(...(ev.length
+    ? ev.map((e) => el('li', {}, el('time', {}, e.time), el('span', {}, el('b', {}, e.name), e.kind === 'join' ? ' joined' : ' left')))
+    : [el('li', { class: 'empty' }, 'Nobody joined or left since the log started.')]));
+}
+
+async function loadDashboard() {
+  renderDashboardTiles();
+  const jobs = [
+    api('GET', '/api/backups').then((b) => { dashBackups = b; renderDashboardTiles(); }).catch(() => {}),
+    api('GET', '/api/updates').then((u) => {
+      const b = u.newerBuilds?.[0];
+      dashUpdates = { server: b ? `#${b.id}` : u.newerVersions?.length ? u.newerVersions[0] : null };
+      renderDashboardTiles();
+    }).catch(() => {}),
+    api('GET', '/api/metrics?range=6h').then((m) => {
+      const base = { t: m.t, from: m.from, to: m.to, step: m.step, up: m.up };
+      lineChart($('dash-tps'), { ...base, label: 'TPS', max: 20, yFmt: (v) => String(Math.round(v)), series: [{ values: m.tps, label: 'TPS', fmt: (v) => v.toFixed(1) }] });
+      lineChart($('dash-players'), { ...base, label: 'Players online', minMax: 4, yFmt: (v) => (Number.isInteger(v) ? String(v) : ''), series: [{ values: m.players, label: 'Players', fmt: String }] });
+      $('dash-chart-note').textContent = m.t.length ? 'TPS and players online. Shaded: server down.' : 'Collecting; the first points arrive within 30 seconds.';
+    }).catch(() => {}),
+  ];
+  // Daily activity needs the player history (moderators and admins).
+  $('ph-daily').closest('.panel').hidden = !atLeast('moderator');
+  if (atLeast('moderator')) {
+    jobs.push(api('GET', '/api/players/history').then((h) => {
+      historyData = h;
+      const now = Date.now();
+      const span = h.daily.length && now - Date.parse(h.daily[0].day) < 14 * 86400000 ? 14 : 30; // little history: two weeks
+      const days = [];
+      for (let i = span - 1; i >= 0; i--) {
+        const d = new Date(now - i * 86400000);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const found = h.daily.find((x) => x.day === key);
+        days.push({ value: (found?.playtime || 0) / 3600000, players: found?.players || 0, label: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), title: d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) });
+      }
+      barChart($('ph-daily'), days, { label: 'Hours played per day', fmt: (v) => (v >= 1 || v === 0 ? `${+v.toFixed(1)}h` : `${Math.round(v * 60)}m`), detail: (b) => [`${b.value.toFixed(1)} hours played`, `${b.players} player${b.players === 1 ? '' : 's'}`] });
+    }).catch(() => {}));
+  }
+  // Recent activity: who changed what (admins), or joins and leaves.
+  if (atLeast('admin')) {
+    $('dash-activity-title').textContent = 'Recent activity';
+    jobs.push(api('GET', '/api/audit?limit=8').then((r) => {
+      $('dash-activity').replaceChildren(...(r.entries.length
+        ? r.entries.slice(0, 8).map((e) => activityItem(e.at, e.user || '–', e.action, e.target, !e.ok))
+        : [el('li', { class: 'empty' }, 'Nothing yet. Changes and sign-ins show up here.')]));
+    }).catch(() => {}));
+  } else renderJoins();
+  await Promise.all(jobs);
+}
+tabLoaders.dashboard = loadDashboard;
+setInterval(() => {
+  if (!document.hidden && document.body.dataset.area === 'dashboard') loadDashboard();
+}, 60000);
 
 // Server software: chip in the top bar; Plugins/Mods tab follows what it loads.
 let platformKey = '';
@@ -796,7 +1039,7 @@ function renderPlatform(pf) {
     pf.addons ? `loads ${pf.addons}s` : 'no plugins or mods', pf.updates ? 'updated by rconsole' : 'updated by hand'].filter(Boolean).join(' · ');
   const tab = document.querySelector('#tab-server .subnav [data-view=plugins]');
   tab.hidden = !pf.addons;
-  document.querySelector('#tab-server .subnav [data-view=configs]').hidden = !pf.addons;
+  document.querySelector('#tab-server .subnav [data-view=files]').hidden = !pf.addons;
   tab.textContent = pf.addons === 'mod' ? 'Mods' : 'Plugins';
   const kind = pf.addons === 'mod' ? 'mod' : 'plugin';
   $('plugins-title').textContent = `Installed ${kind}s`;
@@ -838,8 +1081,8 @@ async function loadServerSummary() {
       : 'Stopped.';
     $('srv-facts').replaceChildren(
       row('Software', [pf.name || '–', pf.build ? sub(` build ${pf.build}`) : null, pf.loaderVersion ? sub(` · loader ${pf.loaderVersion}`) : null]),
-      row('World', el('a', { href: '#worlds' }, s.world)),
-      row('Port', el('span', { class: 'mono' }, String(s.port))),
+      row('World', el('a', { href: '#world/worlds' }, s.world)),
+      row('Port', String(s.port)),
       row('Players', players ? `${players.online} of ${players.max} online` : s.maxPlayers ? `up to ${s.maxPlayers}` : '–'),
       row('Access', [s.whitelist ? 'Whitelist on' : 'Anyone can join', sub(s.onlineMode ? ' · online mode' : ' · offline mode')]),
       row('Gameplay', [s.difficulty ? s.difficulty[0].toUpperCase() + s.difficulty.slice(1) : '–', s.gamemode ? sub(` · ${s.gamemode}`) : null]),
@@ -1032,12 +1275,55 @@ async function loadServers() {
       : [emptyRow(6, el('b', {}, 'No servers yet. '), atLeast('admin') ? 'Press New server to pick the software and version.' : 'An admin can install one.')]));
     renderServersOp(op);
     lastServersOp = op;
-    if (!servers.length && !op?.running && !op?.result && atLeast('admin') && serverForm.hidden) toggleServerForm(true);
+    if (!servers.length && !attached && !op?.running && !op?.result && atLeast('admin') && !$('drawer-server').open && document.body.dataset.area === 'servers') toggleServerForm(true);
+    renderSwitcher();
   } catch (e) {
     $('server-list').replaceChildren(emptyRow(6, `Can't list servers: ${e.message}`));
   }
 }
-viewLoaders['server/servers'] = loadServers;
+tabLoaders.servers = loadServers;
+
+// --- Server switcher (top of the sidebar): which server rconsole shows ---
+function renderSwitcher() {
+  const shown = serversList.find((s) => s.id === serversActive);
+  $('sw-name').textContent = shown?.name || (serversAttached || !serversList.length ? lastStatus?.platform?.name || 'Minecraft' : '…');
+  const st = lastStatus?.power;
+  $('sw-dot').dataset.state = !lastStatus ? '' : lastStatus.rcon?.ok ? 'ok' : st?.active === 'failed' ? 'bad' : 'off';
+  const items = serversList.map((s) => el('button', { class: `sw-item${s.id === serversActive ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(s.id === serversActive),
+    onclick: (e) => { if (s.id === serversActive) return closeSwitcher(); closeSwitcher(); showServer(s, e.currentTarget); } },
+    el('span', { class: 'sw-dot', 'data-state': s.state?.active === 'active' ? 'ok' : s.state?.active === 'failed' ? 'bad' : 'off' }),
+    el('span', { class: 'sw-item-text' }, el('b', {}, s.name), el('span', { class: 'sub' }, `${s.kind === 'proxy' ? 'Velocity proxy' : `${s.distribution[0].toUpperCase()}${s.distribution.slice(1)} ${s.version}`} · port ${s.port}`)),
+    s.id === serversActive ? icon('check') : null));
+  $('switcher-menu').replaceChildren(
+    ...(items.length ? items : [el('p', { class: 'note sw-empty' }, serversAttached ? 'rconsole is attached to a server it didn’t install.' : 'No servers yet.')]),
+    el('hr'),
+    el('button', { class: 'sw-item', role: 'menuitem', onclick: () => showTab('servers') }, icon('server'), el('span', {}, 'Manage servers')),
+    atLeast('admin') ? el('button', { class: 'sw-item', role: 'menuitem', onclick: () => { showTab('servers'); toggleServerForm(true); } }, icon('add'), el('span', {}, 'New server')) : null);
+}
+function closeSwitcher() {
+  $('switcher-menu').hidden = true;
+  $('switcher-btn').setAttribute('aria-expanded', 'false');
+}
+$('switcher-btn').addEventListener('click', async () => {
+  const open = $('switcher-menu').hidden;
+  if (!open) return closeSwitcher();
+  renderSwitcher();
+  $('switcher-menu').hidden = false;
+  $('switcher-btn').setAttribute('aria-expanded', 'true');
+  loadServerList().then(renderSwitcher);
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('#switcher')) closeSwitcher(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('switcher-menu').hidden) { closeSwitcher(); $('switcher-btn').focus(); } });
+// The list alone, for the switcher; the Servers page loads the rest.
+async function loadServerList() {
+  try {
+    const r = await api('GET', '/api/servers');
+    serversList = r.servers;
+    serversActive = r.active;
+    serversAttached = r.attached;
+    serversMemTotalMb = r.memTotalMb || serversMemTotalMb;
+  } catch {}
+}
 
 // Polls while an install, start or delete runs. rconsole restarts when the
 // first server is installed or the shown one is deleted; the page then
@@ -1066,14 +1352,26 @@ const parsePorts = (text) => [...new Set(String(text || '').split(/[\s,]+/).filt
 
 // Memory choices that can't fit on this machine are disabled; the note
 // says how much the servers already claim.
-function memoryNote(box, select, exceptId) {
+// What a server with this heap really uses: heap plus Java's own memory
+// (as lib/instances.js memoryMaxMb, before the cap).
+const javaNeedsMb = (heap) => heap + Math.max(1536, Math.round(heap / 2));
+function memoryNote(box, select, exceptId, pickDefault) {
   const total = serversMemTotalMb;
   for (const o of select.options) o.disabled = Boolean(total && Number(o.value) + 512 > total);
   if (select.selectedOptions[0]?.disabled) select.value = [...select.options].reverse().find((o) => !o.disabled)?.value || select.value;
   if (!total) return (box.hidden = true);
-  const claimed = serversList.filter((s) => s.id !== exceptId).reduce((sum, s) => sum + s.memoryMb, 0);
+  const others = serversList.filter((s) => s.id !== exceptId);
+  const claimed = others.reduce((sum, s) => sum + javaNeedsMb(s.memoryMb), 0);
+  // A new server starts with the most that still fits next to the others.
+  if (pickDefault) {
+    const fits = [...select.options].filter((o) => !o.disabled && claimed + javaNeedsMb(Number(o.value)) <= total);
+    select.value = (fits.reverse().find((o) => Number(o.value) <= 4096) || select.options[0]).value;
+  }
+  const over = claimed + javaNeedsMb(Number(select.value)) > total;
   box.hidden = false;
-  box.textContent = `This machine has ${fmt.bytes(total * 1048576)} of RAM${claimed ? `; the other servers have ${fmt.bytes(claimed * 1048576)} of heap` : ''}. Java needs about 1.5 GB more than the heap you choose.`;
+  box.classList.toggle('warn-note', over);
+  select.toggleAttribute('aria-invalid', over);
+  box.textContent = `This machine has ${fmt.bytes(total * 1048576)} of RAM${others.length ? `; the other servers use about ${fmt.bytes(claimed * 1048576)}` : ''}. Java needs about 1.5 GB more than the heap.${over ? ' This choice doesn\'t fit when all servers run at once.' : ''}`;
 }
 
 function renderServerFormExtras() {
@@ -1112,10 +1410,13 @@ async function sendServerRequest(method, url, body, what) {
 }
 
 function toggleServerForm(open) {
-  serverForm.hidden = !open;
-  $('server-new-toggle').setAttribute('aria-expanded', open);
+  if (open) {
+    if (!distLoaded) loadServers();
+    memoryNote($('server-new-memory'), serverForm.elements.memoryMb, undefined, true);
+    openDrawer('drawer-server', serverForm.querySelector('.dist-card input'));
+  } else closeDrawer('drawer-server');
 }
-$('server-new-toggle').addEventListener('click', () => toggleServerForm(serverForm.hidden));
+$('server-new-toggle').addEventListener('click', () => toggleServerForm(true));
 $('server-new-cancel').addEventListener('click', () => toggleServerForm(false));
 
 function renderDistributions(list) {
@@ -1200,7 +1501,8 @@ function renderOp(op) {
   $('op-text').textContent = op.running ? `${op.label}: ${op.step}…` : recentFail ? `${op.label} failed: ${op.error}` : '';
   if (opWasRunning && !op.running) {
     toast(op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.`, op.error ? 'bad' : 'ok');
-    if (document.body.dataset.area === 'worlds') loadWorldsArea();
+    if (document.body.dataset.area === 'world') loadWorlds();
+    if (document.body.dataset.area === 'backups') loadBackupsArea();
   }
   opWasRunning = op.running;
   document.querySelectorAll('[data-op]').forEach((b) => (b.disabled = op.running));
@@ -1277,35 +1579,108 @@ function rowAction(label, iconName, command, confirmOpts) {
 
 const banMeta = (b) => [b.reason && b.reason !== 'Banned by an operator.' ? b.reason : null, b.source && `by ${b.source}`, b.expires && b.expires !== 'forever' ? `until ${b.expires}` : null].filter(Boolean).join(' · ');
 
+// One table of everyone the server knows: players from the logs (history),
+// the whitelist, operators and bans, merged by name. A row opens the
+// player's profile with every action; filters replace the old lists.
+let peopleFilter = 'all';
+let historyData = null;
+const lc = (n) => String(n).toLowerCase();
+
+function peopleRows(a) {
+  const map = new Map();
+  const get = (name, uuid) => {
+    const k = lc(name);
+    if (!map.has(k)) map.set(k, { name, uuid: uuid || null });
+    const p = map.get(k);
+    if (uuid && !p.uuid) p.uuid = uuid;
+    return p;
+  };
+  for (const h of historyData?.players || []) Object.assign(get(h.name, h.uuid), { last: h.last, first: h.first, playtime: h.playtime, sessions: h.sessions, history: h });
+  for (const w of a.whitelist) get(w.name, w.uuid).whitelisted = true;
+  for (const o of a.ops) get(o.name, o.uuid).op = o.level;
+  for (const b of a.bans) get(b.name, b.uuid).ban = b;
+  for (const name of lastStatus?.game?.players?.players || []) get(name).online = true;
+  return [...map.values()].sort((x, y) => (y.online ? 1 : 0) - (x.online ? 1 : 0) || (y.last || 0) - (x.last || 0) || x.name.localeCompare(y.name));
+}
+
+const FILTERS = {
+  all: () => true,
+  online: (p) => p.online,
+  whitelist: (p) => p.whitelisted,
+  op: (p) => p.op != null,
+  banned: (p) => p.ban,
+};
+
+function personAccess(p) {
+  return el('span', { class: 'badges' },
+    p.online ? el('span', { class: 'pill ok' }, el('span', { class: 'dot', 'aria-hidden': 'true' }), 'Online') : null,
+    p.op != null ? el('span', { class: 'pill own', title: `Permission level ${p.op}` }, icon('op'), 'Operator') : null,
+    p.whitelisted ? el('span', { class: 'pill' }, 'Whitelisted') : null,
+    p.ban ? el('span', { class: 'pill bad', title: banMeta(p.ban) || 'Banned' }, icon('ban'), 'Banned') : null,
+    !p.online && p.op == null && !p.whitelisted && !p.ban ? el('span', { class: 'sub' }, accessCache?.whitelistEnabled ? 'Not whitelisted' : 'Visitor') : null);
+}
+
+// Quick actions on the row; everything else is in the profile.
+function personActions(p) {
+  return [
+    p.ban ? rowActionBtn('Unban', 'check', `pardon ${p.name}`)
+      : p.whitelisted ? rowActionBtn('Remove', 'remove', `whitelist remove ${p.name}`, { title: `Take ${p.name} off the whitelist?`, body: accessCache?.whitelistEnabled ? `${p.name} can't join any more${p.online ? ' and is kicked if the server enforces the whitelist' : ''}.` : '', confirm: 'Remove', tone: 'danger', icon: 'remove' }, true)
+        : rowActionBtn('Whitelist', 'add', `whitelist add ${p.name}`),
+    el('button', { class: 'btn btn-quiet btn-sm', onclick: (e) => { e.stopPropagation(); openPlayer(p.name, p.uuid); } }, icon('players'), 'Profile'),
+  ];
+}
+
+function renderPeople() {
+  if (!accessCache) return;
+  const rows = peopleRows(accessCache);
+  const q = lc($('ph-filter').value.trim());
+  const shown = rows.filter(FILTERS[peopleFilter]).filter((p) => !q || lc(p.name).includes(q));
+  for (const b of $('pp-filter').children) {
+    const n = rows.filter(FILTERS[b.dataset.f]).length;
+    b.dataset.count = n;
+    b.setAttribute('aria-label', `${b.textContent.replace(/\d+$/, '').trim()}, ${n}`);
+  }
+  $('pp-list').replaceChildren(...(shown.length
+    ? shown.map((p) => el('tr', { class: 'clickable', onclick: (e) => { if (!e.target.closest('button, a')) openPlayer(p.name, p.uuid); } },
+        el('td', { class: 'primary-cell', 'data-label': 'Player' }, el('div', { class: 'plugin' }, avatar(p.uuid || p.name), el('div', {}, p.name, p.op != null ? el('span', { class: 'sub' }, `Level ${p.op}`) : null))),
+        el('td', { 'data-label': 'Access' }, personAccess(p)),
+        el('td', { 'data-label': 'Last seen' }, p.online ? 'Now' : p.last ? el('span', { title: fmt.date(new Date(p.last).toISOString()) }, fmt.relative(new Date(p.last).toISOString())) : el('span', { class: 'sub' }, historyData ? 'Never joined' : '–')),
+        el('td', { class: 'num', 'data-label': 'Playtime' }, p.playtime ? dur(p.playtime) : '–'),
+        el('td', { class: 'act' }, personActions(p))))
+    : [emptyRow(5, rows.length
+      ? (q ? `Nobody called “${q}” here.` : 'Nobody in this list.')
+      : accessCache.whitelistEnabled ? 'Nobody is whitelisted, so nobody can join. Add players above.' : 'Nobody has played yet. Add players to the whitelist above, then switch it on.')]));
+}
+
 async function loadAccess() {
-  if (!accessLoaded) ['list-whitelist', 'list-ops', 'list-bans', 'list-ipbans'].forEach((id) => skeletonList($(id)));
+  if (!accessLoaded) skeletonRows($('pp-list'), 5);
   try {
-    const a = await api('GET', '/api/access');
+    const [a, h] = await Promise.all([api('GET', '/api/access'), atLeast('moderator') ? api('GET', '/api/players/history').catch(() => null) : null]);
     accessLoaded = true;
     accessCache = a;
+    if (h) historyData = h;
     $('access-error').hidden = true;
     $('wl-toggle').checked = a.whitelistEnabled;
-    $('wl-state').textContent = a.whitelistEnabled ? 'On' : 'Off';
-    $('n-whitelist').textContent = a.whitelist.length || '';
-    $('n-ops').textContent = a.ops.length || '';
-    $('n-bans').textContent = a.bans.length || '';
+    $('wl-state').textContent = a.whitelistEnabled ? 'Whitelist on' : 'Whitelist off';
     $('n-ipbans').textContent = a.ipBans.length || '';
-
-    $('list-whitelist').replaceChildren(...(a.whitelist.length
-      ? a.whitelist.map((p) => personRow(p, null, rowAction('Remove', 'remove', `whitelist remove ${p.name}`)))
-      : [emptyItem(a.whitelistEnabled ? 'Nobody is whitelisted, so nobody can join. Add players above.' : 'The whitelist is off, so anyone can join. Add players, then switch it on.')]));
-    $('list-ops').replaceChildren(...(a.ops.length
-      ? a.ops.map((p) => personRow(p, `Permission level ${p.level}`, rowAction('Deop', 'remove', `deop ${p.name}`, { title: `Remove operator rights from ${p.name}?`, confirm: 'Deop', tone: 'danger', icon: 'op' })))
-      : [emptyItem('No operators. Operators can run every command in game.')]));
-    $('list-bans').replaceChildren(...(a.bans.length
-      ? a.bans.map((b) => personRow(b, banMeta(b), rowAction('Unban', 'check', `pardon ${b.name}`)))
-      : [emptyItem('No banned players.')]));
     $('list-ipbans').replaceChildren(...(a.ipBans.length
       ? a.ipBans.map((b) => el('li', {},
           el('span', { class: 'ip-tile' }, icon('ban')),
           el('span', { class: 'who-cell' }, el('span', { class: 'name mono' }, b.ip), el('span', { class: 'meta' }, banMeta(b) || 'No reason given')),
           rowAction('Unban', 'check', `pardon-ip ${b.ip}`)))
       : [emptyItem('No banned IP addresses.')]));
+    if (historyData) {
+      const now = Date.now();
+      statList('ph-kpis', [
+        ['Players seen', String(historyData.players.length)],
+        ['Online now', String(lastStatus?.game?.players?.online ?? historyData.players.filter((p) => p.online).length)],
+        ['Active this week', String(historyData.players.filter((p) => now - p.last < 7 * 86400000).length)],
+        ['Played, 30 days', dur(historyData.daily.reduce((n, d) => n + d.playtime, 0))],
+      ]);
+      $('ph-info').textContent = `Players from ${historyData.files} log file${historyData.files === 1 ? '' : 's'}; old logs are remembered even after they are deleted.`;
+    }
+    $('ph-kpis').hidden = !historyData;
+    renderPeople();
   } catch (e) {
     $('access-error').hidden = false;
     $('access-error').textContent = `Can't read the player lists: ${e.message}`;
@@ -1333,7 +1708,7 @@ const CONFIRM_ADD = {
   ban: (v, reason) => ({ title: `Ban ${v}?`, body: `${v} is kicked and can't join until unbanned.${reason ? `\nReason: ${reason}` : ''}`, confirm: 'Ban', tone: 'danger', icon: 'ban' }),
 };
 
-document.querySelectorAll('form.add').forEach((form) => {
+document.querySelectorAll('form.add[data-cmd]').forEach((form) => {
   const input = form.querySelector('input:not([data-reason])');
   input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
   form.addEventListener('submit', async (e) => {
@@ -1491,11 +1866,10 @@ async function deleteWorld(name) {
 
 const worldForm = $('world-new');
 function toggleWorldForm(open) {
-  worldForm.hidden = !open;
-  $('world-new-toggle').setAttribute('aria-expanded', open);
-  if (open) worldForm.elements.name.focus();
+  if (open) openDrawer('drawer-world', worldForm.elements.name);
+  else closeDrawer('drawer-world');
 }
-$('world-new-toggle').addEventListener('click', () => toggleWorldForm(worldForm.hidden));
+$('world-new-toggle').addEventListener('click', () => toggleWorldForm(true));
 $('world-new-cancel').addEventListener('click', () => toggleWorldForm(false));
 worldForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1579,9 +1953,9 @@ $('backup-now').addEventListener('click', async (e) => {
   });
 });
 
-function loadWorldsArea() {
-  loadWorlds();
+function loadBackupsArea() {
   loadOffsite().then(loadBackups);
+  if (!worldsLoaded) loadWorlds(); // restore needs the world names
 }
 
 // ---------------------------------------------------------------------------
@@ -1598,7 +1972,7 @@ function renderOffsiteState(o) {
   else if (st.error) setJob($('os-state'), 'failed', 'alert', `Last upload failed: ${st.error}`);
   else setJob($('os-state'), null);
   clearTimeout(offsiteTimer);
-  if ((st.running || st.queued) && document.body.dataset.area === 'worlds') offsiteTimer = setTimeout(() => loadOffsite(), 2000);
+  if ((st.running || st.queued) && document.body.dataset.area === 'backups') offsiteTimer = setTimeout(() => loadOffsite(), 2000);
   else if (offsiteView?.state?.running && !st.running) loadOffsiteList();
 }
 
@@ -1616,9 +1990,6 @@ async function loadOffsite() {
       f.pathStyle.checked = o.pathStyle;
     }
     $('os-edit').querySelector('span').textContent = o.configured ? 'Settings' : 'Set up';
-    $('os-setup-note').textContent = o.configured
-      ? `Uploading to ${o.bucket} at ${new URL(o.endpoint).host}${o.encrypted ? ', encrypted' : ''}. The copies are listed under Worlds.`
-      : 'Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO. The copies themselves are listed under Worlds.';
     $('os-info').textContent = o.configured
       ? `${o.bucket} at ${new URL(o.endpoint).host}${o.encrypted ? ', encrypted' : ''}. ${o.auto ? 'Every new backup is uploaded' : 'Uploads are manual'}; the newest ${o.keep || 'all'} of each world are kept.${o.last ? ` Last upload ${fmt.relative(o.last.at)}.` : ''}`
       : 'Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.';
@@ -1705,6 +2076,7 @@ $('os-form').addEventListener('submit', async (e) => {
       $('os-note').textContent = '';
       osDirty = false;
       toast('Offsite settings saved.');
+      closeDrawer('drawer-offsite');
       await loadOffsite();
       loadOffsiteList();
       loadBackups();
@@ -1724,7 +2096,9 @@ $('os-test').addEventListener('click', async (e) => {
     }
   });
 });
-tabLoaders.worlds = loadWorldsArea;
+viewLoaders['world/worlds'] = loadWorlds;
+tabLoaders.backups = loadBackupsArea;
+$('os-edit').addEventListener('click', () => openDrawer('drawer-offsite'));
 
 // ---------------------------------------------------------------------------
 // Server: power & maintenance
@@ -1737,9 +2111,9 @@ function renderPower(s) {
   box.dataset.state = state;
   $('power-label').textContent = p.available ? POWER_LABEL[p.active] || p.active : 'Not controllable';
   $('power-detail').textContent = !p.available
-    ? ` · ${p.error || `rconsole can't control ${p.unit || 'the server service'}. See the README (polkit rule).`}`
-    : p.active === 'active' && p.since ? ` · since ${fmt.date(p.since)} (${fmt.relative(p.since)})${p.pid ? ` · PID ${p.pid}` : ''}`
-      : p.active === 'failed' ? ` · ${p.result}` : '';
+    ? p.error || `rconsole can't control ${p.unit || 'the server service'}. See the README (polkit rule).`
+    : p.active === 'active' && p.since ? `Since ${fmt.date(p.since)} (${fmt.relative(p.since)})${p.pid ? ` · PID ${p.pid}` : ''}`
+      : p.active === 'failed' ? p.result : '';
   const busyNow = Boolean(p.pending) || s.op?.running || s.restart?.remaining != null;
   $('power-start').disabled = !p.available || p.active === 'active' || busyNow;
   $('power-stop').disabled = !p.available || p.active !== 'active' || busyNow;
@@ -1792,7 +2166,7 @@ tabLoaders.server = () => lastStatus && renderPower(lastStatus);
 
 function renderPending(items = []) {
   $('pending-bar').hidden = !items.length;
-  $('pending-list').textContent = items.length ? `${items.length} change${items.length === 1 ? '' : 's'} wait for the next start: ${items.join(', ')}.` : '';
+  $('pending-list').textContent = items.length ? `${items.length === 1 ? '1 change waits' : `${items.length} changes wait`} for the next start: ${items.join(', ')}.` : '';
   $('pending-restart').disabled = !serverRunning() || Boolean(lastStatus?.restart?.remaining != null);
 }
 $('pending-restart').addEventListener('click', async () => {
@@ -1952,11 +2326,10 @@ function pluginRow(p) {
             p.update ? el('span', { class: 'pill own' }, icon('updates'), `${p.update.version} available`) : null,
             p.error ? el('span', { class: 'pill bad' }, icon('alert'), p.error) : null,
             p.changed ? el('span', { class: 'pill bad', title: 'This jar is not the file rconsole downloaded and checked. Something on the server rewrote it, which is how plugin malware spreads. Remove it and reinstall from Modrinth.' }, icon('alert'), 'Changed since installed') : null),
-          el('span', { class: 'sub' }, meta || p.file),
+          el('span', { class: 'sub' }, meta || p.file, ' · ', p.modrinth
+            ? el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(p.modrinth.slug || p.modrinth.projectId)}`, target: '_blank', rel: 'noopener' }, 'Modrinth')
+            : el('span', { class: 'unverified', title: 'Modrinth doesn\'t know this exact file, so rconsole can\'t check where it came from. Only run jars from sources you trust.' }, 'not verified')),
           p.description ? el('span', { class: 'sub clamp' }, p.description) : null))),
-    el('td', { 'data-label': 'Source' }, p.modrinth
-      ? el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(p.modrinth.slug || p.modrinth.projectId)}`, target: '_blank', rel: 'noopener' }, 'Modrinth')
-      : el('span', { class: 'sub', title: 'Modrinth doesn\'t know this exact file, so rconsole can\'t check where it came from. Only run jars from sources you trust.' }, 'Not verified')),
     el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(p.size)),
     el('td', { class: 'act' },
       p.update ? pluginButton('Update', 'updates', (b) => updatePlugin(p, b), { primary: true }) : null,
@@ -1998,15 +2371,18 @@ async function loadPlugins(refresh) {
     pluginsLoaded = true;
     renderPending(o.pending);
     const updates = o.plugins.filter((p) => p.update).length;
+    // Jars that wait for a restart aren't loaded yet; say so instead of one number.
+    const waiting = (o.pending || []).filter((x) => /^install /.test(x)).length;
+    const count = `${o.plugins.length - waiting} installed${waiting ? `, ${waiting} after the next restart` : ''}`;
     $('plugins-info').textContent = o.remoteError
-      ? `${o.plugins.length} jar${o.plugins.length === 1 ? '' : 's'}. Can't reach Modrinth: ${o.remoteError}`
-      : `${o.plugins.length} jar${o.plugins.length === 1 ? '' : 's'} for Minecraft ${o.gameVersion || '?'}${updates ? `, ${updates} update${updates === 1 ? '' : 's'} available` : ''}. Changes apply on the next start.`;
+      ? `${count}. Can't reach Modrinth: ${o.remoteError}`
+      : `${count}, for Minecraft ${o.gameVersion || '?'}${updates ? `; ${updates} update${updates === 1 ? '' : 's'} available` : ''}. Changes apply on the next start.`;
     if (refresh) toast(o.remoteError ? `Couldn't check Modrinth: ${o.remoteError}` : updates ? `${updates} update${updates === 1 ? '' : 's'} available.` : 'All Modrinth plugins are up to date.', o.remoteError ? 'bad' : 'ok');
     $('plugin-list').replaceChildren(...(o.plugins.length
       ? o.plugins.map(pluginRow)
-      : [emptyRow(4, el('b', {}, 'No plugins yet. '), 'Search Modrinth below to add one; squaremap gives you a live web map.')]));
+      : [emptyRow(3, el('b', {}, 'No plugins yet. '), 'Search Modrinth below to add one; squaremap gives you a live web map.')]));
   } catch (e) {
-    $('plugin-list').replaceChildren(emptyRow(4, `Can't list plugins: ${e.message}`));
+    $('plugin-list').replaceChildren(emptyRow(3, `Can't list plugins: ${e.message}`));
   } finally {
     btn.removeAttribute('aria-busy');
   }
@@ -2038,7 +2414,7 @@ $('plugin-search').addEventListener('submit', async (e) => {
                     ? 'The newest release for this server is downloaded from Modrinth, checked, and loaded on the next start.'
                     : `${r.title} has no release for your Minecraft version yet; its newest release (made for up to ${r.newestGame || 'an older version'}) is installed. Plugins usually keep working on newer versions. Check the server log after the restart.`;
                   if (!(await confirmAction({ title: `Install ${r.title}?`, body, confirm: 'Install', icon: 'plugins' }))) return;
-                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id }, (x) => `Installed ${x.file}${x.exact === false ? ` (made for ${x.gameVersions.slice(-1)[0] || 'an older version'})` : ''}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
+                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id, title: r.title }, (x) => `Installed ${x.file}${x.exact === false ? ` (made for ${x.gameVersions.slice(-1)[0] || 'an older version'})` : ''}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
                 }, { primary: true }))))
         : [emptyRow(4, `Nothing on Modrinth matches “${q}” for this server software.`)]));
     } catch (err) {
@@ -2093,12 +2469,13 @@ async function loadTasks() {
                 if (await confirmAction({ title: `Delete “${t.name || TYPE[t.type].label}”?`, body: `${TYPE[t.type].label} at ${t.time}, ${describeDays(t.days).toLowerCase()}.`, confirm: 'Delete task', tone: 'danger', icon: 'delete' })) await taskAction('DELETE', t);
               }, true)));
         })
-      : [emptyRow(5, el('b', {}, 'No scheduled tasks. '), 'A nightly restart at 04:00 and a backup at 04:30 keep the server fresh and recoverable.')]));
+      : [emptyRow(5, el('b', {}, 'No scheduled tasks. '), 'A nightly restart at 04:00 and a backup at 04:30 keep the server fresh and recoverable. Press New task.')]));
   } catch (e) {
     $('task-list').replaceChildren(emptyRow(5, `Can't load tasks: ${e.message}`));
   }
 }
-tabLoaders.schedule = loadTasks;
+tabLoaders.automation = loadTasks;
+$('task-new').addEventListener('click', () => openDrawer('drawer-task', taskForm.elements.type));
 
 function taskButton(label, iconName, fn, danger) {
   const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}` }, icon(iconName), label);
@@ -2139,6 +2516,13 @@ function syncTaskForm() {
   taskForm.querySelectorAll('[data-for]').forEach((l) => (l.hidden = l.dataset.for !== type));
 }
 taskForm.elements.type.addEventListener('change', syncTaskForm);
+// "Every day" and single days exclude each other; no day picked means every day.
+taskForm.querySelector('.days').addEventListener('change', (e) => {
+  const all = taskForm.querySelector('.days input[value=all]');
+  const days = [...taskForm.querySelectorAll('.days input:not([value=all])')];
+  if (e.target === all) days.forEach((d) => (d.checked = false));
+  all.checked = !days.some((d) => d.checked);
+});
 
 taskForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -2147,7 +2531,7 @@ taskForm.addEventListener('submit', async (e) => {
     type: f.type.value,
     time: f.time.value,
     name: f.name.value,
-    days: [...taskForm.querySelectorAll('.days input:checked')].map((i) => Number(i.value)),
+    days: [...taskForm.querySelectorAll('.days input:checked')].filter((i) => i.value !== 'all').map((i) => Number(i.value)),
     warnMinutes: Number(f.warnMinutes.value),
     command: f.command.value,
   };
@@ -2157,6 +2541,7 @@ taskForm.addEventListener('submit', async (e) => {
       $('task-error').textContent = '';
       f.name.value = '';
       f.command.value = '';
+      closeDrawer('drawer-task');
       toast(`${TYPE[body.type].label} scheduled at ${body.time}, ${describeDays(body.days).toLowerCase()}.`);
       await loadTasks();
     } catch (err) {
@@ -2169,6 +2554,7 @@ taskForm.addEventListener('submit', async (e) => {
 // Updates
 // ---------------------------------------------------------------------------
 
+const updRollback = document.getElementById('upd-rollback'); // moves between the options and the last update's note
 let updateWasRunning = false;
 let updateBusy = false;
 let updatesLoaded = false;
@@ -2180,8 +2566,12 @@ function renderUpdateState(st) {
   else if (st.error) setJob($('upd-status'), 'failed', 'alert', `Update to ${st.target} failed: ${st.error}`);
   else if (st.finishedAt) setJob($('upd-status'), 'done', 'check', `Updated to ${st.target} ${fmt.relative(st.finishedAt)}.`);
   else setJob($('upd-status'), null);
+  // Roll back sits next to the update it undoes.
+  const rb = updRollback;
+  if (st.finishedAt && !st.error && !st.running) $('upd-status').append(rb);
+  else if (rb.parentElement !== document.querySelector('.update-options')) document.querySelector('.update-options').append(rb);
   document.querySelectorAll('[data-update]').forEach((b) => (b.disabled = st.running));
-  $('upd-rollback').disabled = st.running;
+  updRollback.disabled = st.running;
   if (updateWasRunning && !st.running) {
     loadUpdates();
     if (st.error) toast(`Update failed: ${st.error}`, 'bad');
@@ -2222,7 +2612,7 @@ async function loadUpdates(refresh) {
     if (!o.supported) {
       $('upd-channel').hidden = true;
       $('upd-source').textContent = `rconsole updates Paper and Folia automatically. Update ${name} by hand (new server jar or loader), then restart here.`;
-      $('upd-rollback').hidden = !o.canRollback;
+      updRollback.hidden = !o.canRollback;
       renderUpdateState(o.state);
       return;
     }
@@ -2231,7 +2621,7 @@ async function loadUpdates(refresh) {
     $('upd-channel').hidden = !o.current;
     $('upd-channel').className = `pill ${latest ? 'ok' : 'own'}`;
     $('upd-channel').replaceChildren(icon(latest ? 'check' : 'updates'), latest ? 'Latest build' : `${o.newerBuilds.length} update${o.newerBuilds.length === 1 ? '' : 's'} available`);
-    $('upd-rollback').hidden = !o.canRollback;
+    updRollback.hidden = !o.canRollback;
     renderUpdateState(o.state);
 
     $('upd-builds').replaceChildren(...(o.newerBuilds.length
@@ -2351,7 +2741,7 @@ function renderSelfSummary(self) {
   $('rail-update').hidden = !self.available && !self.running;
   document.querySelector('.nav [data-tab=server]').classList.toggle('has-update', Boolean(self.available));
   $('rail-update-text').textContent = self.running ? 'Updating rconsole…' : `${self.available} update${self.available === 1 ? '' : 's'} for rconsole`;
-  if (selfWasRunning && !self.running && document.body.dataset.area === 'server') loadSelfUpdate();
+  if (selfWasRunning && !self.running && document.body.dataset.area === 'settings') loadSelfUpdate();
   selfWasRunning = self.running;
 }
 
@@ -2453,7 +2843,7 @@ async function upgradeVersion(version, btn) {
 }
 
 $('upd-check').addEventListener('click', () => checkAll(true));
-$('upd-rollback').addEventListener('click', () => startUpdate({ rollback: true }, { title: 'Roll back to the previous jar?', body: 'Swaps the server jar back to the one before the last update.', confirm: 'Roll back', tone: 'primary', icon: 'rollback' }));
+updRollback.addEventListener('click', () => startUpdate({ rollback: true }, { title: 'Roll back to the previous jar?', body: 'Swaps the server jar back to the one before the last update.', confirm: 'Roll back', tone: 'primary', icon: 'rollback' }));
 
 // ---------------------------------------------------------------------------
 // Charts (inline SVG, drawn at the container's real width)
@@ -2469,7 +2859,8 @@ function svgEl(tag, attrs = {}, ...children) {
 function niceMax(v) {
   if (!(v > 0)) return 1;
   const p = 10 ** Math.floor(Math.log10(v));
-  return [1, 2, 2.5, 5, 10].map((m) => m * p).find((m) => m >= v);
+  // Divisible by the four grid steps into round labels (1.5h, not 1.3h).
+  return [1, 2, 4, 6, 8, 10].map((m) => m * p).find((m) => m >= v);
 }
 
 const timeLabel = (ms, span) => new Date(ms).toLocaleString(undefined, span > 2 * 86400000 ? { weekday: 'short', day: 'numeric' } : { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -2706,6 +3097,15 @@ function highlight(text, needle) {
   return out;
 }
 
+// Arriving at Logs shows the latest warnings and errors right away.
+viewLoaders['insights/logs'] = () => {
+  if (!$('ls-results').hidden) return;
+  const f = $('ls-form').elements;
+  if (f.q.value || f.player.value || f.level.value) return;
+  f.level.value = 'WARN';
+  searchLogsUi();
+};
+
 async function searchLogsUi() {
   const f = $('ls-form').elements;
   const params = new URLSearchParams();
@@ -2781,19 +3181,51 @@ function diffLines(a, b) {
   return out;
 }
 
+// Per-player data folders (Essentials userdata/, …) are many files nobody
+// edits by hand: folded into one line unless the filter looks for them.
+const BULK_DIR = /\/(userdata|playerdata|players|data)\/[^/]+$/;
+const cfgOpenBulk = new Set();
 function renderCfgList() {
   const q = $('cfg-filter').value.trim().toLowerCase();
   const items = [];
+  const fileItem = (f, short) => el('li', {}, el('button', { class: `cfg-file${cfgOpen?.path === f.path ? ' on' : ''}`, type: 'button', title: f.path, onclick: () => openConfig(f.path) }, short));
   for (const g of cfgFiles) {
     const files = g.files.filter((f) => !q || f.path.toLowerCase().includes(q));
     if (!files.length) continue;
     items.push(el('li', { class: 'cfg-group' }, g.name === '(root)' ? 'Top level' : g.name));
+    const bulk = new Map();
     for (const f of files) {
       const short = f.path.split('/').slice(g.name === '(root)' ? 1 : 2).join('/');
-      items.push(el('li', {}, el('button', { class: `cfg-file${cfgOpen?.path === f.path ? ' on' : ''}`, type: 'button', title: f.path, onclick: () => openConfig(f.path) }, short)));
+      const dir = !q && BULK_DIR.test(f.path) ? f.path.replace(/\/[^/]+$/, '') : null;
+      if (dir) {
+        if (!bulk.has(dir)) bulk.set(dir, []);
+        bulk.get(dir).push([f, short]);
+      } else items.push(fileItem(f, short));
+    }
+    for (const [dir, list] of bulk) {
+      const open = cfgOpenBulk.has(dir);
+      items.push(el('li', {}, el('button', { class: 'cfg-file cfg-bulk', type: 'button', 'aria-expanded': String(open), onclick: () => { open ? cfgOpenBulk.delete(dir) : cfgOpenBulk.add(dir); renderCfgList(); } },
+        `${dir.split('/').pop()}/ `, el('span', { class: 'sub' }, `${list.length} file${list.length === 1 ? '' : 's'}`))));
+      if (open) items.push(...list.map(([f, short]) => fileItem(f, short)));
     }
   }
   $('cfg-list').replaceChildren(...(items.length ? items : [el('li', { class: 'cfg-empty' }, q ? 'No file matches.' : 'No config files yet. Plugins create theirs on first start.')]));
+  renderCfgStart();
+}
+
+// Before a file is open: each plugin's main config, one click away.
+function renderCfgStart() {
+  let box = $('cfg-start');
+  if (!box) {
+    box = el('div', { class: 'cfg-start', id: 'cfg-start' });
+    $('cfg-code').before(box);
+  }
+  box.hidden = Boolean(cfgOpen);
+  if (cfgOpen) return;
+  const main = cfgFiles.map((g) => g.files.find((f) => /\/config\.ya?ml$|\/core\.conf$|\/configuration\.txt$/.test(f.path)) || null).filter(Boolean).slice(0, 8);
+  box.replaceChildren(
+    el('p', { class: 'note' }, main.length ? 'Pick a file on the left, or start with a plugin’s main settings:' : 'Pick a file on the left.'),
+    el('div', { class: 'cfg-quick' }, ...main.map((f) => el('button', { class: 'btn btn-sm', type: 'button', onclick: () => openConfig(f.path) }, icon('settings'), f.path.replace(/^plugins\//, '')))));
 }
 
 async function loadConfigs() {
@@ -2913,7 +3345,7 @@ $('cfg-revert').addEventListener('click', async (e) => {
 window.addEventListener('beforeunload', (e) => {
   if (cfgDirty()) e.preventDefault();
 });
-viewLoaders['server/configs'] = loadConfigs;
+viewLoaders['server/files'] = loadConfigs;
 
 // ---------------------------------------------------------------------------
 // Player profile
@@ -3061,6 +3493,7 @@ function renderPlayer(p) {
         act('Clear inventory', `clear ${p.name}`, { icon: 'delete', danger: true, confirm: { title: `Clear ${p.name}'s inventory?`, body: 'Everything they carry is gone. This can\'t be undone.', confirm: 'Clear', tone: 'danger', icon: 'delete' } }))));
   }
 
+  parts.push(accessBar(p));
   const inv = L || p.saved;
   Object.assign(psView.data, { inv, savedAt: L ? L.inventoryFrom : p.saved?.savedAt, stats: p.stats, advancements: p.advancements });
   const panels = [...(inv ? [['inventory', 'Inventory']] : []), ...(p.stats ? [['stats', 'Statistics']] : [])];
@@ -3076,6 +3509,33 @@ function renderPlayer(p) {
     showPanel();
   } else parts.push(el('p', { class: 'note ps-empty' }, `${p.name} is offline and has no saved data in this world yet.`));
   $('ps-body').replaceChildren(...parts);
+}
+
+// Whitelist, operator and ban for anyone, online or not, and what the logs
+// know about them: first and last visit, sessions, last address.
+function accessBar(p) {
+  const k = lc(p.name);
+  const a = accessCache || { whitelist: [], ops: [], bans: [] };
+  const wl = a.whitelist.some((x) => lc(x.name) === k);
+  const op = a.ops.find((x) => lc(x.name) === k);
+  const ban = a.bans.find((x) => lc(x.name) === k);
+  const h = historyData?.players.find((x) => lc(x.name) === k);
+  const refresh = () => setTimeout(() => openPlayer(p.name, p.uuid), 400);
+  const act = (label, iconName, cmd, confirm, danger) => rowActionBtn(label, iconName, cmd, confirm, danger, refresh);
+  const fact = (dt, dd) => (dd ? el('div', { class: 'ps-tile' }, el('dt', {}, dt), el('dd', {}, dd)) : null);
+  return el('div', { class: 'ps-access' },
+    h ? el('dl', { class: 'ps-strip ps-strip-4' },
+      fact('First seen', fmt.relative(new Date(h.first).toISOString())),
+      fact('Last seen', h.online ? 'Now' : fmt.relative(new Date(h.last).toISOString())),
+      fact('Sessions', String(h.sessions)),
+      fact('Playtime', dur(h.playtime))) : null,
+    el('div', { class: 'ps-acts', 'data-min-role': 'moderator' },
+      wl ? act('Remove from whitelist', 'remove', `whitelist remove ${p.name}`, null, true) : act('Whitelist', 'add', `whitelist add ${p.name}`),
+      op ? act('Remove operator', 'op', `deop ${p.name}`, { title: `Remove operator rights from ${p.name}?`, confirm: 'Deop', tone: 'danger', icon: 'op' }, true) : act('Make operator', 'op', `op ${p.name}`, CONFIRM_ADD.op(p.name)),
+      ban ? act('Unban', 'check', `pardon ${p.name}`) : act('Ban', 'ban', `ban ${p.name}`, CONFIRM_ADD.ban(p.name), true),
+      el('button', { class: 'btn btn-quiet btn-sm', onclick: () => { $('player-sheet').close(); searchPlayerLogs(p.name); } }, icon('search'), 'Search logs'),
+      h?.ip && atLeast('moderator') ? el('span', { class: 'note mono', title: 'Last address' }, h.ip) : null),
+    ban ? el('p', { class: 'note' }, `Banned${banMeta(ban) ? `: ${banMeta(ban)}` : ''}.`) : null);
 }
 
 // A live update: vitals every few seconds, the whole profile now and then.
@@ -3145,7 +3605,11 @@ async function openPlayer(name, uuid) {
     $('ps-body').focus({ preventScroll: true }); // not the first header button: no focus ring on open
   }
   try {
-    renderPlayer(await api('GET', `/api/players/${encodeURIComponent(name)}/profile${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`));
+    const [profile] = await Promise.all([
+      api('GET', `/api/players/${encodeURIComponent(name)}/profile${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`),
+      accessCache ? null : api('GET', '/api/access').then((a) => (accessCache = a)).catch(() => {}),
+    ]);
+    renderPlayer(profile);
   } catch (e) {
     $('ps-body').replaceChildren(el('p', { class: 'note ps-empty' }, `Can't load ${name}: ${e.message}`));
   }
@@ -3207,22 +3671,28 @@ function chatRow(e) {
       : null);
 }
 
+const chatMatches = (e) => {
+  const q = $('filter').value.trim().toLowerCase();
+  return !q || `${e.name} ${e.text}`.toLowerCase().includes(q);
+};
+
 function renderChat() {
   const list = $('chat-list');
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
-  list.replaceChildren(...(chatEvents.length
-    ? chatEvents.map(chatRow)
-    : [el('li', { class: 'chat-empty' }, 'No chat yet. Messages, joins and leaves appear here as they happen.')]));
-  $('chat-count').textContent = chatEvents.filter((e) => e.kind === 'chat').length || '';
+  const shown = chatEvents.filter(chatMatches);
+  list.replaceChildren(...(shown.length
+    ? shown.map(chatRow)
+    : [el('li', { class: 'chat-empty' }, chatEvents.length ? 'Nothing in the chat matches the filter.' : 'No chat yet. Messages, joins and leaves appear here as they happen.')]));
   if (atBottom || !renderChat.done) list.scrollTop = list.scrollHeight;
   renderChat.done = true;
 }
 
-const chatVisible = () => document.body.dataset.area === 'players' && currentView('players') === 'chat';
+const chatVisible = () => document.body.dataset.area === 'console' && view === 'chat';
 
 function resetChat(lines) {
   chatEvents = lines.map(parseChat).filter(Boolean).slice(-CHAT_MAX);
   if (chatVisible()) renderChat();
+  if (document.body.dataset.area === 'dashboard') renderJoins();
 }
 
 function pushChat(line) {
@@ -3234,7 +3704,7 @@ function pushChat(line) {
   }
   chatEvents.push(e);
   if (chatEvents.length > CHAT_MAX) chatEvents.shift();
-  if (!chatVisible()) return;
+  if (!chatVisible() || !chatMatches(e)) return;
   const list = $('chat-list');
   list.querySelector('.chat-empty')?.remove();
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
@@ -3253,6 +3723,7 @@ function fillChatTargets() {
 
 function whisperTo(name) {
   if (!atLeast('moderator')) return;
+  if (!chatVisible()) showTab('console/chat');
   fillChatTargets();
   const f = $('chat-form').elements;
   if (![...f.to.options].some((o) => o.value === name)) f.to.append(el('option', { value: name }, `Whisper to ${name}`));
@@ -3284,11 +3755,7 @@ $('chat-form').addEventListener('submit', async (e) => {
   });
 });
 
-viewLoaders['players/chat'] = () => {
-  fillChatTargets();
-  renderChat.done = false;
-  renderChat();
-};
+
 
 // ---------------------------------------------------------------------------
 // Insights: problems
@@ -3296,10 +3763,40 @@ viewLoaders['players/chat'] = () => {
 
 let problemDays = 1;
 
+// The bell in the top bar: how many new errors and worse, red when critical.
 function renderProblemsBadge(p) {
-  document.querySelector('.nav [data-tab=insights]').classList.toggle('has-alert', Boolean(p?.unseen));
-  $('nav-more').classList.toggle('has-alert', Boolean(p?.unseen)); // Insights sits under "More" on phones
+  const n = p?.unseen || 0;
+  $('bell-count').hidden = !n;
+  $('bell-count').textContent = n > 9 ? '9+' : String(n);
+  $('bell').classList.toggle('critical', Boolean(p?.critical));
+  $('bell').setAttribute('aria-label', n ? `Problems, ${n} new` : 'Problems');
+  lastProblems = p;
 }
+let lastProblems = null;
+
+function openProblems() {
+  openDrawer('drawer-problems', $('pr-range').querySelector('[aria-checked=true]'));
+  loadProblems();
+}
+$('bell').addEventListener('click', openProblems);
+
+async function muteProblem(x, btn) {
+  if (!(await confirmAction({ title: 'Mute this kind of problem?', body: `${problemTitle(x)}\nIt leaves this list, the bell and notifications until you unmute it.`, confirm: 'Mute', icon: 'mute' }))) return;
+  await busy(btn, async () => {
+    try {
+      await api('POST', '/api/problems/mute', { key: x.key });
+      toast('Muted.');
+      loadProblems();
+      refreshStatus(true);
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+// "Error" says nothing; the log line itself is the better title.
+const problemTitle = (x) => (x.kind === 'lag' && x.maxBehindMs ? `${x.title} (up to ${(x.maxBehindMs / 1000).toFixed(1)} s behind)`
+  : x.kind === 'error' && x.message ? x.message.replace(/^\[[A-Za-z0-9_.-]{2,40}\] /, '').slice(0, 140) : x.title);
 
 function searchLogsFor(text) {
   const f = $('ls-form').elements;
@@ -3319,27 +3816,34 @@ async function loadProblems() {
       ? `${g.length} kind${g.length === 1 ? '' : 's'} of problem${g.length === 1 ? '' : 's'} in the last ${problemDays === 1 ? '24 hours' : '7 days'}${unseen ? `, ${unseen} new` : ''}.${o.timedOut ? ' Older logs were skipped (time limit).' : ''}`
       : 'Crashes, plugin failures and errors from the server log, and memory or RCON trouble on this machine.';
     $('pr-seen').disabled = !g.some((x) => x.unseen);
+    $('pr-muted').hidden = !o.muted;
+    $('pr-muted').replaceChildren(`${o.muted} muted kind${o.muted === 1 ? '' : 's'} hidden. `,
+      atLeast('admin') ? el('button', { class: 'btn btn-quiet btn-sm', onclick: (e) => busy(e.currentTarget, () => api('POST', '/api/problems/mute', { all: true }).then(loadProblems)) }, 'Unmute all') : '');
+    const titled = (x) => problemTitle(x) !== x.title;
     $('pr-list').replaceChildren(...(g.length ? g.map((x) => el('li', { class: `problem ${x.severity}${x.unseen ? ' unseen' : ''}` },
-      el('span', { class: 'problem-icon' }, icon(x.severity === 'warning' ? 'schedule' : 'alert')),
+      el('span', { class: 'problem-icon' }, icon('alert')),
       el('div', { class: 'problem-main' },
         el('div', { class: 'problem-title' },
-          el('b', {}, x.kind === 'lag' && x.maxBehindMs ? `${x.title} (up to ${(x.maxBehindMs / 1000).toFixed(1)} s behind)` : x.title),
+          el('b', {}, problemTitle(x)),
           x.plugin ? el('span', { class: 'pill' }, x.plugin) : null,
-          x.unseen && x.severity !== 'warning' ? el('span', { class: 'pill bad' }, 'New') : null),
+          x.unseen && x.severity !== 'warning' ? el('span', { class: 'pill new' }, 'New') : null),
         // Machine conditions are sentences, not log lines, and hold right now.
-        x.message ? el(x.kind === 'host' ? 'p' : 'code', { class: x.kind === 'host' ? 'problem-text' : 'problem-msg' }, x.message) : null,
+        x.message && !titled(x) ? el(x.kind === 'host' ? 'p' : 'code', { class: x.kind === 'host' ? 'problem-text' : 'problem-msg' }, x.message) : null,
         x.detail ? el('code', { class: 'problem-detail' }, x.detail) : null,
-        el('span', { class: 'problem-meta' }, x.kind === 'host' ? 'Now, on this machine' : `${x.count}× · last ${fmt.relative(new Date(x.last).toISOString())}${x.count > 1 ? ` · first ${fmt.relative(new Date(x.first).toISOString())}` : ''}`)),
-      (x.message && x.kind !== 'host') || x.kind === 'lag'
-        ? el('button', { class: 'btn btn-sm', onclick: () => searchLogsFor(x.kind === 'lag' ? "Can't keep up" : x.message) }, icon('search'), 'Show in logs')
-        : null))
+        x.hint ? el('p', { class: 'problem-hint' }, icon('check'), x.hint) : null,
+        el('span', { class: 'problem-meta' }, x.kind === 'host' ? 'Now, on this machine' : `${x.count}× · last ${fmt.relative(new Date(x.last).toISOString())}${x.count > 1 ? ` · first ${fmt.relative(new Date(x.first).toISOString())}` : ''}`),
+        el('div', { class: 'problem-acts' },
+          (x.message && x.kind !== 'host') || x.kind === 'lag'
+            ? el('button', { class: 'btn btn-quiet btn-sm', onclick: () => { closeDrawer('drawer-problems'); searchLogsFor(x.kind === 'lag' ? "Can't keep up" : x.message); } }, icon('search'), 'Show in logs')
+            : null,
+          x.kind !== 'host' && atLeast('admin') ? el('button', { class: 'btn btn-quiet btn-sm', onclick: (e) => muteProblem(x, e.currentTarget) }, icon('mute'), 'Mute') : null))))
       : [el('li', { class: 'problems-empty' }, el('span', { class: 'problem-icon ok' }, icon('check')), el('div', {}, el('b', {}, 'No problems found. '), `Nothing went wrong in the last ${problemDays === 1 ? '24 hours' : '7 days'}.`))]));
     if (problemDays === 1) renderProblemsBadge({ unseen });
   } catch (e) {
     $('pr-list').replaceChildren(el('li', { class: 'problems-empty' }, `Can't read the logs: ${e.message}`));
   }
 }
-viewLoaders['insights/problems'] = loadProblems;
+
 
 // ---------------------------------------------------------------------------
 // Insights: spark profiler
@@ -3358,7 +3862,7 @@ async function loadSpark() {
       $('spark-info').textContent = 'Install spark, the standard Minecraft profiler, to see which plugin, mod or chunk causes lag. It is free and runs on Paper, Fabric and Forge.';
       actions.replaceChildren(el('button', { class: 'btn btn-primary btn-sm', onclick: (e) => busy(e.currentTarget, async () => {
         try {
-          await api('POST', '/api/plugins', { projectId: 'spark' });
+          await api('POST', '/api/plugins', { projectId: 'spark', title: 'spark' });
           toast('spark installed. It loads at the next restart.');
           loadSpark();
         } catch (err) {
@@ -3439,8 +3943,8 @@ async function loadAudit() {
     fillSelect(f.action, r.actions, 'All actions');
     $('au-list').replaceChildren(...(r.entries.length
       ? r.entries.map((e) => el('tr', { class: e.ok ? null : 'failed' },
-          el('td', { 'data-label': 'When' }, fmt.date(e.at), el('span', { class: 'sub' }, fmt.relative(e.at))),
-          el('td', { class: 'primary-cell', 'data-label': 'User' }, e.user || '–', e.ip ? el('span', { class: 'sub mono' }, e.ip) : null),
+          el('td', { 'data-label': 'When', class: 'nowrap', title: fmt.relative(e.at) }, fmt.date(e.at)),
+          el('td', { class: 'primary-cell', 'data-label': 'User', title: e.ip || '' }, e.user || '–', e.ip ? el('span', { class: 'inline-sub mono' }, e.ip) : null),
           el('td', { 'data-label': 'Action' }, el('span', { class: `pill ${e.ok ? '' : 'bad'}` }, e.ok ? null : icon('alert'), e.action)),
           el('td', { 'data-label': 'Details' },
             e.target ? el('span', { class: 'mono-cell' }, e.target) : null,
@@ -3450,7 +3954,7 @@ async function loadAudit() {
     $('au-list').replaceChildren(emptyRow(4, `Can't read the audit log: ${e.message}`));
   }
 }
-viewLoaders['insights/audit'] = loadAudit;
+viewLoaders['insights/activity'] = loadAudit;
 $('au-form').addEventListener('change', loadAudit);
 $('au-form').addEventListener('input', (e) => {
   if (e.target.name !== 'q') return;
@@ -3463,45 +3967,7 @@ $('au-form').addEventListener('submit', (e) => e.preventDefault());
 // Players: history
 // ---------------------------------------------------------------------------
 
-let historyPlayers = [];
 const dur = (ms) => fmt.duration(Math.round(ms / 1000));
-
-function sessionList(p) {
-  return el('ol', { class: 'sessions' }, ...[...p.recent].reverse().map((s) => el('li', {},
-    el('span', {}, fmt.date(s.start)),
-    el('span', { class: 'note' }, s.end ? `${dur(s.end - s.start)}` : 'online now'))));
-}
-
-function historyRow(p) {
-  const detail = el('tr', { class: 'detail', hidden: true }, el('td', { colspan: 6 },
-    el('div', { class: 'player-detail' },
-      el('div', {}, el('h3', {}, 'Recent sessions'), sessionList(p)),
-      el('div', { class: 'stack' },
-        el('dl', { class: 'facts' },
-          p.uuid ? el('div', {}, el('dt', {}, 'UUID'), el('dd', { class: 'mono' }, p.uuid)) : null,
-          p.ip ? el('div', {}, el('dt', {}, 'Last IP'), el('dd', { class: 'mono' }, p.ip)) : null),
-        el('div', { class: 'row wrap' },
-          el('button', { class: 'btn btn-sm', onclick: () => openPlayer(p.name, p.uuid) }, icon('players'), 'Profile'),
-          rowActionBtn('Whitelist', 'add', `whitelist add ${p.name}`),
-          rowActionBtn('Make op', 'op', `op ${p.name}`, CONFIRM_ADD.op(p.name)),
-          p.online ? rowActionBtn('Kick', 'remove', `kick ${p.name}`, { title: `Kick ${p.name}?`, confirm: 'Kick', tone: 'danger', icon: 'remove' }) : null,
-          rowActionBtn('Ban', 'ban', `ban ${p.name}`, CONFIRM_ADD.ban(p.name), true),
-          el('button', { class: 'btn btn-quiet btn-sm', onclick: () => searchPlayerLogs(p.name) }, icon('search'), 'Search logs'))))));
-  const toggle = el('button', { class: 'btn btn-quiet btn-sm', 'aria-expanded': 'false' }, icon('history'), 'Details');
-  toggle.addEventListener('click', () => {
-    detail.hidden = !detail.hidden;
-    toggle.setAttribute('aria-expanded', !detail.hidden);
-  });
-  const row = el('tr', { 'data-name': p.name.toLowerCase() },
-    el('td', { class: 'primary-cell', 'data-label': 'Player' }, el('div', { class: 'plugin' }, avatar(p.uuid || p.name),
-      el('div', {}, p.name, p.online ? el('span', { class: 'pill own' }, 'Online') : null))),
-    el('td', { 'data-label': 'Last seen' }, p.online ? 'Now' : [fmt.relative(new Date(p.last).toISOString()), el('span', { class: 'sub' }, fmt.date(new Date(p.last).toISOString()))]),
-    el('td', { 'data-label': 'First seen' }, fmt.date(new Date(p.first).toISOString())),
-    el('td', { class: 'num', 'data-label': 'Sessions' }, String(p.sessions)),
-    el('td', { class: 'num', 'data-label': 'Playtime' }, dur(p.playtime)),
-    el('td', { class: 'act' }, toggle));
-  return [row, detail];
-}
 
 function rowActionBtn(label, iconName, command, confirmOpts, danger, after) {
   const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}`, 'data-min-role': roleForCommand(command) }, icon(iconName), label);
@@ -3513,43 +3979,7 @@ function rowActionBtn(label, iconName, command, confirmOpts, danger, after) {
   return btn;
 }
 
-function renderHistoryRows() {
-  const q = $('ph-filter').value.trim().toLowerCase();
-  const shown = historyPlayers.filter((p) => !q || p.name.toLowerCase().includes(q));
-  $('ph-list').replaceChildren(...(shown.length
-    ? shown.flatMap(historyRow)
-    : [emptyRow(6, historyPlayers.length ? `Nobody called “${q}” has played here.` : 'No player activity in the logs yet.')]));
-}
 
-async function loadPlayerHistory() {
-  if (!historyPlayers.length) skeletonRows($('ph-list'), 6);
-  try {
-    const h = await api('GET', '/api/players/history');
-    historyPlayers = h.players;
-    const now = Date.now();
-    const week = h.players.filter((p) => now - p.last < 7 * 86400000).length;
-    const total30 = h.daily.reduce((n, d) => n + d.playtime, 0);
-    statList('ph-kpis', [
-      ['Players seen', String(h.players.length)],
-      ['Online now', String(h.players.filter((p) => p.online).length)],
-      ['Active this week', String(week)],
-      ['Played, 30 days', dur(total30)],
-    ]);
-    $('ph-info').textContent = `From ${h.files} log file${h.files === 1 ? '' : 's'}. Old logs are remembered even after they are deleted.`;
-    const days = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now - i * 86400000);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const found = h.daily.find((x) => x.day === key);
-      days.push({ value: (found?.playtime || 0) / 3600000, players: found?.players || 0, label: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), title: d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) });
-    }
-    barChart($('ph-daily'), days, { label: 'Hours played per day', fmt: (v) => `${+v.toFixed(1)}h`, detail: (b) => [`${b.value.toFixed(1)} hours played`, `${b.players} player${b.players === 1 ? '' : 's'}`] });
-    renderHistoryRows();
-  } catch (e) {
-    $('ph-list').replaceChildren(emptyRow(6, `Can't read player history: ${e.message}`));
-  }
-}
-viewLoaders['players/history'] = loadPlayerHistory;
 
 // ---------------------------------------------------------------------------
 // Players: security (unknown connection attempts, advice)
@@ -3644,9 +4074,37 @@ async function loadSecurity({ quiet = false } = {}) {
     $('sec-list').replaceChildren(emptyRow(6, `Can't read connection attempts: ${e.message}`));
   }
 }
-viewLoaders['players/security'] = loadSecurity;
+viewLoaders['players/addresses'] = loadSecurity;
 
-$('ph-filter').addEventListener('input', renderHistoryRows);
+$('ph-filter').addEventListener('input', renderPeople);
+$('pp-filter').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-f]');
+  if (!b) return;
+  peopleFilter = b.dataset.f;
+  for (const x of $('pp-filter').children) x.setAttribute('aria-checked', String(x === b));
+  renderPeople();
+});
+// One field, three outcomes: whitelist, make operator, ban (with a reason).
+$('pp-add').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('pp-add').elements.name;
+  const name = input.value.trim();
+  const act = e.submitter?.value || 'whitelist';
+  if (!PLAYER_RE.test(name)) {
+    input.setAttribute('aria-invalid', 'true');
+    input.focus();
+    return toast('Player names are 1–16 letters, digits or underscores.', 'bad');
+  }
+  let command = act === 'op' ? `op ${name}` : act === 'ban' ? `ban ${name}` : `whitelist add ${name}`;
+  if (act === 'ban') {
+    const reason = el('input', { class: 'field', maxlength: 120, placeholder: 'Optional', 'aria-label': 'Reason' });
+    if (!(await confirmAction({ ...CONFIRM_ADD.ban(name), content: fld('Reason', reason) }))) return;
+    if (reason.value.trim()) command += ` ${reason.value.trim()}`;
+  } else if (act === 'op' && !(await confirmAction(CONFIRM_ADD.op(name)))) return;
+  input.value = '';
+  busy(e.submitter || $('pp-add').querySelector('.btn-primary'), () => mutate(command));
+});
+$('pp-add').elements.name.addEventListener('input', (e) => e.target.removeAttribute('aria-invalid'));
 
 // ---------------------------------------------------------------------------
 
@@ -3668,7 +4126,7 @@ function paletteActions() {
     const area = section.id.slice(4);
     const subs = [...section.querySelectorAll('.subnav [role=tab]')];
     const a = AREAS[area];
-    if (!a) return [];
+    if (!a || (a.hidden && area !== 'servers')) return [];
     return subs.length
       ? subs.filter((t) => !t.dataset.minRole || atLeast(t.dataset.minRole)).map((t) => ({ group: 'Go to', icon: a.icon, label: `${a.name} → ${t.textContent.trim()}`, keys: `${area} ${t.dataset.view}`, run: () => showTab(`${area}/${t.dataset.view}`) }))
       : [{ group: 'Go to', icon: a.icon, label: a.name, keys: area, run: () => showTab(area) }];
@@ -3682,18 +4140,20 @@ function paletteActions() {
   act('Stop the server…', 'stop', 'shutdown stop power off', () => { showTab('server/overview'); power('stop'); }, () => p.available && p.active === 'active');
   act('Start the server', 'play', 'start power on boot', () => { showTab('server/overview'); power('start'); }, () => p.available && p.active !== 'active');
   act(lastStatus?.maintenance?.enabled ? 'Turn off maintenance mode' : 'Turn on maintenance mode…', 'maintenance', 'maintenance lock whitelist', () => { showTab('server/overview'); $('maint-toggle').click(); });
-  act('Back up the active world', 'backups', 'backup save snapshot', () => { showTab('worlds'); $('backup-now').click(); });
-  act('Create a new world…', 'worlds', 'new world create generate', () => { showTab('worlds'); toggleWorldForm(true); });
+  act('Back up the active world', 'backups', 'backup save snapshot', () => { showTab('backups'); $('backup-now').click(); });
+  act('Create a new world…', 'worlds', 'new world create generate', () => { showTab('world/worlds'); toggleWorldForm(true); });
+  act('Install a new server…', 'server', 'new server install paper fabric velocity create', () => { showTab('servers'); toggleServerForm(true); });
+  act('Whitelist a player…', 'add', 'whitelist add player allow', () => { showTab('players/people'); $('pp-add').elements.name.focus(); });
   act('Check for updates', 'updates', 'update upgrade version paper rconsole plugins mods self', () => { showTab('server/updates'); checkAll(true); });
-  act('Edit a plugin config…', 'settings', 'config yml yaml edit plugin mod settings file', () => showTab('server/configs'));
+  act('Edit a plugin config…', 'settings', 'config yml yaml edit plugin mod settings file', () => showTab('server/files'));
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
   act('Profile the server with spark', 'insights', 'spark profiler lag tps cause', () => showTab('insights/metrics'));
-  act('Chat with players', 'send', 'chat message say whisper tell talk', () => showTab('players/chat'));
-  act('Show problems and errors', 'alert', 'problems errors crash exception plugin failed', () => showTab('insights/problems'));
-  act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist', () => showTab('players/security'));
+  act('Chat with players', 'send', 'chat message say whisper tell talk', () => showTab('console/chat'));
+  act('Show problems and errors', 'alert', 'problems errors crash exception plugin failed bell', openProblems);
+  act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist addresses', () => showTab('players/addresses'));
   act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });
-  act('Add a scheduled task…', 'schedule', 'cron schedule task timer', () => { showTab('schedule'); });
+  act('Add a scheduled task…', 'schedule', 'cron schedule task timer automation', () => { showTab('automation'); openDrawer('drawer-task', taskForm.elements.type); });
   act('Refresh the command list from the server', 'refresh', 'commands autocomplete reload plugins', () => loadServerCommands(true).then(() => toast(`${serverCommands?.length || 0} commands from the server.`)));
   act('Sign out', 'signout', 'logout sign out', signOut);
   for (const c of commandCatalog().values()) {
@@ -3821,9 +4281,9 @@ async function loadNotify() {
     f.token.value = '';
     f.token.placeholder = n.hasToken ? 'Saved; leave empty to keep' : 'tk_… (only for protected topics)';
     f.token.disabled = n.fromEnv;
-    f.publicUrl.value = n.publicUrl || '';
-    f.publicUrl.disabled = n.publicUrlFromEnv;
-    $('ntfy-here').hidden = n.publicUrlFromEnv;
+    $('ntfy-url-note').replaceChildren(n.publicUrl
+      ? `Tapping a notification opens the matching page at ${n.publicUrl}.`
+      : el('span', { class: 'fact-warn' }, icon('alert'), 'Set the rconsole URL under Settings → System, or notifications can\'t link back here.'));
     f.tpsBelow.value = n.tpsBelow;
     f.tpsMinutes.value = n.tpsMinutes;
     f.quietOn.checked = n.quiet.enabled;
@@ -3861,7 +4321,6 @@ notifyForm.addEventListener('submit', async (e) => {
     tpsBelow: Number(f.tpsBelow.value),
     tpsMinutes: Number(f.tpsMinutes.value),
   };
-  if (!f.publicUrl.disabled) body.publicUrl = f.publicUrl.value.trim();
   if (!f.url.disabled) body.url = f.url.value.trim();
   if (!f.token.disabled && f.token.value) body.token = f.token.value;
   body.discord = { alerts: f.dcAlerts.checked, chat: f.dcChat.checked };
@@ -3877,9 +4336,6 @@ notifyForm.addEventListener('submit', async (e) => {
     }
   });
 });
-$('ntfy-here').addEventListener('click', () => {
-  notifyForm.elements.publicUrl.value = location.origin;
-});
 $('ntfy-test').addEventListener('click', (e) => busy(e.currentTarget, () => api('POST', '/api/notify/test').then(() => toast('Test notification sent. Check your phone.')).catch((err) => toast(err.message, 'bad'))));
 
 // ---------------------------------------------------------------------------
@@ -3887,17 +4343,38 @@ $('ntfy-test').addEventListener('click', (e) => busy(e.currentTarget, () => api(
 // ---------------------------------------------------------------------------
 
 let mapChecked = false;
-tabLoaders.map = async () => {
+viewLoaders['world/map'] = async () => {
   if (mapChecked && $('map-iframe').src) return;
   try {
-    const { configured, src } = await api('GET', '/api/map');
+    const m = await api('GET', '/api/map');
     mapChecked = true;
-    $('map-frame').hidden = !configured;
-    $('map-setup').hidden = configured;
-    if (configured) {
-      $('map-iframe').src = src;
-      $('map-open').href = src;
+    $('map-frame').hidden = !m.configured;
+    $('map-setup').hidden = m.configured;
+    if (m.configured) {
+      $('map-iframe').src = m.src;
+      $('map-open').href = m.src;
+      return;
     }
+    // A map plugin is already there: offer to show it.
+    const found = m.detected || [];
+    $('map-found').hidden = !found.length;
+    $('map-steps').hidden = Boolean(found.length);
+    $('map-found').replaceChildren(...found.map((d) => el('div', { class: 'advice-item info' }, icon('map'),
+      el('div', {}, el('b', {}, `${d.plugin} is installed and serves on port ${d.port}.`),
+        el('p', {}, d.private
+          ? 'It only listens on this machine, so rconsole can show it here behind your sign-in.'
+          : [`It listens on every network address (${d.bind}), so anyone who can reach port ${d.port} sees it. After using it here, set `, el('code', {}, d.bindKey), ' in ', el('code', {}, d.config), ' and restart the server.'])),
+      atLeast('admin') && !m.fromEnv ? el('button', { class: 'btn btn-primary btn-sm', onclick: (e) => busy(e.currentTarget, async () => {
+        try {
+          await api('PUT', '/api/map', { url: d.url });
+          toast(`Showing ${d.plugin}.`);
+          mapChecked = false;
+          $('map-iframe').removeAttribute('src');
+          viewLoaders['world/map']();
+        } catch (err) {
+          toast(err.message, 'bad');
+        }
+      }) }, `Use ${d.plugin}`) : null)));
   } catch {
     $('map-setup').hidden = false;
   }
@@ -3916,9 +4393,10 @@ $('map-install').addEventListener('click', () => {
 const moreSheet = $('more-sheet');
 $('nav-more').addEventListener('click', () => {
   const current = document.body.dataset.area;
-  $('more-list').replaceChildren(...Object.entries(AREAS).filter(([key]) => !PHONE_TABS.includes(key)).map(([key, a]) =>
+  $('more-list').replaceChildren(...Object.entries(AREAS).filter(([key, a]) => !PHONE_TABS.includes(key) && !a.hidden).map(([key, a]) =>
     el('button', { class: `more-item${key === current ? ' on' : ''}`, 'data-tab': key, onclick: () => { moreSheet.close(); showTab(key); } },
       el('span', { class: 'tile' }, icon(a.icon)), a.name)),
+    el('button', { class: `more-item${current === 'servers' ? ' on' : ''}`, onclick: () => { moreSheet.close(); showTab('servers'); } }, el('span', { class: 'tile' }, icon('server')), 'Servers'),
     el('button', { class: 'more-item', onclick: () => { moreSheet.close(); openPalette(); } }, el('span', { class: 'tile' }, icon('search')), 'Search & run'),
     el('button', { class: 'more-item', onclick: signOut }, el('span', { class: 'tile' }, icon('signout')), 'Sign out'));
   $('nav-more').setAttribute('aria-expanded', 'true');
@@ -3932,7 +4410,6 @@ async function signOut() {
   location.replace(r.redirect || '/login'); // SSO: end the provider session too
 }
 $('logout').addEventListener('click', signOut);
-$('logout-m').addEventListener('click', signOut);
 // Back from linking a local account to the provider (see renderAccount).
 if (new URLSearchParams(location.search).has('linked')) {
   history.replaceState(null, '', `/${location.hash}`);
@@ -3972,7 +4449,8 @@ function renderAccount() {
     row('Account', me.name ? `${me.name} (${me.user})` : me.user),
     row('Role', me.role[0].toUpperCase() + me.role.slice(1)),
     row('Signed in with', sso || 'Username and password'),
-    row(sso ? 'Password and 2FA' : 'Change password or 2FA', sso ? `Managed in ${sso}` : el('span', {}, 'On the server: ', el('code', {}, `node cli.js user passwd ${me.user}`))),
+    row(sso ? 'Password and 2FA' : 'Password', sso ? `Managed in ${sso}` : el('button', { class: 'btn btn-sm', onclick: changePassword }, icon('key'), 'Change password')),
+    sso ? null : row('Two-factor sign-in', el('span', {}, 'On the server: ', el('code', {}, `node cli.js user totp ${me.user}`))),
   );
   // A local account can be tied to the provider user once, by signing in there.
   const provider = me.auth?.sso?.name;
@@ -3981,6 +4459,26 @@ function renderAccount() {
       el('a', { class: 'btn', href: '/auth/oidc/start?link=1' }, `Link to ${provider}`),
       el('span', { class: 'note' }, ` Then you sign in to ${me.user} with ${provider}; your password and 2FA here are removed, and your role follows your ${provider} groups.`))));
   }
+}
+
+async function changePassword(e) {
+  const btn = e.currentTarget;
+  const pw = (label, auto) => el('input', { class: 'field', type: 'password', autocomplete: auto, maxlength: 1024, 'aria-label': label });
+  const current = pw('Current password', 'current-password');
+  const next = pw('New password', 'new-password');
+  const again = pw('New password again', 'new-password');
+  const content = el('div', { class: 'dialog-form' }, fld('Current password', current), fld('New password (10 characters or more)', next), fld('New password again', again));
+  if (!(await confirmAction({ title: 'Change your password', body: 'You stay signed in here; every other device is signed out.', confirm: 'Change password', icon: 'key', content }))) return;
+  if (next.value !== again.value) return toast('The new passwords don’t match.', 'bad');
+  if (next.value.length < 10) return toast('The new password needs at least 10 characters.', 'bad');
+  await busy(btn, async () => {
+    try {
+      await api('POST', '/api/me/password', { current: current.value, password: next.value });
+      toast('Password changed. Other devices are signed out.');
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
 }
 
 async function loadUsers() {
@@ -4000,6 +4498,7 @@ async function loadUsers() {
   }
 }
 
+const warnFact = (text) => el('span', { class: 'fact-warn' }, icon('alert'), text);
 async function loadAbout() {
   if (!atLeast('admin')) return;
   const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
@@ -4014,26 +4513,41 @@ async function loadAbout() {
       row('Release notes', el('a', { href: `https://github.com/iamozyth/rconsole/releases/tag/v${a.version}`, target: '_blank', rel: 'noopener' }, `rconsole ${a.version}`)),
       row('License', el('a', { href: 'https://github.com/iamozyth/rconsole/blob/main/LICENSE', target: '_blank', rel: 'noopener' }, 'PolyForm Strict 1.0.0')));
     $('env-facts').replaceChildren(
-      row('rconsole URL (PUBLIC_URL)', a.publicUrl ? mono(a.publicUrl) : off('Not set; can be set under Notifications')),
+      row('rconsole URL (PUBLIC_URL)', a.publicUrl ? [mono(a.publicUrl), a.publicUrlFromEnv ? null : off(' · set below')] : warnFact('Not set: single sign-on and notification links need it. Set it below.')),
       row('Server folder (MC_DIR)', mono(a.mcDir)),
       row('Server service (MC_SERVICE)', mono(a.mcService)),
       row('Backup folder (BACKUP_DIR)', mono(a.backupDir)),
       row('rconsole data', mono(a.stateDir)),
-      row('Live map (MAP_URL)', a.mapUrl ? mono(a.mapUrl) : off('Off')),
+      row('Live map (MAP_URL)', a.mapUrl ? mono(a.mapUrl) : off('Off; choose one under World → Map')),
       row('Prometheus (METRICS_TOKEN)', a.metrics ? 'On at /metrics' : off('Off')),
-      row('Trusted proxy (TRUST_PROXY)', a.trustProxy.length ? mono(a.trustProxy.join(', ')) : off('None')));
-    $('bk-facts').replaceChildren(
-      row('Folder', mono(a.backupDir)),
-      row('Kept per world', a.backupKeep ? `Newest ${a.backupKeep} (BACKUP_KEEP)` : 'All (BACKUP_KEEP=0)'),
-      row('Offsite', offsiteView?.configured ? `${offsiteView.auto ? 'Every new backup' : 'Manual uploads'} to ${offsiteView.bucket}` : off('Not set up: see below')));
+      row('Trusted proxy (TRUST_PROXY)', a.trustProxy.length ? mono(a.trustProxy.join(', '))
+        : a.untrustedProxy ? warnFact(`None, but requests come through ${a.untrustedProxy}. Add TRUST_PROXY=${a.untrustedProxy} to /etc/rconsole.env: until then everyone shares one sign-in lockout.`)
+          : off('None')));
+    const url = $('url-form').elements.publicUrl;
+    url.value = a.publicUrl || '';
+    url.disabled = a.publicUrlFromEnv;
+    $('url-form').querySelectorAll('button').forEach((b) => (b.hidden = a.publicUrlFromEnv));
   } catch (e) {
     $('about-note').textContent = e.message;
   }
 }
 
-viewLoaders['settings/account'] = () => { renderAccount(); loadSso(); loadUsers(); };
-viewLoaders['settings/backups'] = () => loadOffsite().then(loadAbout);
-viewLoaders['settings/about'] = loadAbout;
+viewLoaders['settings/account'] = renderAccount;
+viewLoaders['settings/signin'] = () => { loadSso(); loadUsers(); };
+viewLoaders['settings/system'] = () => { loadAbout(); loadSelfUpdate(); };
+$('url-here').addEventListener('click', () => ($('url-form').elements.publicUrl.value = location.origin));
+$('url-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await busy(e.submitter || $('url-form').querySelector('.btn-primary'), async () => {
+    try {
+      await api('POST', '/api/notify', { publicUrl: $('url-form').elements.publicUrl.value.trim() });
+      toast('rconsole URL saved.');
+      loadAbout();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
 $('acct-signout').addEventListener('click', () => signOut());
 
 // Settings → Account → Single sign-on: set up, test and switch on, no restart.
@@ -4136,3 +4650,4 @@ connectLogs();
 refreshStatus();
 showTab(location.hash.slice(1));
 syncTaskForm();
+loadServerList().then(renderSwitcher);

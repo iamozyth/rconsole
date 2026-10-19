@@ -68,8 +68,11 @@ test('ports, proxy and memory ceiling', () => {
   for (const bad of [{ extraPorts: [80] }, { extraPorts: Array.from({ length: 9 }, (_, n) => 9000 + n) }, { extraPorts: '8100' }, { rconPort: 22 }, { proxy: '../x' }, { flags: ['aikar'] }]) {
     assert.throws(() => instances.validate({ ...base, ...bad }), undefined, JSON.stringify(bad));
   }
-  assert.strictEqual(instances.memoryMaxMb({ memoryMb: 4096 }), 6144);
-  assert.strictEqual(instances.memoryMaxMb({ memoryMb: 1024 }), 2560);
+  assert.strictEqual(instances.memoryMaxMb({ memoryMb: 4096 }, 32768), 6144);
+  assert.strictEqual(instances.memoryMaxMb({ memoryMb: 1024 }, 32768), 2560);
+  // Capped at the machine's RAM less 512 MB, but always heap + 512 MB.
+  assert.strictEqual(instances.memoryMaxMb({ memoryMb: 4096 }, 5927), 5415);
+  assert.strictEqual(instances.memoryMaxMb({ memoryMb: 4096 }, 4096), 4608);
 });
 
 test('command: a proxy gets no nogui', () => {
