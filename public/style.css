@@ -951,7 +951,8 @@ td.nowrap { white-space: nowrap; }
 .log-search { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
 .log-search .form-actions .note { margin-right: auto; }
 .log-results { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); max-height: 70vh; overflow: auto; background: var(--log-bg); font: 12.5px/1.55 var(--mono); }
-.log-results li { display: grid; grid-template-columns: 16ch 5ch minmax(0, 1fr); gap: 12px; padding: 4px 20px; border-bottom: 1px solid var(--line); }
+.log-results li { display: grid; grid-template-columns: 15ch 5ch minmax(0, 1fr); gap: 12px; padding: 4px 20px; border-bottom: 1px solid var(--line); }
+.log-results time { white-space: nowrap; }
 .log-results li:last-child { border-bottom: 0; }
 .log-results time { color: var(--text-3); }
 .log-results .lvl { color: var(--text-3); font-weight: 500; }

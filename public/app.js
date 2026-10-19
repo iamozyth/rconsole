@@ -3117,6 +3117,14 @@ viewLoaders['insights/logs'] = () => {
   searchLogsUi();
 };
 
+// "Oct 20 00:25:41": fixed width in every browser language, so the column
+// never wraps (a German Safari wrote "20. Okt., 00:25:41" on two lines).
+function logStamp(t) {
+  const d = new Date(t);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.toLocaleString('en', { month: 'short' })} ${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 async function searchLogsUi() {
   const f = $('ls-form').elements;
   const params = new URLSearchParams();
@@ -3133,7 +3141,7 @@ async function searchLogsUi() {
       list.hidden = false;
       list.replaceChildren(...(r.results.length
         ? r.results.map((x) => el('li', { class: `lvl-${x.level.toLowerCase()}` },
-            el('time', { datetime: new Date(x.t).toISOString(), title: x.file }, new Date(x.t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })),
+            el('time', { datetime: new Date(x.t).toISOString(), title: x.file }, logStamp(x.t)),
             el('span', { class: 'lvl' }, x.level),
             el('span', { class: 'msg' }, ...highlight(x.msg, needle))))
         : [el('li', { class: 'empty-state' }, 'No matching lines.')]));
