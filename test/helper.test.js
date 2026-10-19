@@ -132,3 +132,17 @@ test('old job results are pruned, except the newest server update', () => {
   pruneResults();
   assert.deepStrictEqual(fs.readdirSync(jobs).sort(), ['b.json', 'd.json', 'e.json']);
 });
+
+test('world-access makes folders locked to the owner readable for the group', async () => {
+  fs.mkdirSync(path.join(MC, 'locked', 'dimensions', 'minecraft', 'overworld', 'region'), { recursive: true });
+  fs.writeFileSync(path.join(MC, 'locked', 'level.dat'), 'L');
+  fs.writeFileSync(path.join(MC, 'locked', 'dimensions', 'minecraft', 'overworld', 'region', 'r.0.0.mca'), 'R');
+  fs.symlinkSync('/etc', path.join(MC, 'locked', 'link'));
+  for (const p of ['locked/dimensions/minecraft/overworld/region/r.0.0.mca', 'locked/dimensions/minecraft/overworld/region', 'locked/dimensions']) fs.chmodSync(path.join(MC, p), p.endsWith('.mca') ? 0o600 : 0o700);
+  const r = await TASKS['world-access']({ world: 'locked' });
+  assert.ok(r.changed >= 3);
+  assert.equal(fs.statSync(path.join(MC, 'locked/dimensions')).mode & 0o777, 0o750);
+  assert.equal(fs.statSync(path.join(MC, 'locked/dimensions/minecraft/overworld/region/r.0.0.mca')).mode & 0o777, 0o640);
+  assert.equal((await TASKS['world-access']({ world: 'locked' })).changed, 0);
+  await assert.rejects(TASKS['world-access']({ world: '../x' }), /Invalid world name/);
+});

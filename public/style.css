@@ -1993,3 +1993,5 @@ td.nowrap { white-space: nowrap; }
 /* The player profile opens as a side panel, like a client in UniFi. */
 .dialog.player-sheet { position: fixed; inset: 0 0 0 auto; width: min(680px, 100vw); height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0; }
 .dialog.player-sheet[open] { animation: drawer-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+a.sw-item { text-decoration: none; }
+.when { white-space: nowrap; }

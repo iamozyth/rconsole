@@ -223,10 +223,45 @@ async function restoreFrom(archive, file, target, replace) {
     throw err;
   }
   for (const [aside] of parked) fs.rmSync(aside, { recursive: true, force: true });
+  for (const d of worldDirs(target)) groupReadable(path.join(MC, d)); // the archive's modes may lock rconsole out
   return { restored: file, world: target, from: base, replaced: parked.length > 0 };
 }
 
 // --- worlds -----------------------------------------------------------------
+
+// rconsole reads worlds through the minecraft group (sizes, dimensions,
+// player data). Folders extracted from an archive keep the archive's modes,
+// and a world copied from an older setup can be 0700: the group then sees
+// nothing below it. Adds group read (and search, for folders); links are
+// left alone, nothing is made writable.
+function groupReadable(root) {
+  let changed = 0;
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    let st;
+    try {
+      st = fs.lstatSync(dir);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) continue;
+    const want = st.isDirectory() ? 0o050 : 0o040;
+    if ((st.mode & want) !== want) {
+      fs.chmodSync(dir, (st.mode & 0o7777) | want);
+      changed++;
+    }
+    if (st.isDirectory()) for (const e of fs.readdirSync(dir)) stack.push(path.join(dir, e));
+  }
+  return changed;
+}
+
+async function worldAccess({ world }) {
+  checkWorld(world);
+  let changed = 0;
+  for (const d of worldDirs(world)) changed += groupReadable(path.join(MC, d));
+  return { world, changed };
+}
 
 async function deleteWorld({ world, archive }) {
   checkWorld(world);
@@ -470,6 +505,7 @@ const TASKS = {
   backup,
   restore,
   'world-delete': deleteWorld,
+  'world-access': worldAccess,
   properties: setProperties,
   'paper-update': paperUpdate,
   'plugin-install': pluginInstall,
