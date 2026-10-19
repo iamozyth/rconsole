@@ -1151,7 +1151,7 @@ td.nowrap { white-space: nowrap; }
 .warn-note { color: var(--c-schedule); }
 .notify-form .form-actions .note { margin-right: auto; }
 .map-frame { position: relative; height: calc(100vh - 160px); min-height: 420px; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; background: var(--surface); }
-.map-open { position: absolute; top: 10px; right: 10px; z-index: 2; box-shadow: var(--shadow); }
+.map-open { position: absolute; bottom: 10px; left: 10px; z-index: 2; box-shadow: var(--shadow); } /* clear of the map's own controls, which sit at the top */
 .map-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
 .steps { margin: 0; padding: 16px 16px 16px 36px; display: flex; flex-direction: column; gap: 12px; line-height: 1.55; }
 .steps li::marker { color: var(--text-3); font-weight: 500; }

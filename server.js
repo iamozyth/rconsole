@@ -1387,6 +1387,23 @@ function saveMapUrl(url) {
   savedMapUrl = url;
 }
 
+// The map runs in a sandbox without allow-same-origin (so it can't reach
+// rconsole's page, cookies or API), where reading localStorage,
+// sessionStorage or document.cookie throws. BlueMap reads localStorage while
+// it starts and then shows "Failed to load BlueMap webapp!". Pages from the
+// map get these in memory instead, for as long as the tab is open.
+const MAP_SHIM = `<script>(function(){function mem(){var m=new Map();return{getItem:function(k){return m.has(String(k))?m.get(String(k)):null},setItem:function(k,v){m.set(String(k),String(v))},removeItem:function(k){m.delete(String(k))},clear:function(){m.clear()},key:function(i){return Array.from(m.keys())[i]||null},get length(){return m.size}}}['localStorage','sessionStorage'].forEach(function(n){try{window[n].getItem('x')}catch(e){try{Object.defineProperty(window,n,{value:mem(),configurable:true})}catch(e2){}}});try{document.cookie}catch(e){var c='';try{Object.defineProperty(Document.prototype,'cookie',{get:function(){return c},set:function(v){c=String(v).split(';')[0]},configurable:true})}catch(e2){}}})();</script>`;
+function injectMapShim(html) {
+  const m = html.match(/<head[^>]*>/i);
+  return m ? html.slice(0, m.index + m[0].length) + MAP_SHIM + html.slice(m.index + m[0].length) : MAP_SHIM + html;
+}
+function decode(buf, encoding) {
+  if (/\bbr\b/.test(encoding || '')) return zlib.brotliDecompressSync(buf);
+  if (/gzip/.test(encoding || '')) return zlib.gunzipSync(buf);
+  if (/deflate/.test(encoding || '')) return zlib.inflateSync(buf);
+  return buf;
+}
+
 function proxyMap(req, res, pathname) {
   if (!mapUrl()) return mapError(req, res, 404, 'No map is configured: choose one in the Map tab.');
   const m = pathname.match(MAP_TOKEN_RE);
@@ -1405,6 +1422,13 @@ function proxyMap(req, res, pathname) {
     timeout: 15000,
   }, (up) => {
     const headers = Object.fromEntries(Object.entries(up.headers).filter(([k]) => !HOP.has(k)));
+    const html = /^text\/html/i.test(up.headers['content-type'] || '') && req.method === 'GET' && up.statusCode === 200;
+    if (html) {
+      // Pages get the storage shim (see MAP_SHIM); their length changes.
+      delete headers['content-length'];
+      delete headers['content-encoding'];
+      delete headers.etag;
+    }
     res.writeHead(up.statusCode, {
       ...headers,
       'X-Content-Type-Options': 'nosniff',
@@ -1413,9 +1437,26 @@ function proxyMap(req, res, pathname) {
       'Content-Security-Policy': mapCsp(req),
       // The sandboxed frame has an opaque origin; its fetch()es are CORS.
       'Access-Control-Allow-Origin': '*',
-      'Cache-Control': up.headers['cache-control'] || 'private, max-age=60',
+      'Cache-Control': html ? 'no-store' : up.headers['cache-control'] || 'private, max-age=60',
     });
-    up.pipe(res);
+    if (!html) return up.pipe(res);
+    const chunks = [];
+    let size = 0;
+    up.on('data', (c) => {
+      size += c.length;
+      if (size > 4 * 1024 * 1024) return up.destroy(new Error('page too large'));
+      chunks.push(c);
+    });
+    up.on('end', () => {
+      let body;
+      try {
+        body = decode(Buffer.concat(chunks), up.headers['content-encoding']).toString('utf8');
+      } catch {
+        return res.destroy();
+      }
+      res.end(injectMapShim(body));
+    });
+    up.on('error', () => res.destroy());
   });
   upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
   upstream.on('error', (err) => {
