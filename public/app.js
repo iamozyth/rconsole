@@ -997,10 +997,10 @@ async function loadServers() {
     serversUsedPorts = new Set(usedPorts || []);
     serversMemTotalMb = memTotalMb || null;
     serversList = servers;
-    renderServerFormExtras();
     serversActive = active;
     serversAttached = attached;
     if (!distLoaded) renderDistributions(distributions);
+    renderServerFormExtras();
     const names = Object.fromEntries(distributions.map((d) => [d.id, d.name]));
     $('servers-info').replaceChildren(
       servers.length
@@ -1089,7 +1089,8 @@ function renderServerFormExtras() {
 // Fields that only make sense for game servers, or for Paper behind a proxy.
 function updateServerFormKind() {
   const f = serverForm.elements;
-  const d = f.distribution.value;
+  // The software choices are radio buttons that exist once the list loaded.
+  const d = f.distribution?.value || '';
   const isProxy = d === 'velocity';
   serverForm.querySelectorAll('[data-kind="server"]').forEach((n) => (n.hidden = isProxy));
   $('server-new-proxy').hidden = !PROXY_READY.has(d) || !serversList.some((s) => s.kind === 'proxy');
