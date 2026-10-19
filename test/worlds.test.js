@@ -45,6 +45,13 @@ test('dirSize counts unreadable folders instead of hiding them', async () => {
   } finally {
     fs.chmodSync(path.join(dir, 'w', 'locked'), 0o755);
   }
+  // Listable but not enterable: the names come back, every size fails.
+  fs.chmodSync(path.join(dir, 'w', 'locked'), 0o444);
+  try {
+    assert.deepStrictEqual(await dirSize(path.join(dir, 'w')), { size: 100, unreadable: 1 });
+  } finally {
+    fs.chmodSync(path.join(dir, 'w', 'locked'), 0o755);
+  }
 });
 
 test('a world rconsole can\'t fully read is fixed by the helper and measured again', { skip: process.getuid?.() === 0 && 'root reads everything' }, async () => {
@@ -64,3 +71,11 @@ test('a world rconsole can\'t fully read is fixed by the helper and measured aga
     fs.chmodSync(locked, 0o755);
   }
 });
+
+test('dirSize adds up every file of a big folder (parallel stats)', async () => {
+  const dir = tmp();
+  for (let i = 0; i < 150; i++) touch(path.join(dir, 'w', 'region', `r.${i}.0.mca`), 1000);
+  for (let i = 0; i < 40; i++) touch(path.join(dir, 'w', `d${i}`, 'x', 'f'), 10);
+  assert.deepStrictEqual(await dirSize(path.join(dir, 'w')), { size: 150 * 1000 + 40 * 10, unreadable: 0 });
+});
+
