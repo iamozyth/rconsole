@@ -32,6 +32,7 @@ const { searchLogs } = require('./lib/logsearch');
 const { Scanners } = require('./lib/scanners');
 const { Problems } = require('./lib/problems');
 const hostcheck = require('./lib/hostcheck');
+const mapDetect = require('./lib/mapdetect');
 const instances = require('./lib/instances');
 const { Offsite } = require('./lib/offsite');
 const { Spark } = require('./lib/spark');
@@ -42,6 +43,7 @@ const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
 const prom = require('./lib/prom');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast } = require('./lib/auth');
 const { Oidc, roleFor } = require('./lib/oidc');
 const { SsoSettings } = require('./lib/sso');
@@ -169,7 +171,7 @@ function readLimitsStatus() {
 }
 const problems = new Problems({
   mcDir: config.mcDir, stateDir: config.stateDir, log, onProblem: (g) => notify.onProblem(g),
-  checks: () => hostcheck.check({ rcon: rconPorts(), firewall: readLimitsStatus() }),
+  checks: () => [...hostcheck.check({ rcon: rconPorts(), firewall: readLimitsStatus() }), ...proxyCheck()],
 });
 // One-tap actions from notifications (opt-in, see lib/notify.js).
 notify.handlers = {
@@ -237,7 +239,30 @@ const types = {
   '.woff2': 'font/woff2',
 };
 const IMMUTABLE = { 'Cache-Control': 'public, max-age=604800' };
-const load = (file, headers) => [fs.readFileSync(path.join(__dirname, 'public', file)), types[path.extname(file)], headers];
+// Text files are compressed once at start and revalidated by ETag: the
+// browser keeps them between visits and asks only "still the same?".
+const load = (file, headers) => {
+  const body = fs.readFileSync(path.join(__dirname, 'public', file));
+  const type = types[path.extname(file)];
+  if (headers || !/^text\/|svg/.test(type)) return { body, type, headers };
+  return {
+    body,
+    type,
+    headers: { 'Cache-Control': 'no-cache', ETag: `"${crypto.createHash('sha256').update(body).digest('base64url').slice(0, 16)}"` },
+    br: zlib.brotliCompressSync(body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: body.length } }),
+    gzip: zlib.gzipSync(body, { level: 9 }),
+  };
+};
+
+function serveStatic(req, res, f) {
+  if (f.headers?.ETag && req.headers['if-none-match'] === f.headers.ETag) {
+    res.writeHead(304, { ...SECURITY_HEADERS, ...f.headers });
+    return res.end();
+  }
+  const enc = pickEncoding(req);
+  if (enc && f[enc]) return send(res, 200, f[enc], f.type, { ...f.headers, 'Content-Encoding': enc, Vary: 'Accept-Encoding' });
+  return send(res, 200, f.body, f.type, { ...f.headers, ...(f.br ? { Vary: 'Accept-Encoding' } : {}) });
+}
 
 const PUBLIC_FILES = {
   '/login': load('login.html'),
@@ -266,8 +291,20 @@ const SECURITY_HEADERS = {
 
 const httpError = (status, message, extra) => Object.assign(new Error(message), { status, extra });
 
+const pickEncoding = (req) => {
+  const accept = String(req?.headers['accept-encoding'] || '');
+  return /\bbr\b/.test(accept) ? 'br' : /\bgzip\b/.test(accept) ? 'gzip' : null;
+};
+
+// API answers over 1 KB are compressed (metrics, plugin lists, logs); fast
+// settings, as they are made per request.
 function send(res, status, body, type = 'application/json; charset=utf-8', headers = {}) {
-  const payload = Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body);
+  let payload = Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body);
+  const enc = !headers['Content-Encoding'] && /json|text\/plain/.test(type) && Buffer.byteLength(payload) > 1024 ? pickEncoding(res.req) : null;
+  if (enc) {
+    payload = enc === 'br' ? zlib.brotliCompressSync(payload, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } }) : zlib.gzipSync(payload, { level: 5 });
+    headers = { ...headers, 'Content-Encoding': enc, Vary: 'Accept-Encoding' };
+  }
   res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': type, ...headers });
   res.end(payload);
 }
@@ -280,6 +317,20 @@ function clientIp(req) {
   // The proxy appends the address it saw, so the last entry is the one it vouches for.
   if (xff && fromTrustedProxy(req)) return xff.split(',').pop().trim();
   return direct;
+}
+
+// A reverse proxy that isn't in TRUST_PROXY makes every visitor look like
+// the proxy: one lockout for everyone, no HSTS, no Secure cookie. Noticed
+// from its X-Forwarded-For header and shown under Problems and About.
+let untrustedProxy = null; // { address, at }
+function noteProxy(req) {
+  if (!req.headers['x-forwarded-for'] || fromTrustedProxy(req)) return;
+  untrustedProxy = { address: String(req.socket.remoteAddress).replace(/^::ffff:/, ''), at: Date.now() };
+}
+function proxyCheck() {
+  if (!untrustedProxy || Date.now() - untrustedProxy.at > 24 * 3600 * 1000) return [];
+  const a = untrustedProxy.address;
+  return [{ kind: 'host', severity: 'warning', title: 'Reverse proxy not trusted', message: `Requests come through ${a}, which sends X-Forwarded-For, but TRUST_PROXY doesn't list it. rconsole sees every visitor as ${a}: five wrong passwords from anyone lock out all password sign-ins, and HSTS and secure cookies stay off.`, hint: `Add TRUST_PROXY=${a} to /etc/rconsole.env and restart rconsole.` }];
 }
 
 const isHttps = (req) => fromTrustedProxy(req) && req.headers['x-forwarded-proto'] === 'https';
@@ -590,7 +641,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/server\/power$/, (p, b) => [`server ${b.action}`, b.seconds ? `in ${b.seconds}s` : '']],
   ['POST', /^\/api\/maintenance$/, (p, b) => [`maintenance ${b.enabled ? 'on' : 'off'}`, '']],
   ['POST', /^\/api\/settings$/, (p, b) => ['settings', Object.entries(b.set || {}).map(([k, v]) => `${k}=${v}`).join(', ')]],
-  ['POST', /^\/api\/plugins$/, (p, b) => ['plugin install', b.projectId]],
+  ['POST', /^\/api\/plugins$/, (p, b) => ['plugin install', b.title ? `${String(b.title).slice(0, 80)} (${b.projectId})` : b.projectId]],
   ['POST', /^\/api\/plugins\/([^/]+)\/update$/, ([f]) => ['plugin update', dec(f)]],
   ['POST', /^\/api\/plugins\/([^/]+)\/toggle$/, ([f], b) => [`plugin ${b.enabled ? 'enable' : 'disable'}`, dec(f)]],
   ['POST', /^\/api\/plugins\/([^/]+)\/rollback$/, ([f]) => ['plugin rollback', dec(f)]],
@@ -606,9 +657,11 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/notify$/, (p, b) => ['notifications', Object.entries(b.events || {}).map(([k, v]) => `${k}=${v ? 'on' : 'off'}`).join(', ') || (b.url !== undefined ? 'topic' : '')]],
   ['POST', /^\/api\/notify\/test$/, () => ['notifications test', '']],
   ['PUT', /^\/api\/sso$/, (p, b) => ['sso settings', b.enabled === false ? 'off' : `${b.name || 'on'}${b.localLogin === false ? ', local accounts off' : ''}`]],
-  ['POST', /^\/api\/self-update$/, () => ['rconsole update', selfUpdate.summary().current]],
+  ['POST', /^\/api\/self-update$/, () => ['rconsole update', (({ current }, latest) => (latest && latest !== current ? `${current} → ${latest}` : current))(selfUpdate.summary(), selfUpdate.check?.latest?.sha?.slice(0, 7))]],
   ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
+  ['POST', /^\/api\/problems\/mute$/, (p, b) => [b.all ? 'problems unmuted' : b.muted === false ? 'problem unmuted' : 'problem muted', String(b.key || '').slice(0, 120)]],
   ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
+  ['PUT', /^\/api\/map$/, (p, b) => ['map', String(b.url || 'off').slice(0, 100)]],
   ['PUT', /^\/api\/configs\/file$/, (p, b) => ['config edit', b.path]],
   ['POST', /^\/api\/configs\/revert$/, (p, b) => ['config revert', b.path]],
   ['POST', /^\/api\/chat$/, (p, b) => [b.to ? `whisper to ${b.to}` : 'chat', String(b.message || '').slice(0, 120)]],
@@ -723,7 +776,21 @@ route('POST', /^\/api\/notify\/test$/, async (req) => {
   }
   return { ok: true };
 });
-route('GET', /^\/api\/map$/, (req) => ({ configured: Boolean(config.mapUrl), src: config.mapUrl ? `/map/${mapToken(req)}/` : null }));
+route('GET', /^\/api\/map$/, (req) => ({
+  configured: Boolean(mapUrl()),
+  src: mapUrl() ? `/map/${mapToken(req)}/` : null,
+  fromEnv: Boolean(config.mapUrl),
+  ...(roleAtLeast(req.role, 'admin') ? { url: mapUrl() || null, detected: mapDetect.detect(config.mcDir) } : {}),
+}));
+// The map rconsole shows, when MAP_URL doesn't set it: a web map plugin on
+// this machine (Map tab → "Use BlueMap").
+route('PUT', /^\/api\/map$/, async (req) => {
+  if (config.mapUrl) throw httpError(409, 'MAP_URL in /etc/rconsole.env sets the map; change it there.');
+  const url = String((await readJson(req)).url || '').trim().replace(/\/+$/, '');
+  if (url && !mapDetect.validMapUrl(url)) throw httpError(400, 'The map must run on this machine: http://127.0.0.1:<port>');
+  saveMapUrl(url);
+  return { url: url || null };
+});
 route('GET', /^\/api\/self-update$/, (req) => selfUpdate.overview({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 route('POST', /^\/api\/self-update$/, async (req) => [202, await selfUpdate.start()]);
 route('GET', /^\/api\/commands$/, (req) => commandCatalog.list({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
@@ -764,6 +831,10 @@ route('DELETE', /^\/api\/offsite\/([^/]+)$/, (req, res, [name]) => offsite.remov
 const forRole = (req, data) => (roleAtLeast(req.role, 'moderator') ? data : maskDeep(data)); // player addresses
 route('GET', /^\/api\/problems$/, async (req) => forRole(req, await problems.scan({ days: new URL(req.url, 'http://x').searchParams.get('days') })));
 route('POST', /^\/api\/problems\/seen$/, async () => problems.markSeen());
+route('POST', /^\/api\/problems\/mute$/, async (req) => {
+  const { key, muted = true, all } = await readJson(req);
+  return all ? problems.unmuteAll() : problems.mute(key, Boolean(muted));
+});
 route('GET', /^\/api\/logs\/search$/, async (req) => forRole(req, await searchLogs(config.mcDir, Object.fromEntries(new URL(req.url, 'http://x').searchParams))));
 route('GET', /^\/api\/audit$/, async (req) => {
   const q = new URL(req.url, 'http://x').searchParams;
@@ -818,8 +889,10 @@ route('GET', /^\/api\/about$/, () => ({
   backupDir: config.backupDir,
   backupKeep: config.backupKeep,
   stateDir: config.stateDir,
-  publicUrl: config.publicUrl || null,
-  mapUrl: config.mapUrl || null,
+  publicUrl: notify.publicUrl || null, // from PUBLIC_URL or saved under Settings
+  publicUrlFromEnv: Boolean(config.publicUrl),
+  untrustedProxy: proxyCheck().length ? untrustedProxy.address : null,
+  mapUrl: mapUrl() || null,
   metrics: Boolean(config.metricsToken),
   trustProxy: config.trustProxy,
   jobRunner: config.jobRunner,
@@ -1264,13 +1337,32 @@ function mapSessionUser(token) {
   return user;
 }
 
+// MAP_URL wins; otherwise the map chosen in the Map tab (state/map.json).
+const MAP_FILE = path.join(config.stateDir, 'map.json');
+let savedMapUrl = (() => {
+  try {
+    const { url } = JSON.parse(fs.readFileSync(MAP_FILE, 'utf8'));
+    return mapDetect.validMapUrl(url) ? url : '';
+  } catch {
+    return '';
+  }
+})();
+function mapUrl() {
+  return config.mapUrl || savedMapUrl;
+}
+function saveMapUrl(url) {
+  fs.writeFileSync(`${MAP_FILE}.tmp`, JSON.stringify({ url }), { mode: 0o600 });
+  fs.renameSync(`${MAP_FILE}.tmp`, MAP_FILE);
+  savedMapUrl = url;
+}
+
 function proxyMap(req, res, pathname) {
-  if (!config.mapUrl) return mapError(req, res, 404, 'No map is configured: set MAP_URL in /etc/rconsole.env.');
+  if (!mapUrl()) return mapError(req, res, 404, 'No map is configured: choose one in the Map tab.');
   const m = pathname.match(MAP_TOKEN_RE);
   if (!m || !mapSessionUser(m[1])) return mapError(req, res, 401, 'This map link has expired. Reopen the Map tab in rconsole.');
   pathname = `/map${m[2]}`;
   if (req.method !== 'GET' && req.method !== 'HEAD') return mapError(req, res, 405, 'The map is read-only.');
-  const target = new URL(config.mapUrl);
+  const target = new URL(mapUrl());
   const search = new URL(req.url, 'http://x').search;
   const upstream = http.request({
     host: target.hostname,
@@ -1296,7 +1388,7 @@ function proxyMap(req, res, pathname) {
   });
   upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
   upstream.on('error', (err) => {
-    if (!res.headersSent) mapError(req, res, 502, `rconsole can't reach the map server at ${config.mapUrl} (${err.code || err.message}). Is squaremap running, and does MAP_URL match its port?`);
+    if (!res.headersSent) mapError(req, res, 502, `rconsole can't reach the map server at ${mapUrl()} (${err.code || err.message}). Is the map plugin running, and does the map address match its port?`);
     else res.destroy();
   });
   upstream.end();
@@ -1337,6 +1429,7 @@ async function dispatch(req, res) {
   // Only over HTTPS (the proxy says so): browsers ignore it on plain HTTP,
   // and it must not pin a host that is reached without TLS.
   if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  noteProxy(req);
   const { pathname } = new URL(req.url, 'http://localhost');
   const isRead = req.method === 'GET' || req.method === 'HEAD';
 
@@ -1349,7 +1442,7 @@ async function dispatch(req, res) {
   }));
   if (!isRead && !sameOrigin(req)) return send(res, 403, { error: 'Cross-origin request blocked' });
 
-  if (isRead && PUBLIC_FILES[pathname]) return send(res, 200, ...PUBLIC_FILES[pathname]);
+  if (isRead && PUBLIC_FILES[pathname]) return serveStatic(req, res, PUBLIC_FILES[pathname]);
   if (req.method === 'POST' && pathname === '/api/login') return handle(req, res, login);
   if (req.method === 'GET' && pathname === '/api/auth-config') return send(res, 200, { sso: oidc ? { name: sso.name } : null, local: sso.localLogin });
   if (req.method === 'GET' && pathname === '/auth/oidc/start') return ssoStart(req, res);
@@ -1365,7 +1458,7 @@ async function dispatch(req, res) {
   }
 
   req.role = users.roleOf(req.user);
-  if (isRead && APP_FILES[pathname]) return send(res, 200, ...APP_FILES[pathname]);
+  if (isRead && APP_FILES[pathname]) return serveStatic(req, res, APP_FILES[pathname]);
   if (req.method === 'GET' && pathname === '/api/logs') return streamLogs(req, res);
 
   for (const { method, pattern, handler, audited } of routes) {

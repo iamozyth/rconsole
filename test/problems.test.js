@@ -97,3 +97,30 @@ test('machine conditions from the checks join the list while they last', async (
   const q = new Problems({ mcDir: dir, stateDir: dir, checks: () => { throw new Error('boom'); } });
   assert.deepStrictEqual((await q.scan({ days: 1 })).groups, []);
 });
+
+test('problems: rconsole racing a shutdown is ignored, missing Vault gets a hint', () => {
+  const c = (line) => classify(parseLine(line));
+  assert.strictEqual(c('[22:52:15] [RCON Client /127.0.0.1 #4/ERROR]: Thread RCON Client /127.0.0.1 #4 failed main thread check: Cannot perform command async'), null);
+  const v = c('[22:52:36] [Server thread/WARN]: [Essentials] Detected supported permissions plugin LuckPerms without Vault installed.');
+  assert.deepStrictEqual([v.kind, v.severity, v.plugin], ['plugin', 'warning', 'Essentials']);
+  assert.match(v.hint, /VaultUnlocked/);
+});
+
+test('problems: muted kinds leave the list and stop alerting until unmuted', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rconsole-problems-'));
+  fs.mkdirSync(path.join(dir, 'logs'));
+  fs.writeFileSync(path.join(dir, 'logs', 'latest.log'), LOG);
+  const p = new Problems({ mcDir: dir, stateDir: dir });
+  const before = await p.scan({ days: 1 });
+  const essentials = before.groups.find((g) => g.plugin === 'Essentials');
+  p.mute(essentials.key);
+  const after = await p.scan({ days: 1 });
+  assert.strictEqual(after.groups.length, before.groups.length - 1);
+  assert.strictEqual(after.muted, 1);
+  assert.ok(!after.groups.some((g) => g.key === essentials.key));
+  // Survives a restart.
+  assert.strictEqual((await new Problems({ mcDir: dir, stateDir: dir }).scan({ days: 1 })).muted, 1);
+  p.mute(essentials.key, false);
+  assert.strictEqual((await p.scan({ days: 1 })).muted, 0);
+  assert.throws(() => p.mute(''), /Missing problem key/);
+});

@@ -112,6 +112,19 @@ test('http: survives malformed requests, no lockout of other people, viewers see
     });
     assert.doesNotMatch(await firstEvent(vic), /198\.51\.100\.7/);
     assert.match(await firstEvent(mo), /198\.51\.100\.7/);
+
+    // Static files: compressed, kept by the browser and revalidated by ETag.
+    const css = await fetch(`${base}/style.css`, { headers: { 'accept-encoding': 'br, gzip' } });
+    assert.strictEqual(css.headers.get('content-encoding'), 'br');
+    assert.strictEqual(css.headers.get('cache-control'), 'no-cache');
+    const etag = css.headers.get('etag');
+    assert.match(etag, /^"[\w-]{16}"$/);
+    assert.match(await css.text(), /:root/);
+    assert.strictEqual((await fetch(`${base}/style.css`, { headers: { 'if-none-match': etag } })).status, 304);
+    assert.strictEqual((await fetch(`${base}/app.js`, { headers: { cookie: admin, 'accept-encoding': 'gzip' } })).headers.get('content-encoding'), 'gzip');
+    // Large API answers too; small ones aren't worth it.
+    assert.strictEqual((await fetch(`${base}/api/me`, { headers: { cookie: admin, 'accept-encoding': 'gzip' } })).headers.get('content-encoding'), null);
+
   } finally {
     child.kill();
   }

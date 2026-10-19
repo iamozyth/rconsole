@@ -2038,7 +2038,7 @@ $('plugin-search').addEventListener('submit', async (e) => {
                     ? 'The newest release for this server is downloaded from Modrinth, checked, and loaded on the next start.'
                     : `${r.title} has no release for your Minecraft version yet; its newest release (made for up to ${r.newestGame || 'an older version'}) is installed. Plugins usually keep working on newer versions. Check the server log after the restart.`;
                   if (!(await confirmAction({ title: `Install ${r.title}?`, body, confirm: 'Install', icon: 'plugins' }))) return;
-                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id }, (x) => `Installed ${x.file}${x.exact === false ? ` (made for ${x.gameVersions.slice(-1)[0] || 'an older version'})` : ''}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
+                  if (await pluginJob(b, 'POST', '/api/plugins', { projectId: r.id, title: r.title }, (x) => `Installed ${x.file}${x.exact === false ? ` (made for ${x.gameVersions.slice(-1)[0] || 'an older version'})` : ''}. Restart to apply.`)) b.closest('td').replaceChildren(el('span', { class: 'pill own' }, icon('check'), 'Installed'));
                 }, { primary: true }))))
         : [emptyRow(4, `Nothing on Modrinth matches “${q}” for this server software.`)]));
     } catch (err) {
@@ -3358,7 +3358,7 @@ async function loadSpark() {
       $('spark-info').textContent = 'Install spark, the standard Minecraft profiler, to see which plugin, mod or chunk causes lag. It is free and runs on Paper, Fabric and Forge.';
       actions.replaceChildren(el('button', { class: 'btn btn-primary btn-sm', onclick: (e) => busy(e.currentTarget, async () => {
         try {
-          await api('POST', '/api/plugins', { projectId: 'spark' });
+          await api('POST', '/api/plugins', { projectId: 'spark', title: 'spark' });
           toast('spark installed. It loads at the next restart.');
           loadSpark();
         } catch (err) {
