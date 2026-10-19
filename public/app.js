@@ -895,7 +895,7 @@ function renderStatus(s) {
   renderSelfSummary(s.self);
   if (!(document.body.dataset.area === 'players' && currentView('players') === 'addresses')) renderSecurityBadge(s.security);
   renderProblemsBadge(s.problems);
-  if ($('switcher-menu').hidden) renderSwitcher();
+  renderSwitcher();
   if (document.body.dataset.area === 'dashboard') renderDashboardTiles();
 }
 
@@ -1284,21 +1284,32 @@ async function loadServers() {
 tabLoaders.servers = loadServers;
 
 // --- Server switcher (top of the sidebar): which server rconsole shows ---
+// The menu's parts are built once and only changed when the list changes:
+// replacing a button between mouse-down and mouse-up (the list arriving while
+// someone clicks) swallows the click.
+let switcherKey = '';
 function renderSwitcher() {
   const shown = serversList.find((s) => s.id === serversActive);
   $('sw-name').textContent = shown?.name || (serversAttached || !serversList.length ? lastStatus?.platform?.name || 'Minecraft' : '…');
   const st = lastStatus?.power;
   $('sw-dot').dataset.state = !lastStatus ? '' : lastStatus.rcon?.ok ? 'ok' : st?.active === 'failed' ? 'bad' : 'off';
+  const menu = $('switcher-menu');
+  if (!menu.firstChild) {
+    menu.append(
+      el('div', { id: 'sw-list' }),
+      el('hr'),
+      el('a', { class: 'sw-item', role: 'menuitem', href: '#servers', onclick: () => closeSwitcher() }, icon('server'), el('span', {}, 'Manage servers')),
+      el('a', { class: 'sw-item', role: 'menuitem', href: '#servers', 'data-min-role': 'admin', onclick: (e) => { e.preventDefault(); closeSwitcher(); showTab('servers'); toggleServerForm(true); } }, icon('add'), el('span', {}, 'New server')));
+  }
+  const key = JSON.stringify([serversActive, serversAttached, serversList.map((s) => [s.id, s.name, s.kind, s.distribution, s.version, s.port, s.state?.active])]);
+  if (key === switcherKey) return;
+  switcherKey = key;
   const items = serversList.map((s) => el('button', { class: `sw-item${s.id === serversActive ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(s.id === serversActive),
     onclick: (e) => { if (s.id === serversActive) return closeSwitcher(); closeSwitcher(); showServer(s, e.currentTarget); } },
     el('span', { class: 'sw-dot', 'data-state': s.state?.active === 'active' ? 'ok' : s.state?.active === 'failed' ? 'bad' : 'off' }),
     el('span', { class: 'sw-item-text' }, el('b', {}, s.name), el('span', { class: 'sub' }, `${s.kind === 'proxy' ? 'Velocity proxy' : `${s.distribution[0].toUpperCase()}${s.distribution.slice(1)} ${s.version}`} · port ${s.port}`)),
     s.id === serversActive ? icon('check') : null));
-  $('switcher-menu').replaceChildren(
-    ...(items.length ? items : [el('p', { class: 'note sw-empty' }, serversAttached ? 'rconsole is attached to a server it didn’t install.' : 'No servers yet.')]),
-    el('hr'),
-    el('button', { class: 'sw-item', role: 'menuitem', onclick: () => showTab('servers') }, icon('server'), el('span', {}, 'Manage servers')),
-    atLeast('admin') ? el('button', { class: 'sw-item', role: 'menuitem', onclick: () => { showTab('servers'); toggleServerForm(true); } }, icon('add'), el('span', {}, 'New server')) : null);
+  $('sw-list').replaceChildren(...(items.length ? items : [el('p', { class: 'note sw-empty' }, serversAttached ? 'rconsole is attached to a server it didn’t install.' : 'No servers yet.')]));
 }
 function closeSwitcher() {
   $('switcher-menu').hidden = true;
@@ -1783,8 +1794,8 @@ async function loadWorlds() {
         w.name, ' ', w.active ? el('span', { class: 'pill own' }, icon('check'), 'Active') : null,
         el('span', { class: 'sub' }, [w.type && w.type !== 'normal' ? w.type.replace('_', ' ') : null, w.seed ? `seed ${w.seed}` : null, !w.generated ? 'generated on next start' : null].filter(Boolean).join(' · ') || null)),
       el('td', { 'data-label': 'Dimensions' }, el('span', { class: 'dims' }, ...w.dimensions.map((d) => el('span', { class: 'pill' }, d.replace('the_end', 'end'))))),
-      el('td', { class: 'num', 'data-label': 'Size' }, w.generated ? fmt.bytes(w.size) : '–'),
-      el('td', { 'data-label': 'Last played' }, w.lastPlayed ? [fmt.date(w.lastPlayed), el('span', { class: 'sub' }, fmt.relative(w.lastPlayed))] : '–'),
+      el('td', { class: 'num', 'data-label': 'Size', title: w.sizeIncomplete ? 'Some folders of this world can\'t be read by rconsole, so it is at least this big.' : null }, w.generated ? `${fmt.bytes(w.size)}${w.sizeIncomplete ? '+' : ''}` : '–'),
+      el('td', { 'data-label': 'Last played' }, when(w.lastPlayed)),
       el('td', { class: 'act' },
         w.active ? null : worldButton('Switch', 'play', () => switchWorld(w.name)),
         w.generated ? worldButton('Back up', 'backups', () => backupWorld(w.name)) : null,
@@ -1898,7 +1909,7 @@ async function loadBackups() {
             el('td', { class: 'primary-cell', 'data-label': 'Backup' }, el('span', { class: 'filename' }, f.name), latest ? el('span', { class: 'sub' }, `Latest of ${f.world}`) : null),
             el('td', { 'data-label': 'World' }, f.world),
             el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(f.size)),
-            el('td', { 'data-label': 'Created' }, fmt.date(f.created), el('span', { class: 'sub' }, fmt.relative(f.created))),
+            el('td', { 'data-label': 'Created' }, when(f.created)),
             el('td', { class: 'act' },
               worldButton('Restore', 'rollback', () => restoreBackup(f)),
               el('a', { class: 'btn btn-quiet btn-sm', href: `/api/backups/${encodeURIComponent(f.name)}`, download: f.name }, icon('download'), 'Download'),
@@ -2011,7 +2022,7 @@ async function loadOffsiteList() {
           el('td', { class: 'primary-cell', 'data-label': 'Copy' }, el('span', { class: 'filename' }, x.file), x.encrypted ? el('span', { class: 'sub' }, 'Encrypted') : null),
           el('td', { 'data-label': 'World' }, x.world),
           el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(x.size)),
-          el('td', { 'data-label': 'Uploaded' }, x.modified ? [fmt.date(x.modified), el('span', { class: 'sub' }, fmt.relative(x.modified))] : '–'),
+          el('td', { 'data-label': 'Uploaded' }, when(x.modified)),
           el('td', { class: 'act' },
             el('button', { class: 'btn btn-quiet btn-sm', onclick: (e) => downloadOffsite(x, e.currentTarget) }, icon('download'), 'Bring back'),
             el('button', { class: 'btn btn-quiet btn-sm danger', onclick: (e) => deleteOffsite(x, e.currentTarget) }, icon('delete'), 'Delete'))))
@@ -2458,7 +2469,7 @@ async function loadTasks() {
               el('span', { class: `pill ${t.enabled ? 'own' : ''}` }, t.enabled ? 'Active' : 'Paused'),
               el('span', { class: `sub ${t.type === 'command' ? 'mono' : ''}` }, detail)),
             el('td', { 'data-label': 'When' }, `${t.time}`, el('span', { class: 'sub' }, describeDays(t.days))),
-            el('td', { 'data-label': 'Next run' }, t.enabled && t.nextRun ? [fmt.date(t.nextRun), el('span', { class: 'sub' }, fmt.relative(t.nextRun))] : '–'),
+            el('td', { 'data-label': 'Next run' }, t.enabled && t.nextRun ? when(t.nextRun) : '–'),
             el('td', { 'data-label': 'Last result' }, t.lastRun
               ? el('span', { class: `result ${failed ? 'bad' : ''}` }, t.lastResult, el('span', { class: 'sub' }, fmt.relative(t.lastRun)))
               : el('span', { class: 'result' }, 'Not run yet')),
@@ -2628,7 +2639,7 @@ async function loadUpdates(refresh) {
       ? o.newerBuilds.map((b, i) => el('tr', {},
           el('td', { class: 'primary-cell', 'data-label': 'Build' }, `#${b.id}`, i === 0 ? el('span', { class: 'sub' }, 'Newest') : null),
           el('td', { 'data-label': 'Channel' }, el('span', { class: `pill ${b.channel === 'STABLE' ? 'own' : ''}` }, (b.channel || 'unknown').toLowerCase())),
-          el('td', { 'data-label': 'Released' }, b.time ? [fmt.date(b.time), el('span', { class: 'sub' }, fmt.relative(b.time))] : '–'),
+          el('td', { 'data-label': 'Released' }, when(b.time)),
           el('td', { class: 'act' }, el('button', {
             class: `btn btn-sm ${i === 0 ? 'btn-primary' : ''}`, 'data-update': true, disabled: updateBusy || undefined,
             onclick: () => startUpdate({ version: o.current.version, build: b.id }, { title: `Update to build ${b.id}?`, body: `${name} ${o.current.version} #${o.current.build} → #${b.id} (${(b.channel || '').toLowerCase()}). The previous jar is kept for rollback.`, confirm: 'Update', icon: 'updates' }),
@@ -3106,6 +3117,14 @@ viewLoaders['insights/logs'] = () => {
   searchLogsUi();
 };
 
+// "Oct 20 00:25:41": fixed width in every browser language, so the column
+// never wraps (a German Safari wrote "20. Okt., 00:25:41" on two lines).
+function logStamp(t) {
+  const d = new Date(t);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.toLocaleString('en', { month: 'short' })} ${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 async function searchLogsUi() {
   const f = $('ls-form').elements;
   const params = new URLSearchParams();
@@ -3122,7 +3141,7 @@ async function searchLogsUi() {
       list.hidden = false;
       list.replaceChildren(...(r.results.length
         ? r.results.map((x) => el('li', { class: `lvl-${x.level.toLowerCase()}` },
-            el('time', { datetime: new Date(x.t).toISOString(), title: x.file }, new Date(x.t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })),
+            el('time', { datetime: new Date(x.t).toISOString(), title: x.file }, logStamp(x.t)),
             el('span', { class: 'lvl' }, x.level),
             el('span', { class: 'msg' }, ...highlight(x.msg, needle))))
         : [el('li', { class: 'empty-state' }, 'No matching lines.')]));
@@ -3967,6 +3986,8 @@ $('au-form').addEventListener('submit', (e) => e.preventDefault());
 // Players: history
 // ---------------------------------------------------------------------------
 
+// A date cell on one line: the date, and "2 hours ago" as its tooltip.
+const when = (iso) => (iso ? el('span', { class: 'when', title: fmt.relative(iso) }, fmt.date(iso)) : '–');
 const dur = (ms) => fmt.duration(Math.round(ms / 1000));
 
 function rowActionBtn(label, iconName, command, confirmOpts, danger, after) {
@@ -4063,7 +4084,7 @@ async function loadSecurity({ quiet = false } = {}) {
               isBanned ? el('span', { class: 'pill own' }, icon('ban'), 'Banned') : null)),
             el('td', { 'data-label': 'Names tried' }, a.names.length ? a.names.join(', ') : el('span', { class: 'sub' }, 'none sent')),
             el('td', { class: 'num', 'data-label': 'Attempts' }, String(a.count)),
-            el('td', { 'data-label': 'Last seen' }, fmt.relative(new Date(a.last).toISOString()), el('span', { class: 'sub' }, fmt.date(new Date(a.last).toISOString()))),
+            el('td', { 'data-label': 'Last seen' }, when(new Date(a.last).toISOString())),
             el('td', { class: 'result', 'data-label': 'Reason' }, a.reasons[0] || '–'),
             el('td', { class: 'act' },
               safe && !isBanned && !a.private ? rowActionBtn('Ban IP', 'ban', `ban-ip ${a.ip} Connection scanner`, { title: `Ban ${a.ip}?`, body: 'The server refuses this address from now on. Scanners often switch addresses, so the whitelist protects you better.', confirm: 'Ban IP', tone: 'danger', icon: 'ban' }, true, () => loadSecurity({ quiet: true })) : null,
