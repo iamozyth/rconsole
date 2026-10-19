@@ -29,7 +29,8 @@ const get = (port, p, headers = {}) => new Promise((resolve, reject) => {
 
 test('map: CSP names rconsole\'s origin (Safari), errors show inside the frame', { timeout: 60000 }, async () => {
   const map = http.createServer((req, res) => {
-    if (req.url === '/') return res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>squaremap</title>');
+    if (req.url === '/') return res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><html><head><title>squaremap</title></head></html>');
+    if (req.url === '/gz.html') return res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-encoding': 'gzip' }).end(require('zlib').gzipSync('<!doctype html><head><title>BlueMap</title></head>'));
     if (req.url === '/tiles/settings.json') return res.writeHead(200, { 'content-type': 'application/json' }).end('{"ui":{}}');
     res.writeHead(404).end();
   });
@@ -67,6 +68,13 @@ test('map: CSP names rconsole\'s origin (Safari), errors show inside the frame',
     assert.match(csp, /^sandbox allow-scripts allow-popups;/);
     assert.match(csp, new RegExp(`connect-src 'self' http://127\\.0\\.0\\.1:${port};`));
     assert.match(csp, new RegExp(`frame-ancestors 'self' http://127\\.0\\.0\\.1:${port};`));
+    // Pages get in-memory storage: the sandbox makes localStorage throw.
+    assert.match(page.body, /^<!doctype html><html><head><script>\(function\(\)\{function mem\(\)/);
+    assert.match(page.body, /<\/script><title>squaremap<\/title>/);
+    assert.strictEqual(page.headers['content-length'], undefined);
+    const gz = await get(port, `${src}gz.html`);
+    assert.strictEqual(gz.headers['content-encoding'], undefined);
+    assert.match(gz.body, /<head><script>.*<\/script><title>BlueMap<\/title>/s);
     const json = await get(port, `${src}tiles/settings.json`);
     assert.strictEqual(json.body, '{"ui":{}}');
 
