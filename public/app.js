@@ -2752,7 +2752,8 @@ function renderSelfSummary(self) {
   $('rail-update').hidden = !self.available && !self.running;
   document.querySelector('.nav [data-tab=server]').classList.toggle('has-update', Boolean(self.available));
   $('rail-update-text').textContent = self.running ? 'Updating rconsole…' : `${self.available} update${self.available === 1 ? '' : 's'} for rconsole`;
-  if (selfWasRunning && !self.running && document.body.dataset.area === 'settings') loadSelfUpdate();
+  // The update's state shows in Server → Updates and Settings → System.
+  if (selfWasRunning && !self.running && ['server', 'settings'].includes(document.body.dataset.area)) loadSelfUpdate();
   selfWasRunning = self.running;
 }
 
