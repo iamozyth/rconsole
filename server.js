@@ -93,7 +93,19 @@ ops.onFinish = (st) => audit.record({ user: st.user, action: 'operation', target
 // so installing a server doesn't block the current one's restarts.
 const serverOps = new Ops({ log });
 serverOps.onFinish = ops.onFinish;
-const servers = new Servers({ serversDir: config.serversDir, jobs, ops: serverOps, log });
+// rconsole-limits.service (root, via polkit): MemoryMax and port lock for
+// every server, and the RCON firewall. Waits for it; missing on hosts that
+// haven't run the 4.3 installer or update yet.
+function runLimits() {
+  return new Promise((resolve, reject) => {
+    const child = require('child_process').spawn('systemctl', ['start', 'rconsole-limits.service'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 60000 });
+    let err = '';
+    child.stderr.on('data', (d) => (err += d));
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(/not found|could not be found/i.test(err) ? 'rconsole-limits.service is not installed (run install.sh again)' : err.trim() || `systemctl exited with ${code}`))));
+  });
+}
+const servers = new Servers({ serversDir: config.serversDir, jobs, ops: serverOps, log, limits: config.jobRunner === 'systemd' ? runLimits : null });
 // rconsole restarts (systemd brings it back) to switch servers, but never
 // in the middle of an update, operation or countdown: those would stop
 // halfway, with the server down.
@@ -576,6 +588,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
   ['POST', /^\/api\/offsite\/download$/, (p, b) => ['offsite download', b.name]],
   ['POST', /^\/api\/servers$/, (p, b) => ['server create', `${b.id} (${b.distribution} ${b.version}${b.build ? ` #${b.build}` : ''}), EULA accepted`]],
+  ['PATCH', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b) => ['server settings', `${id}: ${['memoryMb', 'flags', 'autostart', 'portLock', 'extraPorts'].filter((k) => b[k] !== undefined).map((k) => `${k}=${JSON.stringify(b[k])}`).join(', ')}`]],
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, ([id], b) => [`server ${b.action}`, id]],
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/console$/, ([id], b) => ['command', `${id}: /${String(b.command || '').replace(/^\//, '')}`]],
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/show$/, ([id]) => ['server show', id]],
@@ -854,7 +867,7 @@ route('GET', /^\/api\/servers$/, async () => {
   // Game ports in use, so the form suggests a free one.
   const usedPorts = list.map((s) => s.port);
   if (legacyServer && !config.activeServer) usedPorts.push(Number((await readProperties(config.mcDir))['server-port']) || 25565);
-  return { dir: config.serversDir, active: config.activeServer, attached: legacyServer && !config.activeServer, servers: list, usedPorts, distributions: distributions.list(), op: serverOps.state };
+  return { dir: config.serversDir, active: config.activeServer, attached: legacyServer && !config.activeServer, servers: list, usedPorts, distributions: distributions.list(), op: serverOps.state, memTotalMb: servers.memTotalMb() };
 });
 
 // Publisher lists change a few times a day; asked at most every 10 minutes.
@@ -885,8 +898,16 @@ route('GET', /^\/api\/distributions\/([a-z]+)\/versions\/([0-9.]+)\/builds$/, as
 
 route('POST', /^\/api\/servers$/, async (req) => {
   const b = await readJson(req);
-  const wish = { id: b.id, name: b.name, distribution: b.distribution, version: b.version, build: b.build ?? null, memoryMb: b.memoryMb, port: b.port, flags: b.flags, autostart: b.autostart === true, eula: b.eula === true };
-  return [202, servers.create(wish, { user: req.user, start: b.start !== false })];
+  const wish = {
+    id: b.id, name: b.name, distribution: b.distribution, version: b.version, build: b.build ?? null, memoryMb: b.memoryMb, port: b.port, flags: b.flags, autostart: b.autostart === true, eula: b.eula === true,
+    proxy: b.proxy || null, recommended: b.recommended !== false, owner: b.owner || null, portLock: b.portLock === true, extraPorts: b.extraPorts ?? [],
+  };
+  return [202, servers.create(wish, { user: req.user, start: b.start !== false, force: b.force === true })];
+});
+
+route('PATCH', /^\/api\/servers\/([a-z0-9-]+)$/, async (req, res, [id]) => {
+  const b = await readJson(req);
+  return [202, servers.configure(id, { memoryMb: b.memoryMb, flags: b.flags, autostart: b.autostart, portLock: b.portLock, extraPorts: b.extraPorts }, { user: req.user, force: b.force === true })];
 });
 
 route('POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, async (req, res, [id]) => [202, await servers.action(id, (await readJson(req)).action, { user: req.user })]);
@@ -1053,7 +1074,7 @@ route('GET', /^\/api\/backups\/([^/]+)$/, async (req, res, [name]) => {
   log(`${req.user}: downloading ${path.basename(file)}`);
   res.writeHead(200, {
     ...SECURITY_HEADERS,
-    'Content-Type': 'application/gzip',
+    'Content-Type': file.endsWith('.zst') ? 'application/zstd' : 'application/gzip',
     'Content-Length': stat.size,
     'Content-Disposition': `attachment; filename="${path.basename(file)}"`,
   });
@@ -1252,7 +1273,7 @@ async function handle(req, res, handler, params = [], onDone) {
     const status = err.status || (err instanceof URIError ? 400 : err.code === 'ENOENT' ? 404 : 502); // URIError: malformed %-encoding in the path
     onDone?.(status, err.message);
     const headers = err.extra?.['Retry-After'] ? { 'Retry-After': err.extra['Retry-After'] } : {};
-    const body = { error: err.message, ...(err.extra?.needCode ? { needCode: true } : {}) };
+    const body = { error: err.message, ...(err.extra?.needCode ? { needCode: true } : {}), ...(err.extra?.confirm ? { confirm: err.extra.confirm } : {}) };
     if (!res.headersSent) send(res, status, body, undefined, headers);
     else res.destroy();
   }

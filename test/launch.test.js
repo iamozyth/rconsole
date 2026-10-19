@@ -20,7 +20,7 @@ function setup(patch = {}) {
 
 test('writes JAVA and JAVA_ARGS from the instance', () => {
   const dir = setup();
-  assert.strictEqual(launchEnv(dir, 'survival'), `JAVA=${dir}/.java/25/bin/java\nJAVA_ARGS=-Xms1024M -Xmx2048M -Xlog:gc:file=logs/gc.log:time:filecount=2,filesize=4M -jar paper.jar nogui\n`);
+  assert.strictEqual(launchEnv(dir, 'survival'), `JAVA=${dir}/.java/25/bin/java\nJAVA_ARGS=-Xms1024M -Xmx2048M -XX:+UseG1GC -Xlog:gc:file=logs/gc.log:time:filecount=2,filesize=4M -jar paper.jar nogui\n`);
 });
 
 test('refuses a missing Java, a missing jar and a linked Java folder', () => {

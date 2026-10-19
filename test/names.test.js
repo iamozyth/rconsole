@@ -9,8 +9,9 @@ test('world names', () => {
 });
 
 test('backup names, including legacy world-<stamp>', () => {
-  assert.deepEqual(n.parseBackupName('world-2026-10-11_22-31-32.tar.gz'), { world: 'world', stamp: '2026-10-11_22-31-32' });
-  assert.deepEqual(n.parseBackupName('my-world-2026-10-11_22-31-32.tar.gz'), { world: 'my-world', stamp: '2026-10-11_22-31-32' });
+  assert.deepEqual(n.parseBackupName('world-2026-10-11_22-31-32.tar.gz'), { world: 'world', stamp: '2026-10-11_22-31-32', compression: 'gz' });
+  assert.deepEqual(n.parseBackupName('my-world-2026-10-11_22-31-32.tar.zst'), { world: 'my-world', stamp: '2026-10-11_22-31-32', compression: 'zst' });
+  assert.equal(n.parseBackupName('world-2026-10-11_22-31-32.tar.xz'), null);
   assert.equal(n.parseBackupName('world-2026-10-11.tar.gz'), null);
   assert.equal(n.parseBackupName('../x-2026-10-11_22-31-32.tar.gz'), null);
 });

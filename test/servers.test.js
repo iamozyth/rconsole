@@ -13,6 +13,8 @@ const SV = path.join(root, 'servers');
 const BK = path.join(root, 'backups');
 process.env.SERVERS_DIR = SV;
 process.env.BACKUP_DIR = BK;
+// .tar.gz names below; zstd has its own test.
+process.env.BACKUP_COMPRESSION = 'gzip';
 process.env.MC_DIR = path.join(root, 'mc');
 process.env.STATE_DIR = path.join(root, 'state');
 fs.mkdirSync(SV);

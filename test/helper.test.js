@@ -12,6 +12,8 @@ const MC = path.join(root, 'mc');
 const BK = path.join(root, 'backups');
 process.env.MC_DIR = MC;
 process.env.BACKUP_DIR = BK;
+// .tar.gz names below; zstd has its own test.
+process.env.BACKUP_COMPRESSION = 'gzip';
 process.env.STATE_DIR = path.join(root, 'state');
 
 function world(name, marker) {
@@ -26,6 +28,22 @@ fs.writeFileSync(path.join(MC, 'server.properties'), '#c\nlevel-name=world\nrcon
 
 const { TASKS, pruneResults } = require('../bin/mc-helper');
 const read = (p) => fs.readFileSync(path.join(MC, p), 'utf8');
+
+const hasZstd = require('child_process').spawnSync('zstd', ['--version'], { stdio: 'ignore' }).status === 0;
+test('backup and restore with zstd when it is installed', { skip: !hasZstd && 'zstd is not installed' }, async () => {
+  delete process.env.BACKUP_COMPRESSION;
+  try {
+    const r = await TASKS.backup({ stamp: '2026-10-11_03-00-00' });
+    assert.equal(r.file, 'world-2026-10-11_03-00-00.tar.zst');
+    const back = await TASKS.restore({ file: r.file, target: 'zcopy', replace: false });
+    assert.equal(back.world, 'zcopy');
+    assert.equal(read('zcopy/level.dat'), 'A');
+    for (const d of ['zcopy', 'zcopy_nether']) fs.rmSync(path.join(MC, d), { recursive: true });
+    fs.rmSync(path.join(BK, r.file));
+  } finally {
+    process.env.BACKUP_COMPRESSION = 'gzip';
+  }
+});
 
 test('backup names the archive after the world', async () => {
   const r = await TASKS.backup({ stamp: '2026-10-11_04-00-00' });

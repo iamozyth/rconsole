@@ -18,10 +18,12 @@ const java = require('../lib/java');
 const instances = require('../lib/instances');
 const properties = require('../lib/properties');
 const names = require('../lib/names');
+const velocity = require('../lib/velocity');
 
 const SV = config.serversDir;
 const javaRoot = () => path.join(SV, '.java');
 const RCON_PORTS = [25575, 25675];
+const MOJANG_PROFILES = process.env.MOJANG_PROFILES || 'https://api.mojang.com/users/profiles/minecraft';
 
 const fail = (msg) => {
   throw new Error(msg);
@@ -135,29 +137,35 @@ function usedGamePorts() {
 }
 
 // Velocity binds 0.0.0.0:25565 unless told otherwise; its own default
-// config, with the chosen port, becomes velocity.toml.
+// config, with the chosen port, modern forwarding and none of the example
+// servers, becomes velocity.toml. The forwarding secret is ours, so servers
+// created behind the proxy can use it before its first start.
 function writeVelocityConfig(dir, jarFile, port) {
   const defaults = require('../lib/zip').readFileEntry(path.join(dir, jarFile), 'default-velocity.toml');
   if (!defaults) fail('The Velocity jar has no default configuration');
-  const toml = defaults.toString('utf8').replace(/^bind = ".*"$/m, `bind = "0.0.0.0:${port}"`);
-  if (!toml.includes(`bind = "0.0.0.0:${port}"`)) fail('Could not set the Velocity port');
-  fs.writeFileSync(path.join(dir, 'velocity.toml'), toml, { mode: 0o640, flag: 'wx' });
+  fs.writeFileSync(path.join(dir, 'velocity.toml'), velocity.configure(defaults.toString('utf8'), port), { mode: 0o640, flag: 'wx' });
+  fs.writeFileSync(path.join(dir, 'forwarding.secret'), crypto.randomBytes(24).toString('base64url'), { mode: 0o640, flag: 'wx' });
+}
+
+// RCON ports in use: from instance.json, or from server.properties for
+// servers made before 4.3 (which kept it only there).
+function rconPortOf(i) {
+  if (i.rconPort) return i.rconPort;
+  try {
+    const port = Number(properties.toObject(properties.parse(fs.readFileSync(path.join(SV, i.id, 'server.properties'), 'utf8')))['rcon.port']);
+    return Number.isInteger(port) ? port : null;
+  } catch {
+    return null;
+  }
 }
 
 function usedRconPorts() {
-  const used = new Set();
-  for (const i of instances.list(SV)) {
-    try {
-      const p = properties.parse(fs.readFileSync(path.join(SV, i.id, 'server.properties'), 'utf8'));
-      const port = Number(properties.toObject(p)['rcon.port']);
-      if (Number.isInteger(port)) used.add(port);
-    } catch {}
-  }
-  return used;
+  return new Set(instances.list(SV).map(rconPortOf).filter(Boolean));
 }
 
-function freeRconPort() {
-  const used = usedRconPorts();
+// Never a port another server plays on (a proxy defaults to 25577).
+function freeRconPort(gamePort) {
+  const used = new Set([...usedRconPorts(), ...usedGamePorts(), gamePort]);
   for (let p = RCON_PORTS[0]; p <= RCON_PORTS[1]; p++) if (!used.has(p) && p !== config.rconPort) return p;
   fail('No free RCON port');
 }
@@ -183,28 +191,111 @@ function findLaunch(dir, resolved) {
   }
 }
 
-function writeServerProperties(dir, { port, motd }) {
+// Recommended for a new server: closed until players are whitelisted, no
+// player addresses in the log, and a simulation distance that keeps the
+// tick fast while players still see as far (vanilla simulates 10 chunks).
+// Chunk writes go to Paper's and Minecraft's own IO threads.
+const RECOMMENDED = {
+  'white-list': 'true',
+  'enforce-whitelist': 'true',
+  'enforce-secure-profile': 'true',
+  'log-ips': 'false',
+  'view-distance': '10',
+  'simulation-distance': '6',
+  'sync-chunk-writes': 'false',
+};
+
+function writeServerProperties(dir, { port, rconPort, motd, recommended, proxied }) {
   const doc = properties.set(properties.parse(''), {
     'server-port': String(port),
     'enable-rcon': 'true',
-    'rcon.port': String(freeRconPort()),
+    'rcon.port': String(rconPort),
     'rcon.password': crypto.randomBytes(24).toString('base64url'),
     motd: String(motd || 'A Minecraft server').replace(/[\r\n]/g, ' ').slice(0, 59),
+    ...(recommended ? RECOMMENDED : {}),
+    // Behind the proxy: reachable from this machine only; the proxy checks
+    // accounts and forwards who the player is.
+    ...(proxied ? { 'server-ip': '127.0.0.1', 'online-mode': 'false' } : {}),
   });
   fs.writeFileSync(path.join(dir, 'server.properties'), properties.stringify(doc), { mode: 0o640, flag: 'wx' });
+}
+
+// Paper 1.19+ reads config/*.yml and fills in everything left out. Anti-xray
+// hides ores from x-ray clients at little cost; optimized explosions are the
+// same TNT with far less work.
+const PAPER_WORLD_DEFAULTS = `# Written by rconsole when the server was created.
+anticheat:
+  anti-xray:
+    enabled: true
+environment:
+  optimize-explosions: true
+`;
+
+const PAPER_FAMILY = new Set(['paper', 'folia', 'purpur']);
+// config/paper-*.yml exists from Minecraft 1.19 (and in every 26.x).
+const newConfigs = (version) => {
+  const [a, b] = version.split('.').map(Number);
+  return a > 1 || b >= 19;
+};
+
+// The secret of proxy `id`, which must be a Velocity proxy rconsole runs.
+function proxySecret(id) {
+  const proxy = instances.read(SV, id);
+  if (proxy.kind !== 'proxy') fail(`${id} is not a proxy`);
+  const file = path.join(SV, id, 'forwarding.secret');
+  const st = noLinks(file);
+  if (!st?.isFile() || st.size > 256) fail(`${id} has no forwarding.secret yet; start the proxy once`);
+  return fs.readFileSync(file, 'utf8').trim();
+}
+
+// Adds (or with port null, removes) a server in the proxy's velocity.toml.
+function registerWithProxy(proxyId, id, port) {
+  const file = path.join(SV, proxyId, 'velocity.toml');
+  const st = noLinks(file);
+  if (!st?.isFile()) fail(`${proxyId} has no velocity.toml`);
+  const toml = fs.readFileSync(file, 'utf8');
+  const next = port ? velocity.addServer(toml, id, port) : velocity.removeServer(toml, id);
+  const tmp = path.join(SV, proxyId, tmpName('.velocity.toml'));
+  fs.writeFileSync(tmp, next, { mode: 0o640, flag: 'wx' });
+  fs.renameSync(tmp, file);
+}
+
+// Puts `name` on the new server's whitelist, so the admin can join. The
+// UUID comes from Mojang; without it the whitelist stays empty (rconsole's
+// Players page adds people later).
+async function whitelistOwner(dir, name) {
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(String(name || ''))) return null;
+  try {
+    const res = await distributions.fetchRetry(`${MOJANG_PROFILES}/${name}`, { headers: { 'User-Agent': distributions.USER_AGENT, Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const { id, name: exact } = await res.json();
+    if (!/^[0-9a-f]{32}$/.test(String(id)) || !/^[A-Za-z0-9_]{3,16}$/.test(String(exact))) return null;
+    const uuid = id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+    fs.writeFileSync(path.join(dir, 'whitelist.json'), `${JSON.stringify([{ uuid, name: exact }], null, 2)}\n`, { mode: 0o640, flag: 'wx' });
+    return exact;
+  } catch {
+    return null;
+  }
 }
 
 // Creates SERVERS_DIR/<id> and installs the server in it. On any failure
 // the half-made folder is removed again.
 async function serverCreate(args) {
   serversRoot();
-  const wish = instances.validate({ ...args, java: 8, launch: null, build: args.build ?? null });
+  const wish = instances.validate({ ...args, java: 8, launch: null, build: args.build ?? null, rconPort: null });
   const eula = args.eula?.by ? { by: String(args.eula.by).replace(/[^\w.@-]/g, '').slice(0, 64), at: String(args.eula.at || '').replace(/[^\w:.+-]/g, '').slice(0, 40) || new Date().toISOString() } : null;
   // Only game servers come under the Minecraft EULA; proxies don't.
   if (wish.kind === 'server' && !eula?.by) fail('The Minecraft EULA must be accepted first');
   const dir = path.join(SV, wish.id);
   if (fs.existsSync(dir)) fail(`A server named ${wish.id} already exists`);
   if (usedGamePorts().has(wish.port)) fail(`Port ${wish.port} is used by another server`);
+  if (usedRconPorts().has(wish.port) || wish.port === config.rconPort) fail(`Port ${wish.port} is another server's RCON port`);
+  if (wish.proxy) {
+    if (wish.kind !== 'server' || !PAPER_FAMILY.has(wish.distribution)) fail('Only Paper, Folia and Purpur servers can join a proxy here (Fabric and Forge need a forwarding mod)');
+    if (!newConfigs(wish.version)) fail('Servers behind the proxy need Minecraft 1.19 or newer');
+    proxySecret(wish.proxy);
+  }
+  const recommended = args.recommended !== false;
 
   const resolved = await distributions.resolve(wish.distribution, wish.version, wish.build);
   const major = await java.majorFor(wish.distribution, wish.version);
@@ -222,18 +313,27 @@ async function serverCreate(args) {
     }
     const launch = findLaunch(staging, resolved);
     if (!launch) fail(`The ${resolved.distribution} installer finished, but no server to start was found`);
+    let rconPort = null;
+    let whitelisted = null;
     if (wish.kind === 'proxy') writeVelocityConfig(staging, launch.path, wish.port);
     if (wish.kind === 'server') {
-      writeServerProperties(staging, { port: wish.port, motd: wish.name });
+      rconPort = freeRconPort(wish.port);
+      writeServerProperties(staging, { port: wish.port, rconPort, motd: wish.name, recommended, proxied: Boolean(wish.proxy) });
       fs.writeFileSync(path.join(staging, 'eula.txt'), `# Accepted in rconsole by ${eula.by} on ${eula.at}: https://aka.ms/MinecraftEULA\neula=true\n`, { mode: 0o640 });
+      const paperConfigs = PAPER_FAMILY.has(wish.distribution) && newConfigs(resolved.version);
+      if (paperConfigs && (recommended || wish.proxy)) fs.mkdirSync(path.join(staging, 'config'), { mode: 0o750 });
+      if (paperConfigs && recommended) fs.writeFileSync(path.join(staging, 'config', 'paper-world-defaults.yml'), PAPER_WORLD_DEFAULTS, { mode: 0o640, flag: 'wx' });
+      if (wish.proxy) fs.writeFileSync(path.join(staging, 'config', 'paper-global.yml'), velocity.paperGlobal(proxySecret(wish.proxy)), { mode: 0o640, flag: 'wx' });
+      if (recommended) whitelisted = await whitelistOwner(staging, args.owner);
     }
     const instance = instances.validate({
       ...wish, build: resolved.build, java: major, launch, created: new Date().toISOString(),
-      eula,
+      eula, rconPort,
     });
     fs.writeFileSync(path.join(staging, 'instance.json'), `${JSON.stringify(instance, null, 2)}\n`, { mode: 0o640, flag: 'wx' });
     fs.renameSync(staging, dir);
-    return { id: wish.id, distribution: resolved.distribution, version: resolved.version, build: resolved.build, java: major, verified: resolved.algo };
+    if (wish.proxy) registerWithProxy(wish.proxy, wish.id, wish.port);
+    return { id: wish.id, distribution: resolved.distribution, version: resolved.version, build: resolved.build, java: major, verified: resolved.algo, whitelisted, proxy: wish.proxy };
   } finally {
     fs.rmSync(staging, { recursive: true, force: true });
   }
@@ -310,6 +410,35 @@ async function restoreSnapshot(dir, from = SNAPSHOT) {
   fs.rmSync(snap, { recursive: true, force: true });
 }
 
+// Runs a mod loader installer in an empty folder of its own, then puts what
+// it wrote in place of the installer's files in the server folder. The
+// installer never runs inside the server folder, where a plugin could have
+// planted links that lead it into another server. The admin's
+// user_jvm_args.txt stays.
+async function installFresh(dir, dl, resolved, major) {
+  const staging = path.join(SV, tmpName(`.${path.basename(dir)}-install`));
+  fs.mkdirSync(staging, { mode: 0o750 });
+  try {
+    fs.renameSync(dl, path.join(staging, resolved.file));
+    await run(path.join(javaRoot(), String(major), 'bin', 'java'), ['-jar', resolved.file, ...resolved.installArgs], { cwd: staging, timeoutMs: 14 * 60 * 1000 });
+    fs.rmSync(path.join(staging, resolved.file), { force: true });
+    fs.rmSync(path.join(staging, `${resolved.file}.log`), { force: true });
+    noLinksBelow(staging);
+    const keepArgs = fs.existsSync(path.join(dir, 'user_jvm_args.txt'));
+    for (const name of snapshotItems(dir)) if (!(keepArgs && name === 'user_jvm_args.txt')) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+    // Only the kinds of files an installer owns; anything else it wrote
+    // (logs) is left behind, so it can never replace worlds or settings.
+    for (const name of snapshotItems(staging)) {
+      if (keepArgs && name === 'user_jvm_args.txt') continue;
+      // rename replaces a link at the destination instead of following it.
+      fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+      fs.renameSync(path.join(staging, name), path.join(dir, name));
+    }
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
 // Installs another version or build of the same distribution into an
 // existing server (rconsole stops it first), keeping what ran before for
 // rollback. With rollback, swaps back to that.
@@ -344,8 +473,7 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
   const inPlace = resolved.install === 'installer';
   const NEXT = `${SNAPSHOT}-next`;
   if (inPlace) {
-    // The installer writes libraries/, scripts and jars here and would
-    // follow links a plugin planted, into another server's folder.
+    // The snapshot copies libraries/, scripts and jars; none may be a link.
     for (const name of ['libraries', 'run.sh', 'run.bat', 'user_jvm_args.txt', SNAPSHOT]) noLinks(path.join(dir, name));
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) if (e.isSymbolicLink() && /\.jar$/.test(e.name)) fail(`${e.name} is a link; refusing to update in place`);
     if (fs.existsSync(path.join(dir, 'libraries'))) noLinksBelow(path.join(dir, 'libraries'));
@@ -354,13 +482,7 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
   let launch;
   try {
     if (inPlace) {
-      fs.renameSync(dl, path.join(dir, resolved.file));
-      try {
-        await run(path.join(javaRoot(), String(major), 'bin', 'java'), ['-jar', resolved.file, ...resolved.installArgs], { cwd: dir, timeoutMs: 14 * 60 * 1000 });
-      } finally {
-        fs.rmSync(path.join(dir, resolved.file), { force: true });
-        fs.rmSync(path.join(dir, `${resolved.file}.log`), { force: true });
-      }
+      await installFresh(dir, dl, resolved, major);
     } else {
       fs.renameSync(dl, path.join(dir, resolved.file));
     }
@@ -381,13 +503,35 @@ async function serverUpdate({ id, version, build = null, rollback = false }) {
   return { id, version: resolved.version, build: resolved.build, java: major, verified: resolved.algo };
 }
 
+// --- settings ------------------------------------------------------------------
+
+// Memory, JVM flags, autostart and the port lock of an existing server; they
+// apply at its next start. rconsole checks the memory against the machine.
+async function serverConfigure({ id, ...changes }) {
+  serversRoot();
+  const current = instances.read(SV, id);
+  const allowed = ['memoryMb', 'flags', 'autostart', 'portLock', 'extraPorts'];
+  const next = { ...current };
+  for (const k of allowed) if (Object.hasOwn(changes, k)) next[k] = changes[k];
+  // Pre-4.3 servers learn their RCON port here.
+  next.rconPort = rconPortOf(current);
+  writeInstance(path.join(SV, id), next);
+  return { id, ...Object.fromEntries(allowed.map((k) => [k, instances.validate(next)[k]])) };
+}
+
 // --- delete --------------------------------------------------------------------
 
 // Archives SERVERS_DIR/<id> into BACKUP_DIR (unless archive is false), then
 // removes it. rconsole stops the server first.
 async function serverDelete({ id, archive = true }) {
   serversRoot();
-  instances.read(SV, id);
+  const doomed = instances.read(SV, id);
+  // Best effort: the proxy may be gone or its config edited by hand.
+  if (doomed.proxy) {
+    try {
+      registerWithProxy(doomed.proxy, id, null);
+    } catch {}
+  }
   let archived = null;
   if (archive) {
     // Not next to the world backups, so it never shows up as one of them.
@@ -421,7 +565,7 @@ async function serverDelete({ id, archive = true }) {
 }
 
 module.exports = {
-  TASKS: { 'java-install': javaInstall, 'server-create': serverCreate, 'server-update': serverUpdate, 'server-delete': serverDelete },
+  TASKS: { 'java-install': javaInstall, 'server-create': serverCreate, 'server-update': serverUpdate, 'server-delete': serverDelete, 'server-configure': serverConfigure },
   inspectJre,
   writeVelocityConfig,
   checkTree,

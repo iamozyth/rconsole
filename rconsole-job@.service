@@ -10,6 +10,10 @@ User=minecraft
 Group=minecraft
 UMask=0027
 EnvironmentFile=/etc/rconsole.env
+# The helper needs the folder settings only. rconsole's secrets stay out of
+# its environment: it runs as the Minecraft user, like the servers, and
+# test/units.test.js checks that every secret rconsole reads is listed here.
+UnsetEnvironment=RCON_PASSWORD OIDC_CLIENT_SECRET METRICS_TOKEN NTFY_TOKEN OFFSITE_ACCESS_KEY_ID OFFSITE_SECRET_ACCESS_KEY OFFSITE_PASSPHRASE
 Environment=UV_USE_IO_URING=0
 ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js job %i
 TimeoutStartSec=60min
