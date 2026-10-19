@@ -126,6 +126,15 @@ function nftScript(ports) {
 `;
 }
 
+// What rconsole shows under Problems: which RCON ports are closed.
+const STATUS_DIR = process.env.RUNTIME_DIRECTORY?.split(':')[0];
+function writeStatus(firewall, closed) {
+  if (!STATUS_DIR) return;
+  const file = path.join(STATUS_DIR, 'status.json');
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify({ at: new Date().toISOString(), firewall, closed }), { mode: 0o644 });
+  fs.renameSync(`${file}.tmp`, file);
+}
+
 function main() {
   const dir = config.serversDir;
   const list = instances.list(dir, (name, err) => name && console.error(`skipping ${name}: ${err.message}`));
@@ -138,14 +147,22 @@ function main() {
 
   if (/^(off|false|0|no)$/i.test(process.env.RCON_FIREWALL || '')) {
     spawnSync('nft', ['-f', '-'], { input: nftScript([]), stdio: ['pipe', 'ignore', 'ignore'] });
+    writeStatus('off', []);
     console.log('firewall: off (RCON_FIREWALL)');
     return;
   }
   const ports = rconPorts(servers);
   const r = spawnSync('nft', ['-f', '-'], { input: nftScript(ports), stdio: ['pipe', 'inherit', 'inherit'] });
-  if (r.error?.code === 'ENOENT') console.error('firewall: nft is not installed (apt install nftables); RCON stays reachable from other machines');
-  else if (r.status !== 0) process.exitCode = 1;
-  else console.log(`firewall: RCON ports ${ports.join(', ') || 'none'} closed to other machines`);
+  if (r.error?.code === 'ENOENT') {
+    writeStatus('missing', []);
+    console.error('firewall: nft is not installed (apt install nftables); RCON stays reachable from other machines');
+  } else if (r.status !== 0) {
+    writeStatus('error', []);
+    process.exitCode = 1;
+  } else {
+    writeStatus('on', ports);
+    console.log(`firewall: RCON ports ${ports.join(', ') || 'none'} closed to other machines`);
+  }
 }
 
 module.exports = { dropin, writeDropins, rconPorts, nftScript };

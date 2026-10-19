@@ -35,6 +35,12 @@ const FILL = 'https://fill.papermc.io/v3/projects/paper/versions/26.3/builds';
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const VJSON = JSON.stringify({ downloads: { server: { sha1: 'b'.repeat(40), url: 'https://piston-data.mojang.com/s.jar' } }, javaVersion: { majorVersion: 25 } });
 
+const VFILL = 'https://fill.papermc.io/v3/projects/velocity/versions/3.4.0/builds';
+// A Velocity jar is a zip with its default config inside.
+const VJAR = require('./zip.test').zip({ 'default-velocity.toml': fs.readFileSync(path.join(__dirname, 'fixtures', 'default-velocity.toml')) });
+fs.mkdirSync(path.join(SV, '.java', '21', 'bin'), { recursive: true });
+fs.writeFileSync(path.join(SV, '.java', '21', 'bin', 'java'), '');
+
 global.fetch = async (url) => {
   const routes = {
     [FILL]: [{ id: 178, channel: 'STABLE' }],
@@ -47,6 +53,10 @@ global.fetch = async (url) => {
     'https://meta.fabricmc.net/v2/versions/installer': [{ version: '1.1.2', stable: true, url: 'https://maven.fabricmc.net/fabric-installer-1.1.2.jar' }],
     'https://maven.fabricmc.net/fabric-installer-1.1.2.jar': JAR,
     'https://maven.fabricmc.net/fabric-installer-1.1.2.jar.sha256': JAR_SHA,
+    'https://api.mojang.com/users/profiles/minecraft/masseo': { id: '0123456789abcdef0123456789abcdef', name: 'Masseo' },
+    [VFILL]: [{ id: 50, channel: 'STABLE' }],
+    [`${VFILL}/50`]: { downloads: { 'server:default': { name: 'velocity-3.4.0-50.jar', checksums: { sha256: sha('sha256', VJAR) }, url: 'https://fill-data.papermc.io/velocity.jar' } } },
+    'https://fill-data.papermc.io/velocity.jar': VJAR,
   };
   const body = routes[String(url)];
   if (body === undefined) return { ok: false, status: 404 };
@@ -75,6 +85,72 @@ test('create: installs the verified jar, RCON, EULA and instance.json', async ()
   assert.deepStrictEqual(i.launch, { type: 'jar', path: 'paper-26.3-178.jar' });
   assert.strictEqual(i.java, 25);
   assert.ok(!fs.readdirSync(SV).some((f) => f.endsWith('.tmp')));
+});
+
+test('create: recommended settings, Paper configs and the owner on the whitelist', async () => {
+  const dir = path.join(SV, 'survival');
+  const props = fs.readFileSync(path.join(dir, 'server.properties'), 'utf8');
+  for (const line of ['white-list=true', 'enforce-whitelist=true', 'log-ips=false', 'simulation-distance=6', 'sync-chunk-writes=false']) assert.match(props, new RegExp(`^${line}$`, 'm'));
+  assert.doesNotMatch(props, /^server-ip=/m);
+  assert.match(fs.readFileSync(path.join(dir, 'config', 'paper-world-defaults.yml'), 'utf8'), /anti-xray:\n {4}enabled: true/);
+  assert.strictEqual(instances.read(SV, 'survival').rconPort, Number(props.match(/^rcon\.port=(\d+)$/m)[1]));
+  const r = await TASKS['server-create']({ ...wish, id: 'owned', port: 25590, owner: 'masseo' });
+  assert.strictEqual(r.whitelisted, 'Masseo');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(SV, 'owned', 'whitelist.json'), 'utf8')), [{ uuid: '01234567-89ab-cdef-0123-456789abcdef', name: 'Masseo' }]);
+  // Without the recommended settings: vanilla's defaults, no whitelist.
+  await TASKS['server-create']({ ...wish, id: 'plain', port: 25591, owner: 'masseo', recommended: false });
+  assert.doesNotMatch(fs.readFileSync(path.join(SV, 'plain', 'server.properties'), 'utf8'), /white-list/);
+  assert.ok(!fs.existsSync(path.join(SV, 'plain', 'whitelist.json')));
+  assert.ok(!fs.existsSync(path.join(SV, 'plain', 'config')));
+  for (const id of ['owned', 'plain']) await TASKS['server-delete']({ id, archive: false });
+});
+
+test('create: a game port may not be another server\'s RCON port, and RCON skips game ports', async () => {
+  const rcon = instances.read(SV, 'survival').rconPort;
+  await assert.rejects(TASKS['server-create']({ ...wish, id: 'clash', port: rcon }), /RCON port/);
+  // The next free RCON port is taken as a game port first.
+  const next = rcon + 1;
+  await TASKS['server-create']({ ...wish, id: 'onrcon', port: next });
+  assert.notStrictEqual(instances.read(SV, 'onrcon').rconPort, next);
+  await TASKS['server-delete']({ id: 'onrcon', archive: false });
+});
+
+test('proxy: Velocity with modern forwarding; a server behind it is local only and registered', async () => {
+  await TASKS['server-create']({ id: 'proxy', name: 'proxy', distribution: 'velocity', version: '3.4.0', memoryMb: 512, port: 25577 });
+  const pdir = path.join(SV, 'proxy');
+  const secret = fs.readFileSync(path.join(pdir, 'forwarding.secret'), 'utf8');
+  assert.match(secret, /^[A-Za-z0-9_-]{32}$/);
+  assert.match(fs.readFileSync(path.join(pdir, 'velocity.toml'), 'utf8'), /^player-info-forwarding-mode = "MODERN"$/m);
+  await assert.rejects(TASKS['server-create']({ ...wish, id: 'modded', distribution: 'fabric', port: 25580, proxy: 'proxy' }), /Paper, Folia and Purpur/);
+  await assert.rejects(TASKS['server-create']({ ...wish, id: 'lobby', port: 25580, proxy: 'survival' }), /not a proxy/);
+  await TASKS['server-create']({ ...wish, id: 'lobby', port: 25580, proxy: 'proxy' });
+  const dir = path.join(SV, 'lobby');
+  const props = fs.readFileSync(path.join(dir, 'server.properties'), 'utf8');
+  assert.match(props, /^server-ip=127\.0\.0\.1$/m);
+  assert.match(props, /^online-mode=false$/m);
+  assert.ok(fs.readFileSync(path.join(dir, 'config', 'paper-global.yml'), 'utf8').includes(`secret: '${secret}'`));
+  assert.strictEqual(instances.read(SV, 'lobby').proxy, 'proxy');
+  let toml = fs.readFileSync(path.join(pdir, 'velocity.toml'), 'utf8');
+  assert.match(toml, /^lobby = "127\.0\.0\.1:25580"$/m);
+  assert.match(toml, /^try = \["lobby"\]$/m);
+  await TASKS['server-delete']({ id: 'lobby', archive: false });
+  toml = fs.readFileSync(path.join(pdir, 'velocity.toml'), 'utf8');
+  assert.doesNotMatch(toml, /lobby/);
+  await TASKS['server-delete']({ id: 'proxy', archive: false });
+});
+
+test('configure: memory, flags and port lock; the RCON port is recorded', async () => {
+  const dir = path.join(SV, 'survival');
+  const i = JSON.parse(fs.readFileSync(path.join(dir, 'instance.json'), 'utf8'));
+  delete i.rconPort; // as written before 4.3
+  fs.writeFileSync(path.join(dir, 'instance.json'), JSON.stringify(i));
+  const r = await TASKS['server-configure']({ id: 'survival', memoryMb: 3072, flags: 'zgc', portLock: true, extraPorts: [8100], port: 1, launch: { type: 'jar', path: 'evil.jar' } });
+  assert.deepStrictEqual([r.memoryMb, r.flags, r.portLock, r.extraPorts], [3072, 'zgc', true, [8100]]);
+  const after = instances.read(SV, 'survival');
+  assert.deepStrictEqual([after.port, after.launch.path], [25565, 'paper-26.3-178.jar'], 'only the settings change');
+  assert.match(fs.readFileSync(path.join(dir, 'server.properties'), 'utf8'), new RegExp(`^rcon\\.port=${after.rconPort}$`, 'm'));
+  await assert.rejects(TASKS['server-configure']({ id: 'survival', extraPorts: [22] }), /Extra ports/);
+  await TASKS['server-configure']({ id: 'survival', memoryMb: 2048, flags: 'aikar', portLock: false, extraPorts: [] });
 });
 
 test('create: a second server gets its own RCON port and may not reuse the game port', async () => {
@@ -203,9 +279,36 @@ test('rollback refuses a snapshot that is a link (a plugin pointing it at anothe
   fs.rmSync(path.join(dir, '.rconsole-previous'));
 });
 
+test('in-place update: the installer runs in a clean folder; planted links lead nowhere', async () => {
+  const dir = path.join(SV, 'modded');
+  const victim = path.join(SV, 'victim', 'level.dat');
+  fs.writeFileSync(victim, 'VICTIM');
+  // A plugin plants links where an installer writes its log and jars.
+  fs.symlinkSync(victim, path.join(dir, 'fabric-installer-1.1.2.jar.log'));
+  fs.writeFileSync(path.join(dir, 'user_jvm_args.txt'), '# mine\n');
+  // A "java" that does what the Fabric installer does in its folder.
+  const java = path.join(SV, '.java', '25', 'bin', 'java');
+  fs.writeFileSync(java, '#!/bin/sh\nmkdir -p libraries/y && echo new > libraries/y/lib.jar && echo launcher > fabric-server-launch.jar && echo vanilla > server.jar && echo log > fabric-installer-1.1.2.jar.log && echo args > user_jvm_args.txt\n');
+  fs.chmodSync(java, 0o755);
+  try {
+    const r = await TASKS['server-update']({ id: 'modded', version: '26.3', build: '0.19.5' });
+    assert.strictEqual(r.build, '0.19.5');
+  } finally {
+    fs.writeFileSync(java, '');
+    fs.chmodSync(java, 0o644);
+  }
+  assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'VICTIM');
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'fabric-server-launch.jar'), 'utf8'), 'launcher\n');
+  assert.ok(fs.existsSync(path.join(dir, 'libraries', 'y', 'lib.jar')));
+  assert.ok(!fs.existsSync(path.join(dir, 'libraries', 'x')), 'old libraries are replaced (kept in the snapshot)');
+  assert.ok(fs.existsSync(path.join(dir, '.rconsole-previous', 'libraries', 'x', 'lib.jar')));
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'user_jvm_args.txt'), 'utf8'), '# mine\n');
+  assert.ok(!fs.readdirSync(SV).some((f) => f.includes('-install')));
+});
+
 test('in-place update refuses planted links in libraries/', async () => {
   const dir = path.join(SV, 'modded');
   fs.symlinkSync('../../victim', path.join(dir, 'libraries', 'evil'));
-  await assert.rejects(TASKS['server-update']({ id: 'modded', version: '26.3', build: '0.19.5' }), /link/);
+  await assert.rejects(TASKS['server-update']({ id: 'modded', version: '26.3', build: '0.19.6' }), /link/);
   fs.rmSync(path.join(dir, 'libraries', 'evil'));
 });

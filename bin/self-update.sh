@@ -134,7 +134,7 @@ main() {
   fi
   local changed=0 src dest shipped c rendered
   rendered="$(mktemp)"
-  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
+  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
     [ -f "$dir/$src" ] || continue
     if [ "$src" = 50-rconsole.rules ]; then dest="$polkit_dir/$src"; else dest="$unit_dir/$src"; fi
     render_unit < "$dir/$src" > "$rendered" || continue
@@ -155,6 +155,12 @@ main() {
   done
   rm -f "$rendered"
   [ "$changed" = 1 ] && systemctl daemon-reload
+  # 4.3: memory limits and the RCON firewall, kept at boot.
+  if [ -f "$unit_dir/rconsole-limits.service" ] && ! systemctl is-enabled --quiet rconsole-limits.service 2>/dev/null; then
+    systemctl enable rconsole-limits.service >/dev/null 2>&1 && installed+=("enabled rconsole-limits.service")
+    command -v nft >/dev/null || manual+=("apt install nftables zstd: closes RCON to other machines and speeds up backups")
+  fi
+  systemctl start rconsole-limits.service || manual+=("rconsole-limits.service failed: journalctl -u rconsole-limits")
 
   report running "Restarting rconsole"
   systemctl restart "$service" || true

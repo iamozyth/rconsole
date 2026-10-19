@@ -31,6 +31,8 @@ const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
 const { Scanners } = require('./lib/scanners');
 const { Problems } = require('./lib/problems');
+const hostcheck = require('./lib/hostcheck');
+const instances = require('./lib/instances');
 const { Offsite } = require('./lib/offsite');
 const { Spark } = require('./lib/spark');
 const { PlayerInfo } = require('./lib/playerinfo');
@@ -52,6 +54,8 @@ const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 // (lib/active.js). Without one and without RCON_PASSWORD, rconsole starts
 // anyway so the first server can be created from the browser.
 const legacyServer = fs.existsSync(path.join(config.mcDir, 'server.properties'));
+// The attached server's own folder and RCON, before an installed server takes their place.
+const legacy = { mcDir: config.mcDir, rconPort: config.rconPort, rconHost: config.rconHost };
 const activeInstance = active.pick({ serversDir: config.serversDir, stateDir: config.stateDir, legacy: legacyServer, log });
 if (activeInstance) Object.assign(config, active.overrides(config.serversDir, activeInstance));
 else config.activeServer = null;
@@ -79,7 +83,7 @@ const activeInstance$ = () => (config.activeServer ? servers.get(config.activeSe
 // falling back to the MC_DIR updates, which would install the wrong jar.
 const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon, instance: activeInstance$ });
 const gameVersion = async () => (await updates.installed())?.version || null;
-const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform });
+const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform, hashesFile: path.join(config.backupDir, '.plugin-hashes', `${config.activeServer || 'attached'}.json`) });
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
 const playerInfo = new PlayerInfo({ mcDir: config.mcDir, rcon, log });
 const configs = new Configs({ mcDir: config.mcDir });
@@ -142,7 +146,31 @@ const offsite = new Offsite({
   onResult: (r) => !r.ok && notify.send('backup', { title: 'Offsite upload failed', message: `${r.file}\n\n${r.error}`, key: `offsite-${r.file}` }),
 });
 backups.onCreated = (file) => offsite.onBackup(file);
-const problems = new Problems({ mcDir: config.mcDir, stateDir: config.stateDir, log, onProblem: (g) => notify.onProblem(g) });
+// RCON ports of every server, for the "reachable from other machines" check.
+function rconPorts() {
+  const out = instances.list(config.serversDir).map((i) => {
+    let port = i.rconPort;
+    if (!port) {
+      try {
+        port = Number(properties.toObject(properties.parse(fs.readFileSync(path.join(config.serversDir, i.id, 'server.properties'), 'utf8')))['rcon.port']) || null;
+      } catch {}
+    }
+    return { name: i.name, port };
+  });
+  if (legacyServer && /^(127\.|::1$|localhost$)/.test(legacy.rconHost)) out.push({ name: path.basename(legacy.mcDir), port: legacy.rconPort });
+  return out;
+}
+function readLimitsStatus() {
+  try {
+    return JSON.parse(fs.readFileSync('/run/rconsole-limits/status.json', 'utf8'));
+  } catch {
+    return null;
+  }
+}
+const problems = new Problems({
+  mcDir: config.mcDir, stateDir: config.stateDir, log, onProblem: (g) => notify.onProblem(g),
+  checks: () => hostcheck.check({ rcon: rconPorts(), firewall: readLimitsStatus() }),
+});
 // One-tap actions from notifications (opt-in, see lib/notify.js).
 notify.handlers = {
   ban: async (ip) => {
@@ -590,6 +618,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/servers$/, (p, b) => ['server create', `${b.id} (${b.distribution} ${b.version}${b.build ? ` #${b.build}` : ''}), EULA accepted`]],
   ['PATCH', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b) => ['server settings', `${id}: ${['memoryMb', 'flags', 'autostart', 'portLock', 'extraPorts'].filter((k) => b[k] !== undefined).map((k) => `${k}=${JSON.stringify(b[k])}`).join(', ')}`]],
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/power$/, ([id], b) => [`server ${b.action}`, id]],
+  ['POST', /^\/api\/worlds\/([\w-]+)\/pregenerate$/, ([name], b) => ['world pre-generate', `${name}, radius ${b.radius}`]],
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/console$/, ([id], b) => ['command', `${id}: /${String(b.command || '').replace(/^\//, '')}`]],
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/show$/, ([id]) => ['server show', id]],
   ['DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b, q) => ['server delete', `${id}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
@@ -1044,6 +1073,22 @@ route('POST', /^\/api\/worlds\/([\w-]+)\/activate$/, async (req, res, [name]) =>
   const { seconds } = await readJson(req);
   return [202, worlds.activate(name, { seconds: delayOf(seconds), user: req.user })];
 });
+// Pre-generates the active world with the Chunky plugin, so players
+// exploring later don't make the server generate chunks while they play
+// (the biggest cause of lag on a new world).
+const PREGEN_RADII = [1000, 2000, 3000, 5000, 10000];
+route('POST', /^\/api\/worlds\/([\w-]+)\/pregenerate$/, async (req, res, [name]) => {
+  const { radius } = await readJson(req);
+  if (!PREGEN_RADII.includes(Number(radius))) throw httpError(400, `radius must be one of ${PREGEN_RADII.join(', ')}`);
+  const { active } = await worlds.list();
+  if (name !== active) throw httpError(409, 'Only the active world can be pre-generated (the server must have it loaded)');
+  const first = await rcon.send(`chunky world ${name}`);
+  if (/unknown (or incomplete )?command|unknown command/i.test(first)) throw httpError(409, 'Chunky is not installed. Install it under Plugins (search "Chunky"), restart, then try again.');
+  for (const cmd of ['chunky spawn', `chunky radius ${Number(radius)}`, 'chunky start']) await rcon.send(cmd);
+  log(`${req.user}: pre-generating ${name} with Chunky, radius ${radius}`);
+  return { started: true, world: name, radius: Number(radius) };
+});
+
 route('DELETE', /^\/api\/worlds\/([\w-]+)$/, async (req, res, [name]) => {
   const archive = new URL(req.url, 'http://x').searchParams.get('archive') !== '0';
   return [202, worlds.remove(name, { archive, user: req.user })];

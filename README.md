@@ -159,16 +159,21 @@ Not under the default license; see [License](#license) and ask for a commercial 
   | Fabric, Quilt, Forge, NeoForge | the project's Maven | SHA-256 published next to the installer |
   | Java (Temurin) | Adoptium | SHA-256 from Adoptium's API |
 
-- **Minecraft version and build** (newest stable by default), **name**, **port**, **memory** and **Java tuning** (Aikar's flags or Java's defaults);
+- **Minecraft version and build** (newest stable by default), **name**, **port**, **memory** and **Java tuning** (Aikar's flags, Generational ZGC for big heaps on Java 21+, or Java's defaults with G1). rconsole warns when the servers' memory doesn't fit the machine;
+- **Recommended settings** (on by default): a whitelist with your Minecraft name on it, `enforce-secure-profile`, no player IPs in the log, `simulation-distance=6`, asynchronous chunk writes, and for Paper, Folia and Purpur anti-xray and faster explosions;
+- **Behind a proxy**: registers the server with a Velocity proxy rconsole installed, with modern forwarding and the proxy's secret, and binds it to 127.0.0.1 so the only way in is through the proxy;
+- **Lock network ports**: the server may only listen on its game and RCON port and the extra ports you list (a map or voice chat plugin), so a plugin can't open a backdoor listener;
 - whether to **start it** now and **after a reboot**;
 - the **Minecraft EULA**: rconsole only writes `eula=true` after you accept it, and records who did.
 
 The install runs in a helper job as the Minecraft user: it works out the download again from the publisher, checks it, installs the Java the version needs (Java 8 before 1.17, 17, 21 or 25 after), runs the Fabric, Quilt, Forge or NeoForge installer, writes `server.properties` with its own RCON port and a random password, and moves the finished folder into place. If anything fails, nothing is left behind.
 
-The first server becomes the one rconsole shows (Console, Players, Worlds and the rest work on it), and rconsole restarts onto it. Each server runs as `rconsole-mc@<name>.service`: as the Minecraft user, writable only in its own folder, without rconsole's settings or secrets in its environment, stopped with SIGTERM so it saves first, restarted by systemd after a crash. Its console input is a FIFO (`/run/rconsole-mc-<name>.stdin`) that only rconsole can write to, so commands work before RCON is up, while the server hangs, and on Velocity, which has no RCON.
+The first server becomes the one rconsole shows (Console, Players, Worlds and the rest work on it), and rconsole restarts onto it. Each server runs as `rconsole-mc@<name>.service`: as the Minecraft user, seeing only its own folder (not the other servers, the attached server or the backups), unable to change its own `instance.json`, with a memory limit of its heap plus room for Java, without rconsole's settings or secrets in its environment, stopped with SIGTERM so it saves first, restarted by systemd after a crash (five crashes in ten minutes stop it, shown as *Crashed repeatedly*). Its console input is a FIFO (`/run/rconsole-mc-<name>.stdin`) that only rconsole can write to, so commands work before RCON is up, while the server hangs, and on Velocity, which has no RCON.
 
 - **Updates**: Server → Updates lists newer builds and Minecraft versions of the server's own software and installs them in the usual order (countdown, disconnect, stop, back up the world, install, start). The previous version stays for **Roll back**.
 - **Your old world**: back it up under Worlds before you switch, then restore it over the new server's world from Worlds → Backups.
+- **Settings** changes memory, Java tuning, the port lock and extra ports of a server; they apply at its next start.
+- **Pre-generate** (Worlds, with the Chunky plugin) generates the chunks around spawn ahead of time, so exploring players don't make the server lag.
 - **Delete** stops the server and moves its folder into the backup folder as `server-<name>-<time>.tar.gz` (or removes it, if you say so).
 - Installing, starting, stopping and deleting servers is for admins and recorded in the audit log.
 
@@ -183,6 +188,8 @@ For an existing server, the installer finds the server (its service, folder, use
 - turns on RCON with a generated password if needed (the old file is kept as `server.properties.before-rconsole`);
 - makes the server folder group-readable, creates the backup folder, and adds `Restart=always` to the Minecraft service if it has no restart policy (rconsole restarts the server by stopping it);
 - writes `/etc/rconsole.env`, installs the units and polkit rule for your paths, user and service name, and starts rconsole;
+- installs `rconsole-limits.service`, which writes each server's memory limit and port lock as root and closes RCON ports to other machines with an nftables rule (you can say no; `RCON_FIREWALL=off`);
+- offers `kernel.yama.ptrace_scope=1`, so a plugin can't read the memory of other processes of the Minecraft user, and an opt-in sandbox for the attached Minecraft service;
 - creates your first account.
 
 It never overwrites values already in `/etc/rconsole.env` and can be run again at any time. Options: `--mc-dir`, `--service`, `--backup-dir`, `--host`, `--port` (default `0.0.0.0:8080`), `--admin NAME`, `--yes` (no questions; a generated password is printed), `--dry-run` (show what would change) and `--uninstall`. Pass options through the pipe with `| sudo bash -s -- --dry-run`. Rather read it first: `curl -fsSLO …/install.sh && less install.sh && sudo bash install.sh`.
@@ -582,7 +589,8 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 - **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.
 - **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
 - **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
-- **Installed servers**: downloads are resolved and checked by the helper, never taken from rconsole; only HTTPS from the publisher's own hosts, only with the publisher's checksum (see [Servers](#servers) for which one). Archives are listed before they are unpacked. `instance.json` is validated wherever it's read, and the java command line is built only from checked values (memory, a fixed flag profile, a plain relative launch path). Each server runs in its own sandboxed `rconsole-mc@` unit without rconsole's environment file, so plugins never see rconsole's secrets.
+- **Installed servers**: downloads are resolved and checked by the helper, never taken from rconsole; only HTTPS from the publisher's own hosts, only with the publisher's checksum (see [Servers](#servers) for which one). Archives are listed before they are unpacked. `instance.json` is validated wherever it's read, and the java command line is built only from checked values (memory, a fixed flag profile, a plain relative launch path). Each server runs in its own sandboxed `rconsole-mc@` unit without rconsole's environment file, so plugins never see rconsole's secrets; it sees only its own folder, with `instance.json` read-only, no capabilities and its own IPC namespace. Helper jobs get rconsole's settings but not its secrets. Plugins installed by hand, or changed since rconsole installed them, are marked under Plugins.
+- **RCON** is plain text, so `rconsole-limits.service` drops connections to the RCON ports that don't come from this machine. Problems warns when one is reachable anyway.
 - **polkit** lets the `rconsole` user start exactly these job units, start/stop/restart `minecraft.service` and `rconsole-mc@<name>.service`, nothing else. Signed-in users are full admins: RCON commands and plugin installs (from Modrinth) run with the Minecraft server's rights by design. rconsole itself can't make the helper write outside its fixed job types, and updates only install downloads whose hash matches the publisher's API.
 
 rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below) and set `TRUST_PROXY` to the proxy's IP, so client IPs and `Secure` cookies are correct. For defence in depth, firewall port 80 so only the proxy can reach it.
@@ -590,7 +598,7 @@ rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below
 ## Notes
 
 - TPS uses `tps` on Paper/Spigot and `tick query` on vanilla 1.20.3+. Older vanilla versions show `n/a`.
-- Backups archive the world folders (`level-name`, plus `_nether` and `_the_end` if present) as `.tar.gz`.
+- Backups archive the world folders (`level-name`, plus `_nether` and `_the_end` if present) as `.tar.zst` when `zstd` is installed (several times faster, so autosave is off for less time), else `.tar.gz`. `BACKUP_COMPRESSION=gzip` keeps gzip.
 - Player avatars load from mc-heads.net.
 
 ## License

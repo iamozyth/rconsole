@@ -82,7 +82,10 @@ main() {
   if [ "$UNINSTALL" = 1 ]; then
     step "Removing rconsole"
     run systemctl disable --now rconsole.service 2>/dev/null || true
-    for f in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-mc@.service rconsole-mc@.socket; do run rm -f "$UNIT_DIR/$f"; done
+    run systemctl disable rconsole-limits.service 2>/dev/null || true
+    for f in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket; do run rm -f "$UNIT_DIR/$f"; done
+    run rm -rf "$UNIT_DIR"/rconsole-mc@*.service.d/50-rconsole-limits.conf
+    command -v nft >/dev/null && run nft delete table inet rconsole 2>/dev/null || true
     run rm -f "$POLKIT_DIR/50-rconsole.rules"
     run systemctl daemon-reload
     info "Removed the services and the polkit rule. Kept: $DIR, $ENV_FILE, /var/lib/rconsole and your backups."
@@ -167,6 +170,9 @@ main() {
   [ "$node_major" -ge 18 ] || pkgs+=(nodejs)
   command -v git >/dev/null || pkgs+=(git)
   command -v tar >/dev/null || pkgs+=(tar)
+  # zstd: faster backups (shorter autosave pause); nftables: the RCON firewall.
+  command -v zstd >/dev/null || pkgs+=(zstd)
+  command -v nft >/dev/null || [ -x /usr/sbin/nft ] || pkgs+=(nftables)
   if [ ! -x /usr/lib/polkit-1/polkitd ] && [ ! -x /usr/libexec/polkitd ]; then
     pkgs+=("$(apt-cache show polkitd >/dev/null 2>&1 && echo polkitd || echo policykit-1)")
   fi
@@ -180,7 +186,7 @@ main() {
       [ "$node_major" -ge 18 ] || die "this system's Node.js is too old ($(node -v 2>/dev/null)). Install Node.js 18+ (e.g. from nodesource.com) and run the installer again."
     fi
   else
-    info "Node.js $(node -v), git, tar and polkit are present."
+    info "Node.js $(node -v), git, tar, zstd, nftables and polkit are present."
   fi
   local NODE_BIN; NODE_BIN="$(command -v node || echo /usr/bin/node)"
 
@@ -250,6 +256,30 @@ main() {
   # New files must stay readable for rconsole (group).
   [ "$umask" != 0077 ] || lines+=("UMask=0027")
   if [ -f "$dropin" ]; then info "$dropin is in place"; lines=(); fi
+  # When memory runs out, the kernel stops Minecraft before rconsole or sshd.
+  local oom="$UNIT_DIR/$MC_SERVICE.d/55-rconsole-oom.conf"
+  if [ ! -f "$oom" ] && [ "$(systemctl show "$MC_SERVICE" -p OOMScoreAdjust --value 2>/dev/null || echo 0)" = 0 ]; then
+    if [ "$DRY" = 1 ]; then info "[dry-run] write $oom: OOMScoreAdjust=500"
+    else mkdir -p "$(dirname "$oom")"; printf '# Added by the rconsole installer.\n[Service]\nOOMScoreAdjust=500\n' > "$oom"; fi
+    changed "set OOMScoreAdjust=500 on $MC_SERVICE (applies at its next restart)"
+  fi
+  # Opt-in sandbox like rconsole's own servers get: only its folder writable,
+  # the backups and rconsole's servers hidden. Only for a plain java command
+  # line: screen, tmux or scripts need more than the sandbox allows.
+  local sandbox="$UNIT_DIR/$MC_SERVICE.d/60-rconsole-sandbox.conf"
+  if [ -f "$sandbox" ]; then info "$sandbox is in place"
+  elif grep -oE 'argv\[\]=[^;]*' <<<"$exec_start" | head -1 | grep -qE '(=|/)java ' && ! grep -qE 'screen|tmux|/bin/(ba)?sh|\.sh( |;|$)' <<<"$exec_start"; then
+    if confirm "Sandbox $MC_SERVICE (only $MC_DIR writable, backups hidden; may break plugins that write elsewhere)?" n; then
+      if [ "$DRY" = 1 ]; then info "[dry-run] write $sandbox"
+      else
+        mkdir -p "$(dirname "$sandbox")"
+        render_unit < "$SRC/minecraft-sandbox.conf" > "$sandbox"
+        # A server folder under /home needs /home.
+        case "$MC_DIR" in /home/*|/root/*) sed -i 's/^ProtectHome=true$/ProtectHome=false/' "$sandbox" ;; esac
+      fi
+      changed "sandboxed $MC_SERVICE (remove $sandbox to undo; applies at its next restart)"
+    fi
+  fi
   if [ "${#lines[@]}" -gt 0 ]; then
     if [ "$DRY" = 1 ]; then info "[dry-run] write $dropin: ${lines[*]}"
     else
@@ -316,7 +346,7 @@ main() {
   load_rconsole_env "$ENV_FILE"
   export MC_DIR BACKUP_DIR SERVERS_DIR MC_SERVICE MC_USER MC_GROUP NODE_BIN RCONSOLE_DIR="$DIR"
   local src dest tmp; tmp="$(mktemp)"
-  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
+  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
     if [ "$src" = 50-rconsole.rules ]; then dest="$POLKIT_DIR/$src"; else dest="$UNIT_DIR/$src"; fi
     render_unit < "$SRC/$src" > "$tmp" || die "could not render $src"
     if [ -f "$dest" ] && cmp -s "$tmp" "$dest"; then continue; fi
@@ -325,6 +355,29 @@ main() {
   done
   rm -f "$tmp"
   run systemctl daemon-reload
+  # Per-server memory limits and the RCON firewall, restored at boot.
+  if ! systemctl is-enabled --quiet rconsole-limits.service 2>/dev/null; then
+    run systemctl enable rconsole-limits.service
+    changed "enabled rconsole-limits.service (server memory limits, RCON firewall)"
+  fi
+
+  # --- hardening ------------------------------------------------------------------------
+  step "Hardening"
+  # RCON speaks plain text and only rconsole on this machine needs it.
+  if grep -qE '^RCON_FIREWALL=' "$ENV_FILE" 2>/dev/null; then info "RCON firewall: $(grep -E '^RCON_FIREWALL=' "$ENV_FILE" | cut -d= -f2-) (set in $ENV_FILE)"
+  elif confirm "Close the RCON ports to other machines (nftables rule; rconsole uses RCON locally)?" y; then info "RCON is closed to other machines (RCON_FIREWALL=off in $ENV_FILE turns it off)"
+  else setenv RCON_FIREWALL off; fi
+  # With ptrace_scope 0, any process of the Minecraft user (a plugin) may read
+  # the memory of the others; 1 limits that to a process's own children.
+  local yama=/proc/sys/kernel/yama/ptrace_scope sysctl_file=/etc/sysctl.d/60-rconsole-ptrace.conf
+  if [ -r "$yama" ] && [ "$(cat "$yama")" = 0 ] && [ ! -f "$sysctl_file" ]; then
+    if confirm "Stop processes of one user from reading each other's memory (kernel.yama.ptrace_scope=1; debuggers then need sudo)?" y; then
+      if [ "$DRY" = 1 ]; then info "[dry-run] write $sysctl_file"
+      else printf '# Written by the rconsole installer: a plugin may not read other processes of its user.\nkernel.yama.ptrace_scope = 1\n' > "$sysctl_file"; sysctl -q -p "$sysctl_file" || true; fi
+      changed "set kernel.yama.ptrace_scope=1 ($sysctl_file)"
+    fi
+  fi
+  run systemctl start rconsole-limits.service || warn "rconsole-limits.service failed (journalctl -u rconsole-limits); servers run without memory limits"
   if systemctl is-active --quiet rconsole.service 2>/dev/null; then
     run systemctl restart rconsole.service; info "restarted rconsole"
   else

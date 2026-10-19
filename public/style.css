@@ -1096,6 +1096,7 @@ td.nowrap { white-space: nowrap; }
 .problem-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
 .problem-title b { font-weight: 500; margin-right: 2px; }
 .problem-msg, .problem-detail { display: block; font: 12px/1.5 var(--mono); color: var(--text-2); overflow-wrap: anywhere; white-space: pre-wrap; }
+.problem-text { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
 .problem-detail { padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--log-bg); color: var(--c-danger); }
 .problem-meta { color: var(--text-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .problem.unseen.critical { background: color-mix(in srgb, var(--c-danger) 4%, var(--surface)); }

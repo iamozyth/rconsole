@@ -50,3 +50,17 @@ test('mods stay strict: search filters by version, install refuses', async () =>
   assert.ok(seen.some((s) => s.includes('versions:26.3')));
   await assert.rejects(make('fabric').install('aaaaaaaa', 'u'), /No version/);
 });
+
+test('a jar rconsole installed that changed on disk is flagged', async () => {
+  const p = make('bukkit');
+  const crypto = require('crypto');
+  const jar = (name, text) => fs.writeFileSync(path.join(p.mcDir, 'plugins', name), text);
+  jar('Good.jar', 'good');
+  jar('Bad.jar.disabled', 'rewritten by malware');
+  jar('Mine.jar', 'installed by hand');
+  p.hashesFile = path.join(p.mcDir, 'hashes.json');
+  const sha = (t) => crypto.createHash('sha512').update(t).digest('hex');
+  fs.writeFileSync(p.hashesFile, JSON.stringify({ 'Good.jar': sha('good'), 'Bad.jar': sha('original') }));
+  const byFile = Object.fromEntries((await p.local()).map((x) => [x.file, x.changed]));
+  assert.deepStrictEqual(byFile, { 'Good.jar': false, 'Bad.jar.disabled': true, 'Mine.jar': false });
+});

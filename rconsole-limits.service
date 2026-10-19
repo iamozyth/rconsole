@@ -12,6 +12,10 @@ Type=oneshot
 EnvironmentFile=/etc/rconsole.env
 Environment=UV_USE_IO_URING=0
 ExecStart=/usr/bin/node /opt/rconsole/bin/mc-limits.js
+# status.json: which RCON ports the firewall closes, shown under Problems.
+RuntimeDirectory=rconsole-limits
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 
 # Root, but only to write unit drop-ins and its nftables table.
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_READ_SEARCH

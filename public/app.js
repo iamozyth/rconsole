@@ -1412,6 +1412,7 @@ async function loadWorlds() {
       el('td', { class: 'act' },
         w.active ? null : worldButton('Switch', 'play', () => switchWorld(w.name)),
         w.generated ? worldButton('Back up', 'backups', () => backupWorld(w.name)) : null,
+        w.active && w.generated && serverRunning() && atLeast('admin') ? worldButton('Pre-generate', 'worlds', () => pregenerateWorld(w.name)) : null,
         w.active ? null : worldButton('Delete', 'delete', () => deleteWorld(w.name), true)))));
   } catch (e) {
     $('world-list').replaceChildren(emptyRow(5, `Can't list worlds: ${e.message}`));
@@ -1450,6 +1451,22 @@ async function switchWorld(name) {
 async function backupWorld(name) {
   try {
     renderBackupState((await api('POST', '/api/backups', { world: name })).state);
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function pregenerateWorld(name) {
+  const radius = el('select', { class: 'field' }, ...[1000, 2000, 3000, 5000, 10000].map((r) => el('option', { value: r, selected: r === 2000 || undefined }, `${r.toLocaleString()} blocks around spawn`)));
+  if (!(await confirmAction({
+    title: `Pre-generate ${name}?`,
+    body: 'Chunky generates the land ahead of time, in the background, so exploring players don\'t cause lag later. It takes a while and uses CPU; run it when few players are online. Needs the Chunky plugin (Plugins → search "Chunky").',
+    confirm: 'Start', tone: 'primary', icon: 'worlds',
+    content: el('label', { class: 'fld' }, el('span', {}, 'Area'), radius),
+  }))) return;
+  try {
+    await api('POST', `/api/worlds/${encodeURIComponent(name)}/pregenerate`, { radius: Number(radius.value) });
+    toast(`Chunky is generating ${name}. Progress shows in the console; "chunky pause" pauses it.`);
   } catch (e) {
     toast(e.message, 'bad');
   }
@@ -1932,12 +1949,13 @@ function pluginRow(p) {
           el('span', {}, p.modrinth?.title || p.name, ' ',
             !p.enabled ? el('span', { class: 'pill' }, 'Disabled') : null,
             p.update ? el('span', { class: 'pill own' }, icon('updates'), `${p.update.version} available`) : null,
-            p.error ? el('span', { class: 'pill bad' }, icon('alert'), p.error) : null),
+            p.error ? el('span', { class: 'pill bad' }, icon('alert'), p.error) : null,
+            p.changed ? el('span', { class: 'pill bad', title: 'This jar is not the file rconsole downloaded and checked. Something on the server rewrote it, which is how plugin malware spreads. Remove it and reinstall from Modrinth.' }, icon('alert'), 'Changed since installed') : null),
           el('span', { class: 'sub' }, meta || p.file),
           p.description ? el('span', { class: 'sub clamp' }, p.description) : null))),
     el('td', { 'data-label': 'Source' }, p.modrinth
       ? el('a', { class: 'link', href: `https://modrinth.com/plugin/${encodeURIComponent(p.modrinth.slug || p.modrinth.projectId)}`, target: '_blank', rel: 'noopener' }, 'Modrinth')
-      : el('span', { class: 'sub' }, 'Unknown source')),
+      : el('span', { class: 'sub', title: 'Modrinth doesn\'t know this exact file, so rconsole can\'t check where it came from. Only run jars from sources you trust.' }, 'Not verified')),
     el('td', { class: 'num', 'data-label': 'Size' }, fmt.bytes(p.size)),
     el('td', { class: 'act' },
       p.update ? pluginButton('Update', 'updates', (b) => updatePlugin(p, b), { primary: true }) : null,
@@ -3298,7 +3316,7 @@ async function loadProblems() {
     const unseen = g.filter((x) => x.unseen && x.severity !== 'warning').length;
     $('pr-info').textContent = g.length
       ? `${g.length} kind${g.length === 1 ? '' : 's'} of problem${g.length === 1 ? '' : 's'} in the last ${problemDays === 1 ? '24 hours' : '7 days'}${unseen ? `, ${unseen} new` : ''}.${o.timedOut ? ' Older logs were skipped (time limit).' : ''}`
-      : 'Crashes, plugin failures and errors from the server log.';
+      : 'Crashes, plugin failures and errors from the server log, and memory or RCON trouble on this machine.';
     $('pr-seen').disabled = !g.some((x) => x.unseen);
     $('pr-list').replaceChildren(...(g.length ? g.map((x) => el('li', { class: `problem ${x.severity}${x.unseen ? ' unseen' : ''}` },
       el('span', { class: 'problem-icon' }, icon(x.severity === 'warning' ? 'schedule' : 'alert')),
@@ -3307,10 +3325,11 @@ async function loadProblems() {
           el('b', {}, x.kind === 'lag' && x.maxBehindMs ? `${x.title} (up to ${(x.maxBehindMs / 1000).toFixed(1)} s behind)` : x.title),
           x.plugin ? el('span', { class: 'pill' }, x.plugin) : null,
           x.unseen && x.severity !== 'warning' ? el('span', { class: 'pill bad' }, 'New') : null),
-        x.message ? el('code', { class: 'problem-msg' }, x.message) : null,
+        // Machine conditions are sentences, not log lines, and hold right now.
+        x.message ? el(x.kind === 'host' ? 'p' : 'code', { class: x.kind === 'host' ? 'problem-text' : 'problem-msg' }, x.message) : null,
         x.detail ? el('code', { class: 'problem-detail' }, x.detail) : null,
-        el('span', { class: 'problem-meta' }, `${x.count}× · last ${fmt.relative(new Date(x.last).toISOString())}${x.count > 1 ? ` · first ${fmt.relative(new Date(x.first).toISOString())}` : ''}`)),
-      x.message || x.kind === 'lag'
+        el('span', { class: 'problem-meta' }, x.kind === 'host' ? 'Now, on this machine' : `${x.count}× · last ${fmt.relative(new Date(x.last).toISOString())}${x.count > 1 ? ` · first ${fmt.relative(new Date(x.first).toISOString())}` : ''}`)),
+      (x.message && x.kind !== 'host') || x.kind === 'lag'
         ? el('button', { class: 'btn btn-sm', onclick: () => searchLogsFor(x.kind === 'lag' ? "Can't keep up" : x.message) }, icon('search'), 'Show in logs')
         : null))
       : [el('li', { class: 'problems-empty' }, el('span', { class: 'problem-icon ok' }, icon('check')), el('div', {}, el('b', {}, 'No problems found. '), `Nothing went wrong in the last ${problemDays === 1 ? '24 hours' : '7 days'}.`))]));

@@ -326,6 +326,30 @@ function writeIndex(index) {
   fs.renameSync(`${previousIndexFile}.tmp`, previousIndexFile);
 }
 
+// The sha512 of every jar rconsole installed, per server, in BACKUP_DIR
+// (hidden from the servers). rconsole flags a jar that changed since: a
+// plugin or malware rewriting other jars. Keys leave out ".disabled".
+const pluginKey = (file) => file.replace(/\.disabled$/, '');
+const hashesFile = () => path.join(realDir(path.join(BK, '.plugin-hashes')), `${path.dirname(MC) === config.serversDir ? path.basename(MC) : 'attached'}.json`);
+function recordPlugins(changes) {
+  const file = hashesFile();
+  let known = {};
+  try {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      known = JSON.parse(fs.readFileSync(fd, 'utf8')) || {};
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {}
+  for (const [name, sha512] of Object.entries(changes)) {
+    if (sha512) known[pluginKey(name)] = sha512;
+    else delete known[pluginKey(name)];
+  }
+  writeExclusive(file, JSON.stringify(known));
+}
+const sha512Of = (file) => crypto.createHash('sha512').update(fs.readFileSync(file)).digest('hex');
+
 // Moves a plugin jar out of the way into BACKUP_DIR/.plugin-trash.
 function trashPlugin(file) {
   const dir = realDir(path.join(BK, '.plugin-trash'));
@@ -365,6 +389,7 @@ async function pluginInstall({ versionId, replace }) {
   } finally {
     fs.rmSync(tmp, { force: true });
   }
+  recordPlugins({ ...(replace && replace !== file.filename ? { [replace]: null } : {}), [file.filename]: file.sha512 });
   return { file: file.filename, version: version.version_number, projectId: version.project_id, replaced: replace || null };
 }
 
@@ -383,7 +408,9 @@ async function pluginRemove({ file }) {
   useAddonDir();
   pluginFile(file);
   if (!exists(path.join(pluginsDir, file))) fail(`${file} not found`);
-  return { removed: file, trashed: trashPlugin(file) };
+  const trashed = trashPlugin(file);
+  recordPlugins({ [file]: null });
+  return { removed: file, trashed };
 }
 
 async function pluginRollback({ file }) {
@@ -396,6 +423,8 @@ async function pluginRollback({ file }) {
   fs.renameSync(path.join(previousDir, previous), path.join(pluginsDir, previous));
   delete index[file];
   writeIndex(index);
+  // The old jar comes from rconsole's own copy, as it was when replaced.
+  recordPlugins({ [file]: null, [previous]: sha512Of(path.join(pluginsDir, previous)) });
   return { file: previous, rolledBackFrom: file };
 }
 
