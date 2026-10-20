@@ -904,6 +904,10 @@ function renderStatus(s) {
   renderBackupState(s.backup);
   renderUpdateState(s.update);
   renderSelfSummary(s.self);
+  if (s.joinRequests !== undefined && s.joinRequests !== joinPending) {
+    joinPending = s.joinRequests;
+    if (document.body.dataset.area === 'players' && atLeast('moderator')) loadJoin();
+  }
   if (!(document.body.dataset.area === 'players' && currentView('players') === 'addresses')) renderSecurityBadge(s.security);
   renderProblemsBadge(s.problems);
   renderSwitcher();
@@ -2150,12 +2154,136 @@ async function loadAccess() {
     }
     $('ph-kpis').hidden = !historyData;
     renderPeople();
+    if (atLeast('moderator')) loadJoin();
   } catch (e) {
     $('access-error').hidden = false;
     $('access-error').textContent = `Can't read the player lists: ${e.message}`;
   }
 }
 tabLoaders.players = loadAccess;
+
+// ---------------------------------------------------------------------------
+// Knock to join: players turned away by the whitelist, and invite links
+// ---------------------------------------------------------------------------
+
+let joinData = null;
+let joinPending = 0;
+
+function joinMeta(r) {
+  const tries = r.via === 'invite' ? 'used an invite' : r.count > 1 ? `tried ${r.count}×` : 'tried to join';
+  return [tries, r.via === 'invite' && r.invite ? `“${r.invite}”` : null, fmt.relative(r.last), r.ip].filter(Boolean).join(' · ');
+}
+
+async function answerJoin(r, verb, button) {
+  await busy(button, async () => {
+    try {
+      await api('POST', `/api/join/${r.id}/${verb}`);
+      toast(verb === 'allow' ? `${r.name} is whitelisted and can join now.` : `Ignored ${r.name}. New tries won't alert you for a week.`);
+      if (verb === 'allow') {
+        await new Promise((res) => setTimeout(res, 400)); // whitelist.json is written asynchronously
+        await loadAccess();
+      } else await loadJoin();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+function renderJoin() {
+  const pending = joinData.requests.filter((r) => r.status === 'pending');
+  joinPending = pending.length;
+  renderSecurityBadge(lastStatus?.security);
+  $('join-panel').hidden = !pending.length;
+  $('join-info').textContent = joinData.notifications
+    ? `Players who aren't whitelisted and tried to join, or used an invite link.${joinData.oneTap ? ' You can also allow them from the notification.' : ''}`
+    : "Players who aren't whitelisted and tried to join, or used an invite link. Set up notifications (Settings → Notifications) to hear about them right away.";
+  $('join-list').replaceChildren(...pending.map((r) => {
+    const allow = el('button', { class: 'btn btn-primary btn-sm', type: 'button' }, icon('check'), 'Allow');
+    const ignore = el('button', { class: 'btn btn-quiet btn-sm', type: 'button' }, 'Ignore');
+    allow.addEventListener('click', () => answerJoin(r, 'allow', allow));
+    ignore.addEventListener('click', () => answerJoin(r, 'ignore', ignore));
+    return el('li', {},
+      avatar(r.uuid || r.name),
+      el('span', { class: 'who-cell' }, el('span', { class: 'name' }, r.name), el('span', { class: 'meta', title: fmt.date(r.last) }, joinMeta(r))),
+      el('span', { class: 'actions' }, ignore, allow));
+  }));
+  renderInvites();
+}
+
+function inviteMeta(i) {
+  const uses = i.max === 1 ? (i.used ? 'used' : 'single use') : `${i.used} of ${i.max} used`;
+  const until = !i.active ? (i.used >= i.max ? 'used up' : 'expired') : i.expires ? `until ${fmt.date(i.expires)}` : 'no expiry';
+  return [uses, until, i.auto ? 'whitelists right away' : 'asks you first', i.names.length ? i.names.join(', ') : null].filter(Boolean).join(' · ');
+}
+
+function renderInvites() {
+  const list = joinData?.invites || [];
+  $('invite-list').replaceChildren(...(list.length
+    ? list.map((i) => {
+        const revoke = i.active ? el('button', { class: 'btn btn-quiet btn-sm danger', type: 'button' }, 'Withdraw') : null;
+        revoke?.addEventListener('click', () => busy(revoke, async () => {
+          try {
+            await api('DELETE', `/api/invites/${i.id}`);
+            toast('The link no longer works.');
+            await loadJoin();
+          } catch (e) {
+            toast(e.message, 'bad');
+          }
+        }));
+        return el('li', { class: i.active ? null : 'muted' },
+          el('span', { class: 'ip-tile' }, icon('door')),
+          el('span', { class: 'who-cell' }, el('span', { class: 'name' }, i.label || 'Invite'), el('span', { class: 'meta' }, inviteMeta(i))),
+          revoke);
+      })
+    : [emptyItem('No invite links yet.')]));
+}
+
+async function loadJoin() {
+  try {
+    joinData = await api('GET', '/api/join');
+    renderJoin();
+  } catch (e) {
+    $('join-panel').hidden = true;
+  }
+}
+
+const INVITE_ADDR_KEY = 'rconsole.invite.address';
+$('invite-toggle').addEventListener('click', () => {
+  const f = $('invite-form');
+  $('invite-link').hidden = true;
+  try {
+    if (!f.elements.address.value) f.elements.address.value = localStorage.getItem(INVITE_ADDR_KEY) || '';
+  } catch {}
+  renderInvites();
+  openDrawer('drawer-invite', f.elements.label);
+  loadJoin();
+});
+$('invite-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = e.target;
+  busy(f.querySelector('.btn-primary'), async () => {
+    try {
+      const { link } = await api('POST', '/api/invites', {
+        label: f.elements.label.value.trim(),
+        address: f.elements.address.value.trim(),
+        days: Number(f.elements.days.value),
+        uses: Number(f.elements.uses.value),
+        auto: f.elements.auto.checked,
+      });
+      try {
+        localStorage.setItem(INVITE_ADDR_KEY, f.elements.address.value.trim());
+      } catch {}
+      $('invite-url').value = link;
+      $('invite-link').hidden = false;
+      $('invite-url').select();
+      f.elements.label.value = '';
+      await loadJoin();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
+$('invite-copy').addEventListener('click', () => copyText($('invite-url').value, 'Invite link'));
 
 async function mutate(command) {
   try {
@@ -5283,7 +5411,7 @@ const seenAt = () => {
 
 function renderSecurityBadge(sec) {
   const fresh = sec?.last && Date.parse(sec.last) > seenAt();
-  document.querySelector('.nav [data-tab=players]').classList.toggle('has-alert', Boolean(fresh));
+  document.querySelector('.nav [data-tab=players]').classList.toggle('has-alert', Boolean(fresh) || joinPending > 0);
 }
 
 function adviceItem(tone, title, body, action) {

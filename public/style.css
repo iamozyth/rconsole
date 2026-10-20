@@ -1417,6 +1417,26 @@ td.nowrap { white-space: nowrap; }
 .login .foot { text-align: center; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
 .preview-tag { display: inline-block; margin-left: 4px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; white-space: nowrap; }
 
+/* Want to join, invite links */
+.join-panel .people { max-height: none; }
+.join-panel .people li { flex-wrap: wrap; }
+.join-panel .people li .actions { display: flex; gap: 6px; flex: none; margin-left: auto; }
+.join-panel .people li .meta, .invite-list .people li .meta { margin-left: 0; white-space: normal; }
+@media (max-width: 640px) { .join-panel .people li .actions { flex-basis: 100%; justify-content: flex-end; } }
+.drawer-form .wide { grid-column: 1 / -1; }
+.invite-link { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: var(--r-lg); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.invite-link-row { display: flex; gap: 8px; }
+.invite-link-row .field { flex: 1; min-width: 0; }
+.invite-list h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.invite-list .people { max-height: none; padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); }
+.invite-list .people li { padding: 8px 12px; }
+.invite-list .people li.muted { opacity: 0.6; }
+
+/* Invite page (/join/<token>) */
+.invite-body { padding: 28px; margin: 0; }
+.invite-address { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 2px 0 0; color: var(--text-3); font-size: 12px; }
+.invite-address code { padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--sunken); color: var(--text); font: 500 14px var(--mono); user-select: all; }
+
 /* Responsive ---------------------------------------------------------- */
 
 @media (max-width: 1180px) {
