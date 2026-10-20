@@ -74,6 +74,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 
 **Worlds and backups**
 - Switch worlds, create new ones (seed and type), delete with an automatic archive.
+- **Import a world** from your computer: drop a `.zip` (as Finder or Windows make it), `.tar.gz`, `.tar.zst` or `.tar.xz` of a world folder, or of a whole server folder. Resumable uploads of any size; the archive is checked before anything changes, the world it replaces is backed up first. See [Importing a world](#importing-a-world).
 - Per-world **backups** with autosave paused during the copy, retention, download, and **restore** over a world or as a new one.
 - **Offsite copies** in any S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO), optionally encrypted before they leave the machine, uploaded after every backup.
 - **Automation**: restarts, backups and commands, daily or weekly.
@@ -389,6 +390,7 @@ http:
 ```
 
 Add the IP Traefik connects from under **Settings → System → Web access → Trusted proxies** (rconsole offers it when it sees requests coming through an untrusted proxy), or set `TRUST_PROXY`.
+World uploads need no extra settings (see [Importing a world](#importing-a-world)); if you add a `buffering` middleware, keep `maxRequestBodyBytes` above 16 MB.
 
 ## Updating
 
@@ -565,6 +567,19 @@ It exports up/TPS/MSPT/players, host CPU, memory and disk, the Minecraft process
 
 rconsole reads the jars through the `minecraft` group, so they need to be group-readable (`sudo chmod -R g+rX /srv/minecraft/plugins`).
 
+## Importing a world
+
+World → **Import world** takes an archive of a world from your computer, a singleplayer save, a world from another host or a download, and adds it to the active server.
+
+- **What to upload**: the world folder (the one with `level.dat` in it) packed as `.zip`, `.tar`, `.tar.gz`, `.tar.zst`, `.tar.xz` or `.tar.bz2`. Finder's *Compress*, Windows' *Send to → Compressed folder* and `zip -r` all work, as does an rconsole backup. A zip of a whole server folder works too: rconsole finds the world in it. Bukkit's `<world>_nether` and `<world>_the_end` next to it come along; the 26.x layout (`dimensions/` inside the world) needs nothing extra.
+- **Uploads** go up in chunks to `BACKUP_DIR/.uploads`, sized to take about 20 seconds each, so slow lines, proxies with request limits and dropped connections are fine: the upload carries on where it stopped. It keeps going if you close the drawer (the button shows the progress). Unfinished uploads are removed after a day; the upload needs its size plus 1 GB free on the backup disk.
+- **New name**: the world is unpacked next to the others; nothing is stopped. Tick *Switch to it* to restart into it.
+- **Existing name**: tick *Replace*. The current world is backed up first (under Backups), then replaced. For the active world players are warned, the server stops for the swap and starts again.
+- **Checks**: the helper unpacks the archive itself (not with `tar` or `unzip`) into a private folder on the server's disk, as the Minecraft user: only plain files and folders, no links, no absolute or `..` paths, no more than the free disk space less 2 GB, zip checksums verified. Only then is the world moved into place, with folders `0750` and files `0640` so rconsole can read it. A broken archive changes nothing.
+- **Versions**: the import reports the Minecraft version the world was saved with. The server upgrades an older world on its first start (keep the backup); a world from a newer version than the server's may not load.
+
+Traefik needs no change for uploads: it has no body size limit by default, and each request is one chunk.
+
 ## Plugin configs
 
 **Server → Files** (admins) lists the text config files under `plugins/` (Paper, Spigot, Purpur, Folia) or `config/` (Fabric, Quilt, Forge, NeoForge): `.yml .yaml .json .json5 .properties .toml .conf .cfg .txt`, up to 512 KB each.
@@ -598,7 +613,7 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.
 - **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.
 - **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
-- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
+- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths; uploaded worlds are unpacked by its own code, never through links, within a disk budget) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
 - **Installed servers**: downloads are resolved and checked by the helper, never taken from rconsole; only HTTPS from the publisher's own hosts, only with the publisher's checksum (see [Servers](#servers) for which one). Archives are listed before they are unpacked. `instance.json` is validated wherever it's read, and the java command line is built only from checked values (memory, a fixed flag profile, a plain relative launch path). Each server runs in its own sandboxed `rconsole-mc@` unit without rconsole's environment file, so plugins never see rconsole's secrets; it sees only its own folder, with `instance.json` read-only, no capabilities and its own IPC namespace. Helper jobs get rconsole's settings but not its secrets. Plugins installed by hand, or changed since rconsole installed them, are marked under Plugins.
 - **RCON** is plain text, so `rconsole-limits.service` drops connections to the RCON ports that don't come from this machine. Problems warns when one is reachable anyway.
 - **polkit** lets the `rconsole` user start exactly these job units, start/stop/restart `minecraft.service` and `rconsole-mc@<name>.service`, nothing else. Signed-in users are full admins: RCON commands and plugin installs (from Modrinth) run with the Minecraft server's rights by design. rconsole itself can't make the helper write outside its fixed job types, and updates only install downloads whose hash matches the publisher's API.

@@ -364,6 +364,7 @@ main { flex: 1; min-height: 0; overflow: auto; padding: 28px 28px 48px; scrollba
   border-bottom: 1px solid var(--line);
 }
 .panel-head > .btn, .panel-head > .switch { margin-left: auto; }
+.panel-head > .btn + .btn { margin-left: 8px; }
 .head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .head-text .note { font-size: 13px; }
 .head-text + .btn { margin-left: auto; }
@@ -801,6 +802,21 @@ td.nowrap { white-space: nowrap; }
 .check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
 @media (max-width: 720px) { .server-new { grid-template-columns: 1fr; } }
 .dims { display: flex; gap: 4px; flex-wrap: wrap; }
+.world-import > .wide, .world-import > .dropzone { grid-column: 1 / -1; }
+.dropzone { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 20px; border: 1.5px dashed var(--line-strong, var(--line)); border-radius: var(--r-lg); background: var(--field); text-align: center; cursor: pointer; transition: border-color 150ms ease-out, background 150ms ease-out; }
+.dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.dropzone svg { width: 28px; height: 28px; fill: var(--text-3); }
+.dropzone b { font-weight: 500; overflow-wrap: anywhere; }
+.dropzone .note { max-width: 46ch; }
+.dropzone:hover, .dropzone:has(input:focus-visible), .dropzone[data-over] { border-color: var(--accent); }
+.dropzone:has(input:focus-visible) { box-shadow: var(--ring); }
+.dropzone[data-over] { background: color-mix(in srgb, var(--accent) 8%, var(--field)); }
+.dropzone[data-state='picked'] svg { fill: var(--accent); }
+.dropzone[aria-disabled] { opacity: 0.6; pointer-events: none; }
+@media (max-width: 560px) { .world-import > .form-actions { flex-wrap: wrap; } .world-import > .form-actions .note { flex-basis: 100%; } }
+.upload-progress { display: flex; flex-direction: column; gap: 6px; }
+.upload-progress .meter { height: 6px; }
+.upload-progress .meter-fill { background: var(--accent); transition: width 200ms linear; }
 .dialog-fields { display: flex; flex-direction: column; gap: 12px; padding: 0 20px 20px 68px; }
 .dialog-fields .fld .field { width: 100%; }
 .dialog-form { display: flex; flex-direction: column; gap: 12px; }

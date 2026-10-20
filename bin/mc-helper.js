@@ -28,6 +28,8 @@ const platform = require('../lib/platform');
 const configs = require('../lib/configs');
 const servers = require('./mc-servers');
 const instances = require('../lib/instances');
+const archive = require('../lib/archive');
+const worldImport = require('../lib/worldimport');
 
 // MC_DIR, or the folder of the server a request names (see main()).
 let MC = config.mcDir;
@@ -276,6 +278,91 @@ async function deleteWorld({ world, archive }) {
   return { deleted: world, archived };
 }
 
+// Imports a world from an archive uploaded through rconsole
+// (BACKUP_DIR/.uploads/<id>.part). It is unpacked into a private folder in
+// the server folder (same disk, so moving it in is a rename), the world is
+// found and checked there, and only then moved into place as `target`.
+// With `replace`, the existing folders are parked first and put back if
+// anything fails; rconsole stops the server and backs the world up before.
+const IMPORT_RESERVE = 2 * 1024 ** 3; // left free for the server and its logs
+
+function freeBytes(dir) {
+  try {
+    const s = fs.statfsSync(dir);
+    return s.bavail * s.bsize;
+  } catch {
+    return Infinity; // Node < 18.15: the extractor's own checks still apply
+  }
+}
+
+async function importWorld({ upload, target, replace }) {
+  if (!names.JOB_ID_RE.test(String(upload))) fail('Invalid upload');
+  checkWorld(target);
+  if (!replace && worldDirs(target).length) fail(`A world named "${target}" already exists`);
+  // Left behind by a helper that was killed mid-import.
+  for (const f of fs.readdirSync(MC)) {
+    if (!f.startsWith('.rconsole-import.')) continue;
+    const st = fs.lstatSync(path.join(MC, f));
+    if (st.isDirectory() && Date.now() - st.mtimeMs > 86400 * 1000) fs.rmSync(path.join(MC, f), { recursive: true, force: true });
+  }
+  let fd;
+  try {
+    // realDir: a link planted in place of .uploads is refused.
+    fd = fs.openSync(path.join(realDir(path.join(BK, '.uploads')), `${upload}.part`), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  } catch {
+    fail('The upload is gone (uploads are removed after a day); upload the world again');
+  }
+  const staging = path.join(MC, randomName('.rconsole-import'));
+  try {
+    if (!fs.fstatSync(fd).isFile()) fail('The upload is gone; upload the world again');
+    const maxBytes = freeBytes(MC) - IMPORT_RESERVE;
+    if (maxBytes <= 0) fail('Not enough free disk space to unpack a world (2 GB are kept free)');
+    fs.mkdirSync(staging, { mode: 0o700 });
+    // rconsole can still write to the upload while it is read (it owns the
+    // file); that only changes what gets unpacked, and everything unpacked
+    // is checked here, so no private copy is made.
+    const unpacked = await archive.extract(fd, staging, { maxBytes });
+    const found = worldImport.locate(staging);
+
+    const stamp = names.timestamp();
+    const parked = [];
+    const placed = [];
+    try {
+      if (replace) {
+        for (const d of worldDirs(target)) {
+          const aside = path.join(MC, `.import-old-${stamp}-${d}`);
+          fs.renameSync(path.join(MC, d), aside);
+          parked.push([aside, path.join(MC, d)]);
+        }
+      } else if (worldDirs(target).length) fail(`A world named "${target}" already exists`);
+      for (const [suffix, rel] of Object.entries(found.dims)) {
+        const dest = path.join(MC, target + suffix);
+        fs.renameSync(path.join(staging, rel), dest);
+        placed.push(dest);
+      }
+      fs.chmodSync(path.join(MC, target), 0o750); // the archive's top folder may have been the staging folder
+    } catch (err) {
+      for (const p of placed) fs.rmSync(p, { recursive: true, force: true });
+      for (const [aside, orig] of parked) fs.renameSync(aside, orig);
+      throw err;
+    }
+    for (const [aside] of parked) fs.rmSync(aside, { recursive: true, force: true });
+    return {
+      world: target,
+      from: found.name,
+      dimensions: Object.keys(found.dims).map((s) => target + s),
+      replaced: parked.length > 0,
+      format: unpacked.format,
+      files: unpacked.files,
+      bytes: unpacked.bytes,
+      ...found.level,
+    };
+  } finally {
+    fs.closeSync(fd);
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
 // --- server.properties --------------------------------------------------------
 
 async function setProperties({ set, world }) {
@@ -508,6 +595,7 @@ const TASKS = {
   restore,
   'world-delete': deleteWorld,
   'world-access': worldAccess,
+  'world-import': importWorld,
   properties: setProperties,
   'paper-update': paperUpdate,
   'plugin-install': pluginInstall,

@@ -19,6 +19,7 @@ const { Servers } = require('./lib/servers');
 const active = require('./lib/active');
 const distributions = require('./lib/distributions');
 const { Worlds } = require('./lib/worlds');
+const { Uploads } = require('./lib/uploads');
 const { Maintenance } = require('./lib/maintenance');
 const { readProperties } = require('./lib/access');
 const { Pending } = require('./lib/pending');
@@ -78,7 +79,9 @@ const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: con
 const power = new Power({ unit: config.mcService, log });
 const countdown = new Countdown({ rcon, log, power });
 const ops = new Ops({ log });
-const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs, backups, power, countdown, ops, rcon, log });
+const uploads = new Uploads({ backupDir: config.backupDir, log, explain: require('./lib/worldimport').explainNotWorld });
+setInterval(() => uploads.prune(), 3600 * 1000).unref();
+const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs, backups, power, countdown, ops, rcon, log, uploads, gameVersion: () => gameVersion() });
 const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
 const pending = new Pending({ stateDir: config.stateDir, power });
 const platform = platformLib.detector(config.mcDir);
@@ -640,6 +643,7 @@ const route = (method, pattern, handler, audited = true) => routes.push({ method
 
 // Audit names for state-changing requests: [method, path, (params, body, query) => [action, target]].
 const dec = decodeURIComponent;
+const humanBytes = (n) => (!(n >= 0) ? '?' : n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
 const AUDIT_NAMES = [
   ['POST', /^\/api\/command$/, (p, b) => ['command', `/${String(b.command || '').replace(/^\//, '')}`]],
   ['POST', /^\/api\/server\/power$/, (p, b) => [`server ${b.action}`, b.seconds ? `in ${b.seconds}s` : '']],
@@ -652,6 +656,8 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/plugins\/([^/]+)$/, ([f]) => ['plugin remove', dec(f)]],
   ['POST', /^\/api\/worlds$/, (p, b) => ['world create', b.name]],
   ['POST', /^\/api\/worlds\/([\w-]+)\/activate$/, ([n]) => ['world switch', n]],
+  ['POST', /^\/api\/worlds\/uploads$/, (p, b) => ['world upload', b.name ? `${String(b.name).slice(0, 120)} (${humanBytes(Number(b.size))})` : '']],
+  ['POST', /^\/api\/worlds\/import$/, (p, b) => ['world import', `${b.name}${b.replace ? ' (replacing it)' : ''}${b.activate ? ', switch to it' : ''}`]],
   ['DELETE', /^\/api\/worlds\/([\w-]+)$/, ([n], b, q) => ['world delete', `${n}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['POST', /^\/api\/backups$/, (p, b) => ['backup create', b.world || 'active world']],
   ['POST', /^\/api\/backups\/([^/]+)\/restore$/, ([n], b) => [`backup restore`, `${dec(n)} → ${b.mode === 'new' ? b.target : 'replace'}`]],
@@ -1300,6 +1306,27 @@ route('POST', /^\/api\/worlds\/([\w-]+)\/pregenerate$/, async (req, res, [name])
   for (const cmd of ['chunky spawn', `chunky radius ${Number(radius)}`, 'chunky start']) await rcon.send(cmd);
   log(`${req.user}: pre-generating ${name} with Chunky, radius ${radius}`);
   return { started: true, world: name, radius: Number(radius) };
+});
+
+// Uploading a world: create, send chunks (resumable), then import.
+route('POST', /^\/api\/worlds\/uploads$/, async (req) => {
+  const { name, size } = await readJson(req);
+  return [201, uploads.create({ name, size, user: req.user })];
+});
+route('GET', /^\/api\/worlds\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => uploads.status(id));
+route('PUT', /^\/api\/worlds\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => {
+  if (!String(req.headers['content-type']).startsWith('application/octet-stream')) throw httpError(415, 'Content-Type must be application/octet-stream');
+  const offset = new URL(req.url, 'http://x').searchParams.get('offset');
+  return uploads.append(id, offset, req, req.user);
+}, false);
+route('DELETE', /^\/api\/worlds\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => {
+  uploads.meta(id);
+  uploads.remove(id);
+  return { ok: true };
+}, false);
+route('POST', /^\/api\/worlds\/import$/, async (req) => {
+  const { upload, name, replace, activate, seconds } = await readJson(req);
+  return [202, worlds.importUpload(String(upload || ''), { name: String(name || '').trim(), replace: Boolean(replace), activate: Boolean(activate), seconds: delayOf(seconds), user: req.user })];
 });
 
 route('DELETE', /^\/api\/worlds\/([\w-]+)$/, async (req, res, [name]) => {

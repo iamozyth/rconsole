@@ -202,7 +202,7 @@ function applyRole(role) {
   myRole = ROLE_RANK[role] != null ? role : 'admin';
   document.body.dataset.role = myRole;
   // Forms that change things are read-only below their role.
-  for (const id of ['settings-form', 'notify-form', 'task-form', 'os-form', 'world-new', 'server-new', 'sys-web', 'sys-security', 'sys-backups']) if ($(id)) $(id).inert = !atLeast('admin');
+  for (const id of ['settings-form', 'notify-form', 'task-form', 'os-form', 'world-new', 'world-import', 'server-new', 'sys-web', 'sys-security', 'sys-backups']) if ($(id)) $(id).inert = !atLeast('admin');
   if (!atLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
 }
 
@@ -1511,7 +1511,7 @@ function renderOp(op) {
   $('op-icon').setAttribute('href', op.running ? '#pg-server' : '#pg-alert');
   $('op-text').textContent = op.running ? `${op.label}: ${op.step}…` : recentFail ? `${op.label} failed: ${op.error}` : '';
   if (opWasRunning && !op.running) {
-    toast(op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.`, op.error ? 'bad' : 'ok');
+    toast(op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.${op.result?.note ? ` ${op.result.note}` : ''}`, op.error ? 'bad' : 'ok');
     if (document.body.dataset.area === 'world') loadWorlds();
     if (document.body.dataset.area === 'backups') loadBackupsArea();
   }
@@ -1891,6 +1891,230 @@ worldForm.addEventListener('submit', async (e) => {
     startOp('/api/worlds', { name, seed: f.seed.value.trim(), type: f.type.value, seconds: Number(f.seconds.value) }, `Creating ${name}. The server switches to it ${serverRunning() ? 'after the countdown' : 'on next start'}.`));
   worldForm.reset();
   toggleWorldForm(false);
+});
+
+// --- Import a world from an archive -------------------------------------------
+// The archive goes up in chunks (resumable after a dropped connection), then
+// the helper unpacks and checks it and moves the world into place. The
+// upload keeps going when the drawer is closed; reopening shows it.
+
+const importForm = $('world-import');
+const importFileInput = $('import-file');
+let importFile = null;
+let importing = null; // { id, xhr, cancelled } while uploading
+
+const ARCHIVE_EXT = /\.(zip|tar|tgz|txz|tzst|gz|zst|xz|bz2)$/i;
+function worldNameFrom(fileName) {
+  let n = fileName;
+  while (ARCHIVE_EXT.test(n)) n = n.replace(ARCHIVE_EXT, '');
+  n = n.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').replace(/_(nether|the_end)$/, '').slice(0, 32) || 'imported';
+  let name = n;
+  for (let i = 2; worldNames.includes(name); i++) name = `${n.slice(0, 29)}-${i}`;
+  return name;
+}
+const validWorldName = (n) => /^[A-Za-z0-9_-]{1,32}$/.test(n) && !/_(nether|the_end)$/.test(n) && !/^[-.]/.test(n);
+
+function renderImportOptions() {
+  const name = importForm.elements.name.value.trim();
+  const exists = worldNames.includes(name);
+  const isActive = name === activeWorldName;
+  const running = serverRunning();
+  const box = $('import-options');
+  const prev = { replace: box.querySelector('[name=replace]')?.checked, activate: box.querySelector('[name=activate]')?.checked, seconds: box.querySelector('[name=seconds]')?.value };
+  const check = (field, label, note, checked) => el('label', { class: 'radio-row' },
+    el('input', { type: 'checkbox', name: field, checked: checked || undefined }),
+    el('span', {}, el('b', {}, label), el('span', { class: 'note' }, note)));
+  const delay = delaySelect(Number(prev.seconds ?? 60));
+  const rows = [];
+  if (exists) {
+    rows.push(check('replace', `Replace ${name}`,
+      isActive
+        ? `This is the active world. ${running ? 'Players are warned, the server stops, the world' : 'It'} is backed up for safety, then replaced${running ? ', and the server starts again' : ''}. Pick another name to keep both.`
+        : 'It is backed up for safety, then replaced. Pick another name to keep both.', prev.replace));
+    if (isActive && running) rows.push(fld('Stop the server', delay));
+  } else {
+    rows.push(check('activate', 'Switch to it after the import', running ? `The server restarts into it after a countdown. ${activeWorldName || 'The current world'} stays on disk.` : 'It is played from the next start.', prev.activate));
+    if (running) rows.push(Object.assign(fld('Restart', delay), { hidden: !prev.activate }));
+  }
+  box.replaceChildren(...rows);
+  box.onchange = () => {
+    const act = box.querySelector('[name=activate]');
+    const delayFld = box.querySelector('.fld');
+    if (act && delayFld) delayFld.hidden = !act.checked;
+  };
+}
+
+function pickImportFile(file) {
+  if (!file || importing) return;
+  importFile = file;
+  $('import-file-name').textContent = file.name;
+  const looksRight = ARCHIVE_EXT.test(file.name);
+  $('import-file-note').textContent = `${fmt.bytes(file.size)}${looksRight ? '' : '. This doesn\'t look like a .zip or .tar archive; it is checked once the upload starts.'}`;
+  $('import-drop').dataset.state = 'picked';
+  importForm.elements.name.value = worldNameFrom(file.name);
+  renderImportOptions();
+}
+
+function setImportBusy(on) {
+  importing = on ? importing : null;
+  for (const c of importForm.querySelectorAll('input, select')) c.disabled = on;
+  $('import-drop').toggleAttribute('aria-disabled', on);
+  $('world-import-go').hidden = on;
+  $('world-import-cancel').textContent = on ? 'Cancel upload' : 'Cancel';
+  $('import-progress').hidden = !on;
+  $('world-import-toggle').lastChild.textContent = on ? 'Uploading…' : 'Import world';
+}
+
+function resetImport() {
+  importFile = null;
+  importForm.reset();
+  importFileInput.value = '';
+  $('import-file-name').textContent = 'Choose a world archive';
+  $('import-file-note').textContent = 'or drop it here. A .zip of the world folder (as Finder or Windows make it), .tar.gz, .tar.zst or .tar.xz; a zip of a whole server folder works too. Nether and End come along.';
+  delete $('import-drop').dataset.state;
+  $('import-meter').style.width = '0';
+  $('import-options').replaceChildren();
+  setImportBusy(false);
+}
+
+// One chunk, with upload progress (fetch can't report it).
+function putChunk(id, offset, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    importing.xhr = xhr;
+    xhr.open('PUT', `/api/worlds/uploads/${id}?offset=${offset}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      let data = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {}
+      if (xhr.status === 401) location.replace('/login');
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(Object.assign(new Error(data.error || `Upload failed (HTTP ${xhr.status})`), { status: xhr.status }));
+    };
+    xhr.onerror = () => reject(new Error('Connection lost'));
+    xhr.onabort = () => reject(Object.assign(new Error('Upload cancelled'), { cancelled: true }));
+    xhr.send(blob);
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function uploadArchive(file) {
+  const up = await api('POST', '/api/worlds/uploads', { name: file.name, size: file.size });
+  importing.id = up.id;
+  let offset = up.received;
+  const started = Date.now();
+  let failures = 0;
+  const show = (sent) => {
+    const pct = (sent / file.size) * 100;
+    $('import-meter').style.width = `${pct.toFixed(1)}%`;
+    const secs = (Date.now() - started) / 1000;
+    const rate = secs > 1 ? sent / secs : 0;
+    const left = rate ? Math.round((file.size - sent) / rate) : null;
+    $('import-status').textContent = `${fmt.bytes(sent)} of ${fmt.bytes(file.size)}${rate ? ` · ${fmt.bytes(rate)}/s` : ''}${left != null && left > 0 ? ` · ${left < 60 ? `${left}s` : fmt.duration(left)} left` : ''}`;
+    $('world-import-toggle').lastChild.textContent = `Uploading ${Math.floor(pct)}%`;
+  };
+  show(offset);
+  // Chunks of about 20 seconds each: big on a fast line, small enough on a
+  // slow one to finish well inside proxy and server request timeouts.
+  let chunk = 4 * 1024 * 1024;
+  while (offset < file.size) {
+    if (importing.cancelled) throw Object.assign(new Error('Upload cancelled'), { cancelled: true });
+    const start = offset;
+    const end = Math.min(file.size, offset + chunk);
+    const t0 = Date.now();
+    try {
+      offset = (await putChunk(up.id, offset, file.slice(offset, end), (loaded) => show(start + loaded))).received;
+      const perSecond = (end - start) / Math.max(0.05, (Date.now() - t0) / 1000);
+      chunk = Math.max(1024 * 1024, Math.min(up.chunkSize, Math.round(perSecond * 20)));
+      failures = 0;
+    } catch (e) {
+      // Wrong file, no space, signed out: no point retrying.
+      if (e.cancelled || (e.status && e.status < 500 && ![408, 409, 429].includes(e.status))) throw e;
+      if (++failures > 8) throw new Error(`Upload failed: ${e.message}`);
+      for (let s = Math.min(30, 2 ** failures); s > 0 && !importing.cancelled; s--) {
+        $('import-status').textContent = `${e.message}. Retrying in ${s}s…`;
+        await sleep(1000);
+      }
+      offset = await api('GET', `/api/worlds/uploads/${up.id}`).then((st) => st.received).catch(() => offset);
+    }
+    show(offset);
+  }
+  return up.id;
+}
+
+importForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (importing) return;
+  const f = importForm.elements;
+  const name = f.name.value.trim();
+  if (!importFile) return toast('Choose a world archive first.', 'bad');
+  if (!validWorldName(name)) return toast('World names use letters, digits, - and _ (max 32), and can\'t end in _nether or _the_end.', 'bad');
+  const exists = worldNames.includes(name);
+  const replace = Boolean(importForm.querySelector('[name=replace]')?.checked);
+  const activate = Boolean(importForm.querySelector('[name=activate]')?.checked);
+  const seconds = Number(importForm.querySelector('[name=seconds]')?.value ?? 60);
+  if (exists && !replace) return toast(`A world named ${name} exists. Tick "Replace" or pick another name.`, 'bad');
+  if (lastStatus?.op?.running) return toast(`Wait for "${lastStatus.op.label}" to finish first.`, 'bad');
+  if (replace && name === activeWorldName && serverRunning() && !(await confirmAction({
+    title: `Replace the active world ${name}?`,
+    body: 'After the upload, players are warned, the server stops, the current world is backed up, and the uploaded one takes its place. The backup is under Backups if you want it back.',
+    confirm: 'Upload and replace', tone: 'danger', icon: 'worlds',
+  }))) return;
+  importing = { id: null, xhr: null, cancelled: false };
+  setImportBusy(true);
+  const file = importFile;
+  try {
+    const upload = await uploadArchive(file);
+    $('import-status').textContent = 'Uploaded. Starting the import…';
+    const op = await api('POST', '/api/worlds/import', { upload, name, replace, activate, seconds });
+    renderOp(op);
+    refreshStatus(true);
+    toast(`${file.name} is uploaded. Importing it as ${name}; the bar at the top shows the progress.`);
+    resetImport();
+    closeDrawer('drawer-import');
+  } catch (err) {
+    const id = importing?.id;
+    if (id && err.status !== 415) api('DELETE', `/api/worlds/uploads/${id}`).catch(() => {}); // 415: the server dropped it already
+    if (!err.cancelled) toast(err.message, 'bad');
+    setImportBusy(false);
+    $('import-meter').style.width = '0';
+  }
+});
+
+$('world-import-toggle').addEventListener('click', () => {
+  if (!importing && !importFile) resetImport();
+  else if (!importing) renderImportOptions();
+  openDrawer('drawer-import', importing ? $('world-import-cancel') : $('import-file'));
+});
+$('world-import-cancel').addEventListener('click', () => {
+  if (importing) {
+    importing.cancelled = true;
+    importing.xhr?.abort();
+    return;
+  }
+  resetImport();
+  closeDrawer('drawer-import');
+});
+importFileInput.addEventListener('change', () => pickImportFile(importFileInput.files[0]));
+importForm.elements.name.addEventListener('input', renderImportOptions);
+const dropzone = $('import-drop');
+for (const type of ['dragenter', 'dragover']) dropzone.addEventListener(type, (e) => {
+  e.preventDefault();
+  if (!importing) dropzone.dataset.over = '';
+});
+for (const type of ['dragleave', 'drop']) dropzone.addEventListener(type, () => delete dropzone.dataset.over);
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const item = e.dataTransfer.items?.[0];
+  if (item?.webkitGetAsEntry?.()?.isDirectory) return toast('That is a folder. Zip it first (Finder: right-click → Compress; Windows: Send to → Compressed folder), then drop the .zip.', 'bad');
+  pickImportFile(e.dataTransfer.files[0]);
+});
+window.addEventListener('beforeunload', (e) => {
+  if (importing) e.preventDefault();
 });
 
 async function loadBackups() {
