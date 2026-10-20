@@ -30,6 +30,7 @@ const servers = require('./mc-servers');
 const instances = require('../lib/instances');
 const archive = require('../lib/archive');
 const worldImport = require('../lib/worldimport');
+const files = require('../lib/files');
 
 // MC_DIR, or the folder of the server a request names (see main()).
 let MC = config.mcDir;
@@ -590,6 +591,180 @@ async function configWrite({ file, content, revert = false }) {
   return { file, bytes: next.length, reverted: Boolean(revert) };
 }
 
+// --- file manager ------------------------------------------------------------------
+//
+// Changes in the server folder for Server → Files. Every path is checked
+// again here (lib/files.js: no links, nothing of rconsole's own); what is
+// replaced or deleted is kept: an edited file's previous version for
+// Revert, a deleted file or folder as an archive in BACKUP_DIR.
+
+// Folders below MC for `p` (all but the last part), made where missing,
+// never through a link.
+function mkdirsIn(root, p) {
+  let cur = root;
+  for (const x of p) {
+    cur = path.join(cur, x);
+    const st = fs.lstatSync(cur, { throwIfNoEntry: false });
+    if (!st) fs.mkdirSync(cur, { mode: 0o750 });
+    else if (!st.isDirectory()) fail(`${path.relative(root, cur)} is not a folder`);
+  }
+  return cur;
+}
+
+// The world rconsole and the server use can't be moved or deleted from
+// here (World has delete and import for that).
+async function notActiveWorld(p) {
+  if (p.length !== 1) return;
+  const world = await activeWorld();
+  if (names.DIMENSIONS.some((d) => p[0] === world + d)) fail(`${p[0]} is the active world; use World to replace or delete it`);
+}
+
+const readNoFollow = (file) => {
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    return fs.readFileSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+};
+
+function keepPrevious(p, current) {
+  const dir = mkdirsIn(MC, [files.PREVIOUS, ...p.slice(0, -1)]);
+  writeExclusive(path.join(dir, p[p.length - 1]), current);
+}
+
+async function fileWrite({ path: rel, content, expected = null }) {
+  const p = files.parts(rel, { write: true });
+  if (typeof content !== 'string') fail('Missing content');
+  let next = Buffer.from(content, 'utf8');
+  if (next.length > files.MAX_EDIT) fail('File is too large to save here (1 MB max)');
+  const { full, st } = files.walk(MC, p, { kind: 'file', missingOk: true });
+  let mode = 0o640;
+  if (st) {
+    const current = readNoFollow(full);
+    if (files.sha256(current) !== expected) fail(`${p.join('/')} changed since you opened it; open it again`);
+    if (p.length === 1 && p[0] === 'server.properties') next = Buffer.from(files.keepRcon(content, current.toString('utf8'), properties), 'utf8');
+    keepPrevious(p, current);
+    mode = st.mode & 0o777;
+  } else if (expected !== null) fail(`${p.join('/')} was deleted since you opened it`);
+  writeExclusive(full, next, mode);
+  return { path: p.join('/'), bytes: next.length, created: !st };
+}
+
+async function fileRevert({ path: rel }) {
+  const p = files.parts(rel, { write: true });
+  const { full } = files.walk(MC, p, { kind: 'file' });
+  const prev = files.walk(MC, [files.PREVIOUS, ...p], { kind: 'file' });
+  const before = readNoFollow(prev.full);
+  const current = readNoFollow(full);
+  // Revert twice and you are back: the two versions swap.
+  writeExclusive(prev.full, current);
+  writeExclusive(full, before, fs.lstatSync(full).mode & 0o777);
+  return { path: p.join('/'), reverted: true };
+}
+
+async function fileMkdir({ path: rel }) {
+  const p = files.parts(rel, { write: true });
+  const { full, st } = files.walk(MC, p, { missingOk: true });
+  if (st) fail(`${p.join('/')} already exists`);
+  fs.mkdirSync(full, { mode: 0o750 });
+  return { path: p.join('/') };
+}
+
+async function fileMove({ from, to }) {
+  const a = files.parts(from, { write: true });
+  const b = files.parts(to, { write: true });
+  if (b.length > a.length && a.every((x, i) => x === b[i])) fail('A folder can\'t be moved into itself');
+  await notActiveWorld(a);
+  await notActiveWorld(b);
+  const src = files.walk(MC, a);
+  const dst = files.walk(MC, b, { missingOk: true });
+  if (dst.st) fail(`${b.join('/')} already exists`);
+  fs.renameSync(src.full, dst.full);
+  return { from: a.join('/'), to: b.join('/') };
+}
+
+// Archives the file or folder into BACKUP_DIR/deleted-files, then removes it.
+async function fileDelete({ path: rel }) {
+  const p = files.parts(rel, { write: true });
+  await notActiveWorld(p);
+  const { full } = files.walk(MC, p);
+  const into = realDir(path.join(BK, 'deleted-files'));
+  const archived = `deleted-files/${p[p.length - 1].replace(/[^\w.-]+/g, '_').slice(0, 80)}-${names.timestamp()}.tar.gz`;
+  const partial = path.join(into, randomName(path.basename(archived)));
+  const fd = fs.openSync(partial, EXCL, 0o640);
+  try {
+    // tar stores links as links and never follows them.
+    await run('tar', ['-czf', '-', '-C', path.dirname(full), '--', path.basename(full)], { outFd: fd, okCodes: [0, 1] });
+    fs.closeSync(fd);
+    fs.renameSync(partial, path.join(BK, archived));
+  } catch (err) {
+    try { fs.closeSync(fd); } catch {}
+    fs.rmSync(partial, { force: true });
+    throw err;
+  }
+  const parked = path.join(path.dirname(full), randomName('.rconsole-deleting'));
+  fs.renameSync(full, parked);
+  fs.rmSync(parked, { recursive: true, force: true });
+  return { path: p.join('/'), archived };
+}
+
+// Puts an upload (BACKUP_DIR/.uploads-files) into a folder: as the file it
+// is, or unpacked into a new folder.
+async function filePlace({ upload, dir, name, unpack = false }) {
+  if (!names.JOB_ID_RE.test(String(upload))) fail('Invalid upload');
+  const d = files.parts(dir);
+  const target = files.parts([...d, name].join('/'), { write: true });
+  if (target.length !== d.length + 1) fail('Invalid file name');
+  files.walk(MC, d, { kind: 'dir' });
+  const dest = files.walk(MC, target, { missingOk: true });
+  if (dest.st) fail(`${target.join('/')} already exists`);
+  let fd;
+  try {
+    fd = fs.openSync(path.join(realDir(path.join(BK, '.uploads-files')), `${upload}.part`), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  } catch {
+    fail('The upload is gone (uploads are removed after a day); upload the file again');
+  }
+  const staging = path.join(path.dirname(dest.full), randomName('.rconsole-upload'));
+  try {
+    const { size } = fs.fstatSync(fd);
+    if (!fs.fstatSync(fd).isFile()) fail('The upload is gone; upload the file again');
+    const budget = freeBytes(MC) - IMPORT_RESERVE;
+    if (unpack) {
+      if (budget <= 0) fail('Not enough free disk space (2 GB are kept free)');
+      fs.mkdirSync(staging, { mode: 0o750 });
+      const r = await archive.extract(fd, staging, { maxBytes: budget });
+      fs.renameSync(staging, dest.full);
+      return { path: target.join('/'), unpacked: true, files: r.files, bytes: r.bytes };
+    }
+    if (size > budget) fail('Not enough free disk space (2 GB are kept free)');
+    // Copied, not moved: the upload is on the backup disk, owned by rconsole.
+    const out = fs.openSync(staging, EXCL, 0o640);
+    try {
+      const buf = Buffer.alloc(1024 * 1024);
+      for (let pos = 0; pos < size;) {
+        const n = fs.readSync(fd, buf, 0, buf.length, pos);
+        if (!n) break;
+        fs.writeSync(out, buf, 0, n);
+        pos += n;
+      }
+    } finally {
+      fs.closeSync(out);
+    }
+    fs.renameSync(staging, dest.full);
+    return { path: target.join('/'), unpacked: false, bytes: size };
+  } finally {
+    fs.closeSync(fd);
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
+const FILE_OPS = { write: fileWrite, revert: fileRevert, mkdir: fileMkdir, move: fileMove, delete: fileDelete, place: filePlace };
+async function fileOp({ op, ...args }) {
+  if (!Object.hasOwn(FILE_OPS, String(op))) fail(`Unknown file operation ${op}`);
+  return { op, ...(await FILE_OPS[op](args)) };
+}
+
 const TASKS = {
   backup,
   restore,
@@ -603,6 +778,7 @@ const TASKS = {
   'plugin-remove': pluginRemove,
   'plugin-rollback': pluginRollback,
   'config-write': configWrite,
+  'file-op': fileOp,
   ...servers.TASKS,
 };
 

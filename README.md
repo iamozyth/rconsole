@@ -70,7 +70,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 - **Single sign-on** with authentik, Keycloak, Auth0 or any OpenID Connect provider; roles from its groups, local accounts as a fallback.
 - **Player history** from your logs: sessions, playtime, last IP, daily activity.
 - **Player profiles**: position, health, food, level and game mode, equipment, hotbar and inventory live (or as last saved when offline); statistics (play time, deaths, kills, distance, most mined and used) and advancements from the world files; teleport, game mode, heal, kick and clear inventory in one place.
-- **Config editor** for plugin and mod configs: syntax checks, a diff before saving, one-click revert.
+- **File manager** for the whole server folder: edit with syntax checks and a diff before saving, one-click revert, upload (and unpack), download, rename, and delete that archives first.
 - **Scanner detection**: spots bots probing your server, explains what to do, and offers a ban or a ready-made firewall rule.
 
 **Worlds and backups**
@@ -622,14 +622,17 @@ World → **Import world** takes an archive of a world from your computer, a sin
 
 Traefik needs no change for uploads: it has no body size limit by default, and each request is one chunk.
 
-## Plugin configs
+## Files
 
-**Server → Files** (admins) lists the text config files under `plugins/` (Paper, Spigot, Purpur, Folia) or `config/` (Fabric, Quilt, Forge, NeoForge): `.yml .yaml .json .json5 .properties .toml .conf .cfg .txt`, up to 512 KB each.
+**Server → Files** (admins of the shown server) is a file manager for the server's folder: folders first, sizes, last change, a filter, and drag and drop.
 
-- The editor checks the syntax as you type (JSON must parse; YAML can't be indented with tabs) and shows a line diff before saving.
-- Saving runs in `rconsole-job@` as the `minecraft` user: it re-checks the path (no links, no `..`, only existing files), keeps the old version in `.rconsole-previous/`, and writes atomically. **Revert** puts the previous version back.
-- Most plugins pick up changes with their own reload command; otherwise restart. The change is added to the "Restart to apply" bar.
-- Saved contents never go into the audit log, only the file name.
+- **Edit**: text files up to 1 MB open in the editor. It checks the syntax as you type (JSON must parse; YAML can't be indented with tabs) and shows a line diff before saving. A save only goes through over the version you opened, so a plugin writing the same file meanwhile isn't silently overwritten. The previous version is kept for **Revert** (in `.rconsole-files-previous/`). In `server.properties`, rconsole keeps its own `enable-rcon`, `rcon.port` and `rcon.password`, whatever the editor sends.
+- **Upload** any file into the open folder (resumable, like world uploads; dropped files work too). An archive can be unpacked into a new folder instead, with the same checks as world imports: no links, no paths outside, a disk budget.
+- **Download** a file, or a folder as `.tar.gz` made on the fly.
+- **New file, new folder, rename or move** (type a path to move it elsewhere in the server folder).
+- **Delete** archives the file or folder into `BACKUP_DIR/deleted-files/` first, then removes it.
+- Off limits: anything reached through a link (shown, never followed), `instance.json`, rconsole's own `.rconsole*` folders, and moving or deleting the active world (World has import and delete for that).
+- Reading is done by rconsole; every change runs in `rconsole-job@` as the `minecraft` user, which checks each path again before touching it. The change is added to the "Restart to apply" bar; saved contents never go into the audit log, only the file name.
 
 ## Upgrading from 1.x (rconsole-backup@ / rconsole-update@)
 
