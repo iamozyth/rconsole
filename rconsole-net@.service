@@ -16,8 +16,9 @@ EnvironmentFile=/etc/rconsole.env
 UnsetEnvironment=RCON_PASSWORD WEB_PASSWORD OIDC_CLIENT_SECRET METRICS_TOKEN NTFY_TOKEN OFFSITE_ACCESS_KEY_ID OFFSITE_SECRET_ACCESS_KEY OFFSITE_PASSPHRASE
 Environment=UV_USE_IO_URING=0
 ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js job %i
-# Installing a modded server (Java, server, mod loader installer) can take a while.
-TimeoutStartSec=25min
+# Installing a modded server or a modpack (Java, mod loader installer, a few
+# hundred mods) can take a while.
+TimeoutStartSec=40min
 # Downloads (plugins, server jars, offsite copies) run beside the server.
 Nice=10
 IOSchedulingClass=idle

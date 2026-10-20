@@ -65,6 +65,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 **Players and security**
 - **One player list**: everyone the server knows, with whitelist, operator and ban status, filters and a profile panel per player.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
+- **Modpacks** from Modrinth in one step: loader, mods and settings, every file checked.
 - **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers, globally or per server (a friend can be admin on their own server and see nothing of the others).
 - **Single sign-on** with authentik, Keycloak, Auth0 or any OpenID Connect provider; roles from its groups, local accounts as a fallback.
 - **Player history** from your logs: sessions, playtime, last IP, daily activity.
@@ -159,6 +160,7 @@ Not under the default license; see [License](#license) and ask for a commercial 
   | Paper, Folia, Velocity | PaperMC | SHA-256 from PaperMC's API |
   | Purpur | PurpurMC | MD5 (the only checksum Purpur publishes) |
   | Fabric, Quilt, Forge, NeoForge | the project's Maven | SHA-256 published next to the installer |
+  | Modpack (.mrpack) | Modrinth | SHA-512 from Modrinth for the pack, SHA-512 from the pack for every mod |
   | Java (Temurin) | Adoptium | SHA-256 from Adoptium's API |
 
 - **Minecraft version and build** (newest stable by default), **name**, **port**, **memory** and **Java tuning** (Aikar's flags, Generational ZGC for big heaps on Java 21+, or Java's defaults with G1). rconsole warns when the servers' memory doesn't fit the machine;
@@ -167,6 +169,8 @@ Not under the default license; see [License](#license) and ask for a commercial 
 - **Lock network ports**: the server may only listen on its game and RCON port and the extra ports you list (a map or voice chat plugin), so a plugin can't open a backdoor listener;
 - whether to **start it** now and **after a reboot**;
 - the **Minecraft EULA**: rconsole only writes `eula=true` after you accept it, and records who did.
+
+**Modpack** installs a Modrinth modpack: search, pick the pack and its version, and the loader (Fabric, Quilt, Forge or NeoForge) and Minecraft version come from the pack. The helper downloads the `.mrpack`, then every mod it lists that a server needs (only from Modrinth, GitHub or GitLab, each checked against the pack's SHA-512; mods marked client-only are left out), and copies the pack's `overrides/` and `server-overrides/` over the server. The pack's `server.properties` settings are kept, except the port, RCON and the whitelist, which rconsole sets. Paths that would leave the server folder or replace `instance.json`, `eula.txt` or the whitelist refuse the whole pack. Plan on 6 GB of memory or more for bigger packs. Updating a pack to a newer version isn't built in yet: install the new version as a new server and move the world over.
 
 The install runs in a helper job as the Minecraft user: it works out the download again from the publisher, checks it, installs the Java the version needs (Java 8 before 1.17, 17, 21 or 25 after), runs the Fabric, Quilt, Forge or NeoForge installer, writes `server.properties` with its own RCON port and a random password, and moves the finished folder into place. If anything fails, nothing is left behind.
 

@@ -905,9 +905,15 @@
               <legend>Software</legend>
               <div class="dist-grid" id="dist-grid"></div>
             </fieldset>
-            <label class="fld"><span>Minecraft version</span><select class="field" name="version" required><option value="">Choose software first</option></select></label>
-            <label class="fld"><span>Build</span><select class="field" name="build"><option value="">Newest stable</option></select></label>
-            <label class="fld"><span>Name</span><input class="field" name="id" maxlength="32" placeholder="e.g. survival" required pattern="[a-z0-9][a-z0-9-]{0,31}" title="Lowercase letters, digits and dashes"></label>
+            <div class="fld wide modpack-pick" id="modpack-pick" hidden>
+              <label class="fld"><span>Modpack from Modrinth</span><input class="field" id="modpack-q" type="search" maxlength="100" placeholder="Search, e.g. Fabulously Optimized, Better MC"></label>
+              <div class="modpack-hits" id="modpack-hits" role="radiogroup" aria-label="Modpacks"></div>
+              <label class="fld"><span>Pack version</span><select class="field" id="modpack-version"><option value="">Choose a modpack first</option></select></label>
+              <p class="note" id="modpack-note">rconsole downloads the pack, its mods (each checked against the pack's SHA-512), the loader and Java. Mods the pack marks as client-only are left out.</p>
+            </div>
+            <label class="fld not-modpack"><span>Minecraft version</span><select class="field" name="version" required><option value="">Choose software first</option></select></label>
+            <label class="fld not-modpack"><span>Build</span><select class="field" name="build"><option value="">Newest stable</option></select></label>
+            <label class="fld"><span>Name</span><input class="field" name="id" maxlength="32" placeholder="e.g. survival" required pattern="[a-z0-9][a-z0-9\-]{0,31}" title="Lowercase letters, digits and dashes"></label>
             <label class="fld"><span>Port</span><input class="field mono" name="port" type="number" min="1024" max="65535" value="25565" required></label>
             <label class="fld"><span>Memory</span>
               <select class="field" name="memoryMb">
@@ -938,7 +944,7 @@
               <label class="check" data-kind="server" title="Whitelist on (you are added), no player addresses in the log, simulation distance 6, chunk writes off the main thread; on Paper also anti-xray and faster explosions."><input type="checkbox" name="recommended" checked> Recommended security and performance settings</label>
               <label class="check" title="The server may only open its game and RCON ports, and the extra ports listed. Map and voice chat plugins need theirs listed."><input type="checkbox" name="portLock"> Lock network ports</label>
               <label class="fld" id="server-new-extra" hidden><span>Extra ports</span><input class="field mono" name="extraPorts" placeholder="e.g. 8100, 24454" pattern="\s*(\d{4,5}\s*(,\s*\d{4,5}\s*)*)?"></label>
-            
+              <label class="check eula" data-kind="server"><input type="checkbox" name="eula"> I accept the <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft EULA</a></label>
             </div>
             <div class="form-actions">
               <p class="note" id="server-new-note">rconsole downloads the server and the Java it needs, checks every file against the publisher's checksum, and sets up RCON with a random password.</p>
