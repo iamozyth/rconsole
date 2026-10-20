@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.v.outputs.exists == 'false'
         with:
-          node-version: 22
+          node-version: 24
       - run: npm test
         if: steps.v.outputs.exists == 'false'
       - name: Publish release
