@@ -62,6 +62,7 @@
   <symbol id="pg-more" viewBox="0 0 24 24"><path d="M3 10h4v4H3zM10 10h4v4h-4zM17 10h4v4h-4z"/></symbol>
   <symbol id="pg-bell" viewBox="0 0 24 24"><path d="M12 2.5a1.5 1.5 0 0 1 1.5 1.5v.7A6.5 6.5 0 0 1 18.5 11v4.5L21 18v1.5H3V18l2.5-2.5V11a6.5 6.5 0 0 1 5-6.3V4A1.5 1.5 0 0 1 12 2.5zM9.5 21h5a2.5 2.5 0 0 1-5 0z"/></symbol>
   <symbol id="pg-key" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M15.5 2.5a6 6 0 1 1-1.9 11.7l-1.4 1.4H10v2.2H7.8v2.2H5.6L4 21.6H2.5V18l7.3-7.3A6 6 0 0 1 15.5 2.5zm1.6 3.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z"/></symbol>
+  <symbol id="pg-door" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M5 3h11.5A1.5 1.5 0 0 1 18 4.5V20h2v2H4v-2h1zm2.4 2.4V20h8.2V5.4zm5.6 6.1a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4z"/></symbol>
   <symbol id="pg-copy" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M8 2.5h12.5V17H17v4.5H3.5V7H8zm2.4 2.4V7H17v7.6h1.1V4.9zM5.9 9.4v9.7h8.7V9.4z"/></symbol>
   <symbol id="pg-folder" viewBox="0 0 24 24"><path d="M2.5 4.5h7l2 2.5h10v12.5h-19z"/></symbol>
   <symbol id="pg-file" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M5 2.5h9.2L19 7.3v14.2H5zm2.4 2.4v14.2h9.2V8.6h-3.8V4.9z"/></symbol>
@@ -294,6 +295,12 @@
       <div class="view" data-view="people">
         <div class="area-error" id="access-error" role="alert" hidden></div>
         <dl class="kpis" id="ph-kpis"></dl>
+        <section class="panel join-panel" id="join-panel" data-min-role="moderator" hidden>
+          <header class="panel-head">
+            <div class="head-text"><h2>Want to join</h2><p class="note" id="join-info">Players who aren't whitelisted and tried to join, or used an invite link.</p></div>
+          </header>
+          <ul class="people" id="join-list"></ul>
+        </section>
         <section class="panel">
           <header class="panel-head people-head">
             <div class="segmented" role="radiogroup" aria-label="Show" id="pp-filter">
@@ -305,6 +312,7 @@
             </div>
             <label class="search"><svg><use href="#pg-search"/></svg><input id="ph-filter" type="search" placeholder="Find a player" aria-label="Find a player" maxlength="16" autocomplete="off"></label>
             <label class="switch" data-min-role="admin"><input type="checkbox" role="switch" id="wl-toggle"><span id="wl-state">Whitelist off</span></label>
+            <button class="btn btn-quiet" id="invite-toggle" type="button" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-door"/></svg>Invite</button>
           </header>
           <form class="add people-add" id="pp-add" data-min-role="moderator" autocomplete="off">
             <input class="field" name="name" placeholder="Player name" aria-label="Player name" maxlength="16" required>
@@ -936,6 +944,47 @@
               <button class="btn btn-primary"><svg><use href="#pg-worlds"/></svg>Create and switch</button>
             </div>
           </form>
+  </div>
+</dialog>
+<dialog class="drawer" id="drawer-invite" aria-labelledby="drawer-invite-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-invite-title">Invite a friend</h2><p class="note">A link where your friend types their Minecraft name. No account needed.</p></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+    <form class="drawer-form" id="invite-form" autocomplete="off">
+      <label class="fld"><span>Label</span><input class="field" name="label" maxlength="60" placeholder="e.g. Lena, or Discord"></label>
+      <label class="fld"><span>Server address to show</span><input class="field mono" name="address" maxlength="260" placeholder="mc.example.com"></label>
+      <label class="fld"><span>Valid for</span>
+        <select class="field" name="days">
+          <option value="1">1 day</option>
+          <option value="7" selected>7 days</option>
+          <option value="30">30 days</option>
+          <option value="0">No expiry</option>
+        </select>
+      </label>
+      <label class="fld"><span>Can be used</span>
+        <select class="field" name="uses">
+          <option value="1" selected>Once</option>
+          <option value="5">5 times</option>
+          <option value="20">20 times</option>
+        </select>
+      </label>
+      <label class="check wide"><input type="checkbox" name="auto"> Whitelist right away, without asking me</label>
+      <div class="invite-link wide" id="invite-link" hidden>
+        <p class="note">Send this link. It is shown only now.</p>
+        <div class="invite-link-row"><input class="field mono" id="invite-url" readonly aria-label="Invite link"><button class="btn" type="button" id="invite-copy"><svg><use href="#pg-copy"/></svg>Copy</button></div>
+      </div>
+      <section class="invite-list wide">
+        <h3>Links</h3>
+        <ul class="people" id="invite-list"></ul>
+      </section>
+      <div class="form-actions">
+        <p class="note" id="invite-note">Without the box ticked, each name lands under Want to join for you to allow.</p>
+        <button class="btn btn-quiet" type="button" data-close>Close</button>
+        <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Create link</button>
+      </div>
+    </form>
   </div>
 </dialog>
 <dialog class="drawer" id="drawer-import" aria-labelledby="drawer-import-title">

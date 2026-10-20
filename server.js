@@ -47,6 +47,8 @@ const { Files, MAX_EDIT: FILE_MAX } = require('./lib/files');
 const { CommandCatalog } = require('./lib/commands');
 const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
+const { JoinRequests } = require('./lib/joinrequests');
+const { invitePage } = require('./lib/invitepage');
 const prom = require('./lib/prom');
 const crypto = require('crypto');
 const zlib = require('zlib');
@@ -158,7 +160,17 @@ servers.onDeleted = (id) => {
 };
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
-const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a) });
+// Knock to join (lib/joinrequests.js): requests and invites for the server rconsole shows.
+const joinRequests = new JoinRequests({
+  stateDir: config.stateDir,
+  server: config.activeServer || ATTACHED,
+  mcDir: config.mcDir,
+  send: (server, cmd) => rcon.send(cmd),
+  log,
+  onRequest: (r) => notify.onJoinRequest(r),
+  onResolved: (r) => notify.onJoinResolved(r),
+});
+const scanners = new Scanners({ onAttempt: (a) => notify.onScanner(a), skip: (name, reason) => joinRequests.isKnock(name, reason) });
 const offsite = new Offsite({
   stateDir: config.stateDir, backupDir: config.backupDir, log,
   onResult: (r) => !r.ok && notify.send('backup', { title: 'Offsite upload failed', message: `${r.file}\n\n${r.error}`, key: `offsite-${r.file}` }),
@@ -196,6 +208,17 @@ notify.handlers = {
     const out = await rcon.send(`ban-ip ${ip} Connection scanner`);
     audit.record({ user: 'ntfy', action: 'command', target: `/ban-ip ${ip}` });
     return out;
+  },
+  allow: async (id) => {
+    const r = await joinRequests.allow(String(id), 'ntfy');
+    audit.record({ user: 'ntfy', action: 'join request allowed', target: r.name });
+    stats.invalidate('players');
+    return `${r.name} is whitelisted`;
+  },
+  ignore: async (id) => {
+    const r = joinRequests.ignore(String(id), 'ntfy');
+    audit.record({ user: 'ntfy', action: 'join request ignored', target: r.name });
+    return `Ignored ${r.name}`;
   },
   start: async () => {
     const st = await power.state();
@@ -787,6 +810,9 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b, q) => ['server delete', `${id}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
+  ['POST', /^\/api\/join\/([a-f0-9]{16})\/(allow|ignore)$/, ([id, verb]) => [`join request ${verb === 'allow' ? 'allowed' : 'ignored'}`, (() => { try { return joinRequests.get(id).name; } catch { return id; } })()]],
+  ['POST', /^\/api\/invites$/, (p, b) => ['invite create', `${String(b.label || '').slice(0, 60) || 'invite'}: ${b.uses || 1} use(s), ${Number(b.days) === 0 ? 'no expiry' : `${b.days ?? 7} days`}${b.auto ? ', whitelists right away' : ''}`]],
+  ['DELETE', /^\/api\/invites\/([a-f0-9]{12})$/, ([id]) => ['invite revoke', id]],
   ['POST', /^\/api\/tasks$/, (p, b) => ['task create', String(b.name || (b.steps || []).map((x) => x?.type).join(' → '))]],
   ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id], b) => [b.enabled !== undefined && Object.keys(b).length === 1 ? `task ${b.enabled ? 'resume' : 'pause'}` : 'task edit', taskName(id)]],
   ['DELETE', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task delete', taskName(id)]],
@@ -802,6 +828,8 @@ const ROLE_RULES = [
   ['POST', /^\/api\/me\/password$/, 'viewer'], // their own
   ['POST', /^\/api\/chat$/, 'moderator'],
   ['GET', /^\/api\/players\/history$/, 'moderator'], // addresses of players
+  ['GET', /^\/api\/join$/, 'moderator'], // their addresses too
+  ['POST', /^\/api\/join\/[a-f0-9]{16}\/(allow|ignore)$/, 'moderator'], // like whitelist add
   ['GET', /^\/api\/audit$/, 'admin'],
   ['GET', /^\/api\/notify$/, 'admin'],
   ['GET', /^\/api\/configs/, 'admin'], // configs often hold passwords
@@ -931,6 +959,20 @@ route('GET', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/profile$/, (req, res, [name
   return q.get('part') === 'vitals' ? playerInfo.vitals(name) : playerInfo.profile(name, { uuid: q.get('uuid') });
 });
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
+
+// Knock to join and invite links (lib/joinrequests.js).
+route('GET', /^\/api\/join$/, (req) => ({ ...joinRequests.view(), oneTap: notify.config.oneTap && Boolean(notify.publicUrl), notifications: Boolean(notify.config.url || notify.config.discord.url) }));
+route('POST', /^\/api\/join\/([a-f0-9]{16})\/allow$/, async (req, res, [id]) => {
+  const r = await joinRequests.allow(id, req.user);
+  stats.invalidate('players');
+  return r;
+});
+route('POST', /^\/api\/join\/([a-f0-9]{16})\/ignore$/, (req, res, [id]) => joinRequests.ignore(id, req.user));
+route('POST', /^\/api\/invites$/, async (req) => {
+  const { token, invite } = joinRequests.createInvite(await readJson(req), req.user);
+  return { invite, link: `${baseUrl(req)}/join/${token}` };
+});
+route('DELETE', /^\/api\/invites\/([a-f0-9]{12})$/, (req, res, [id]) => joinRequests.revokeInvite(id));
 route('GET', /^\/api\/configs$/, () => configs.list());
 route('GET', /^\/api\/configs\/file$/, (req) => configs.read(new URL(req.url, 'http://x').searchParams.get('path')));
 route('PUT', /^\/api\/configs\/file$/, async (req) => {
@@ -1353,6 +1395,7 @@ route('GET', /^\/api\/status$/, async () => ({
   pending: await pending.list(),
   self: selfUpdate.summary(),
   security: scanners.summary(),
+  joinRequests: joinRequests.pendingCount(),
   problems: await problems.summary().catch(() => null),
   platform: (({ id, name, family, mcVersion, build, loaderVersion, addons, updates: auto }) => ({ id, name, family, mcVersion, build, loaderVersion, addons: addons?.kind || null, updates: Boolean(auto) }))(platform()),
 }));
@@ -1965,6 +2008,63 @@ async function handle(req, res, handler, params = [], onDone) {
   }
 }
 
+// The origin links point to: the configured rconsole URL, else what the browser used.
+function baseUrl(req) {
+  if (notify.publicUrl) return notify.publicUrl;
+  const host = (fromTrustedProxy(req) && req.headers['x-forwarded-host']) || req.headers.host || `localhost:${config.webPort}`;
+  return `${isHttps(req) ? 'https' : 'http'}://${host}`;
+}
+
+function readForm(req, limit = 2048) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) {
+        reject(httpError(413, 'Request body too large'));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on('end', () => resolve(new URLSearchParams(Buffer.concat(chunks).toString('utf8'))));
+    req.on('error', reject);
+  });
+}
+
+// Whether Mojang knows the players: online mode, or behind a Velocity proxy that checks them.
+async function checksAccounts() {
+  if ((await readProperties(config.mcDir))['online-mode'] !== 'false') return true;
+  try {
+    return /velocity:\s*\n\s+enabled:\s*true/.test(fs.readFileSync(path.join(config.mcDir, 'config', 'paper-global.yml'), 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+async function invite(req, res, token) {
+  // With no-referrer, browsers send "Origin: null" for the form post, which the same-origin check refuses.
+  const html = (status, page) => send(res, status, page, 'text/html; charset=utf-8', { 'Referrer-Policy': 'same-origin' });
+  const found = joinRequests.inviteFor(token);
+  // The server's MOTD names it for the friend, unless it's the default one.
+  const motd = String((await readProperties(config.mcDir).catch(() => ({}))).motd || '').replace(/\\u00a7.|§./g, '').replace(/\\n.*/, '').trim();
+  const server = motd && motd !== 'A Minecraft Server' ? motd.slice(0, 60) : '';
+  if (!found) return html(410, invitePage({ state: 'gone' }));
+  if (req.method !== 'POST') return html(200, invitePage({ state: 'form', invite: found, server }));
+  let name = '';
+  try {
+    if (!String(req.headers['content-type']).startsWith('application/x-www-form-urlencoded')) throw httpError(415, 'Send the form');
+    name = String((await readForm(req)).get('name') || '').trim().slice(0, 32);
+    const result = await joinRequests.redeem(token, name, clientIp(req), { onlineMode: await checksAccounts() });
+    if (!result.again) audit.record({ user: 'invite', ip: clientIp(req), action: result.status === 'allowed' ? 'invite used, whitelisted' : 'invite used, request', target: `${result.name} via ${found.label || found.id}` });
+    if (result.status === 'allowed') stats.invalidate('players');
+    return html(200, invitePage({ state: 'done', invite: found, result, server }));
+  } catch (err) {
+    if (err.status === 410) return html(410, invitePage({ state: 'gone' }));
+    if (!err.status) log(`invite: ${err.stack || err.message}`);
+    return html(err.status && err.status < 500 ? err.status : 500, invitePage({ state: 'form', invite: found, server, name, error: err.status ? err.message : 'Something went wrong. Try again.' }));
+  }
+}
+
 const onRequest = (req, res) => {
   // Anything a handler throws ends this request, never the process.
   dispatch(req, res).catch((err) => {
@@ -1998,6 +2098,9 @@ async function dispatch(req, res) {
   if (req.method === 'GET' && pathname === '/auth/oidc/start') return ssoStart(req, res);
   if (req.method === 'GET' && pathname === '/auth/oidc/callback') return ssoCallback(req, res);
   if (req.method === 'GET' && pathname === '/healthz') return send(res, 200, { ok: true });
+  // Invite links: the token is the credential, for people without an account.
+  const join = pathname.match(/^\/join\/([A-Za-z0-9_-]{24})$/);
+  if (join && (isRead || req.method === 'POST')) return invite(req, res, join[1]);
   // The single-use token of an address trial is the credential: the new
   // address may not carry the session cookie (other port, plain HTTP).
   if (req.method === 'POST' && pathname === '/api/system/confirm') return handle(req, res, confirmListen);
@@ -2064,6 +2167,8 @@ scheduler.load().then(() => {
   setInterval(updateCheck, 24 * 3600 * 1000).unref();
   selfUpdate.startTimer(() => config.updateCheck);
   playerHistory.history().then((h) => scanners.seed(h)).catch((err) => log(`players: ${err.message}`)); // backfill from old logs
+  logTail.on('line', (line) => joinRequests.onLogLine(line));
+  setTimeout(() => (joinRequests.ready = true), 5000).unref(); // after the tail's first read of old lines
   logTail.on('line', (line) => scanners.onLogLine(line));
   logTail.on('line', (line) => {
     if (/ (joined|left) the game$| lost connection: /.test(line)) stats.invalidate('players');

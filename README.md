@@ -64,6 +64,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 
 **Players and security**
 - **One player list**: everyone the server knows, with whitelist, operator and ban status, filters and a profile panel per player.
+- **Knock to join**: a friend who isn't whitelisted tries to join, you get "Lena tried to join" with an **Allow** button, one tap and they're in. **Invite links** let friends put themselves on the list.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Modpacks** from Modrinth in one step: loader, mods and settings, every file checked.
 - **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers, globally or per server (a friend can be admin on their own server and see nothing of the others).
@@ -491,6 +492,12 @@ Cancelling the countdown leaves everything as it was. Without control over the M
 **Roll back** swaps `paper.jar.previous` back in and restarts. That undoes a build update. A Minecraft version upgrade converts the world, so after one of those, only restoring the backup gets you back.
 
 If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-net@*'` or `journalctl -u 'rconsole-job@*'`.
+
+## Join requests and invites
+
+When someone who isn't whitelisted tries to join, rconsole sees the kick in the log and lists them under **Players → People → Want to join**, with how often they tried, when and from where. **Allow** runs `whitelist add` and they can join right away; **Ignore** keeps further tries from alerting you for a week. With notifications on, you also get "Lena tried to join" with **Allow** and **Ignore** buttons (one-tap actions and the rconsole URL must be set under Settings → Notifications); the alert is replaced by "Lena is whitelisted" once someone answered it. Requests are counted per server, kept for 14 days and stored in `STATE_DIR/join.json`. Unknown addresses that get past the whitelist message are friends, not scanners, so they don't show up as connection attempts.
+
+**Invite** (admins) makes a link to send a friend: they open it, type their Minecraft name (checked with Mojang in online mode, so typos and email addresses are caught) and land under Want to join, or straight on the whitelist if you ticked **Whitelist right away**. Each link has a label for you, the server address to show, a lifetime (1 day to no expiry) and a number of uses; withdraw it any time. The link works without an account, so rconsole keeps only a hash of it and shows it once; the page is rate-limited to 10 tries per hour per address. It is served from rconsole itself, so a friend outside your network can only open it if rconsole is reachable for them (for example a Traefik route for `/join/` only).
 
 ## Player profiles
 
