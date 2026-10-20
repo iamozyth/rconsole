@@ -77,7 +77,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 - **Import a world** from your computer: drop a `.zip` (as Finder or Windows make it), `.tar.gz`, `.tar.zst` or `.tar.xz` of a world folder, or of a whole server folder. Resumable uploads of any size; the archive is checked before anything changes, the world it replaces is backed up first. See [Importing a world](#importing-a-world).
 - Per-world **backups** with autosave paused during the copy, retention, download, and **restore** over a world or as a new one.
 - **Offsite copies** in any S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO), optionally encrypted before they leave the machine, uploaded after every backup.
-- **Automation**: restarts, backups and commands, daily or weekly.
+- **Automation**: tasks that chain steps (tell players, wait, back up, restart or stop with a countdown, start, run commands, go on only if nobody is online), daily at a time, on a cron schedule, or when something happens: the server started or crashed, nobody has been online for a while, or the log shows a line. Each task belongs to one server.
 
 **Updates and plugins**
 - **One check for everything**: rconsole itself, the server software and your plugins or mods.
@@ -438,6 +438,21 @@ By default the updater trusts whatever is on `main` on GitHub. To install only r
 3. Add `SELF_UPDATE_SIGNERS=/etc/rconsole-signers` to `/etc/rconsole.env` and restart rconsole.
 
 From then on, **Update rconsole** moves to the newest `v*` tag with a valid signature from one of those keys, and only forward. The Updates view compares against the latest GitHub release instead of `main`.
+
+## Automation
+
+Automation runs tasks. A task has a trigger, a server and up to ten steps that run one after another.
+
+**Triggers**
+- **At a time**: daily, or on chosen weekdays (server time).
+- **Cron**: a five-field expression (`*/30 * * * *`, `0 4 * * 1-5`, `@daily`); the form shows the next three runs.
+- **When something happens**: the server started; it stopped unexpectedly (a crash, not a stop from rconsole); nobody has been online for N minutes; the log shows a line containing some text. Event tasks run at most once per cooldown (10 minutes by default).
+
+**Steps**: tell players (in chat), run a command, wait, back up the world, restart or stop with a countdown (with chat warnings), start the server, and "only go on if nobody is online", which ends the task while players are on. When a task starts with a restart or stop, the countdown begins early so the server restarts at the set time.
+
+**Servers**: tasks for the server rconsole shows use its RCON. Tasks for another server rconsole installed run through its console and its systemd unit, so they can restart, stop, start, warn players and run commands while another server is shown. Backups, player counts and the "nobody online" and log events need RCON and the log, so they work for the shown server only. The form starts from ready-made tasks: nightly restart, backup then restart, restart when empty, start again after a crash, backup every two hours.
+
+Tasks from before 4.7 keep working: each becomes a daily task with one step, for the server shown when rconsole updated.
 
 ## Updates
 
