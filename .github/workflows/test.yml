@@ -32,6 +32,10 @@ jobs:
       matrix:
         image: ['debian:bookworm', 'debian:trixie', 'ubuntu:24.04']
     container: ${{ matrix.image }}
+    # bin/node.sh is bash, like install.sh and self-update.sh (containers default to sh).
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - name: Distribution nodejs
@@ -49,4 +53,6 @@ jobs:
           [ "$(node_major /usr/bin/node)" -ge "$need" ]
           # A second run (install.sh again, another update) changes nothing.
           install_nodesource "$need"
-      - run: node -e "require('./lib/selfupdate'); console.log(new (require('./lib/selfupdate').SelfUpdate)({ dir: '.', stateDir: '/tmp' }).node())"
+      - name: rconsole loads on it
+        run: |
+          node -e "require('./lib/selfupdate'); console.log(new (require('./lib/selfupdate').SelfUpdate)({ dir: '.', stateDir: '/tmp' }).node())"
