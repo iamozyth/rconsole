@@ -58,6 +58,22 @@ test('tasks from before 4.6 become a time trigger with one step, on the shown se
   s.tasks.forEach((t) => s.disarm(t.id));
 });
 
+test('saves to automation.json and leaves tasks.json for older versions', async () => {
+  const old = [{ id: 'a', type: 'restart', time: '04:00', days: [], warnMinutes: 5, enabled: true, name: '' }];
+  const { s, dir } = make({ tasks: old });
+  await s.load();
+  await s.update('a', { name: 'Nightly' });
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'automation.json'), 'utf8'));
+  assert.equal(saved[0].name, 'Nightly');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'tasks.json'), 'utf8')), old);
+  s.tasks.forEach((t) => s.disarm(t.id));
+  // Once automation.json exists it wins over tasks.json.
+  const again = new Scheduler({ stateDir: dir, log: () => {}, targets: { kind: () => 'server', get: () => null }, defaultServer: 'survival' });
+  await again.load();
+  assert.equal(again.tasks[0].name, 'Nightly');
+  again.tasks.forEach((t) => again.disarm(t.id));
+});
+
 test('a chain runs its steps in order and records the result', async () => {
   const { s, target, audits } = make();
   await s.load();
