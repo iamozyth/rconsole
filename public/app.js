@@ -3412,9 +3412,11 @@ function renderSelf(o, { offline = false } = {}) {
     $('self-steps').hidden = true;
   }
 
+  // A Node.js-only run already says what it installed.
+  const also = (u?.installed || []).filter((x) => !(u.from === u.to && /^Node\.js/.test(x)));
   if (failed && !running) setJob($('self-status'), 'failed', 'alert', `Last update failed ${fmt.relative(u.at)}: ${u.message}`);
   else if (justDone && u.manual?.length) setJob($('self-status'), 'done', 'check', `Manual step: ${u.manual.join('; ')}`);
-  else if (justDone && u.installed?.length) setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}. Also installed: ${u.installed.join(', ')}.`);
+  else if (justDone && also.length) setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}. Also installed: ${also.join(', ')}.`);
   else if (justDone) setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}.`);
   else setJob($('self-status'), null);
 
