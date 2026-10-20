@@ -1112,6 +1112,7 @@ const VERIFY_NOTE = { sha256: 'SHA-256 from the publisher', sha1: 'SHA-1 from Mo
 const DIST_NOTE = {
   vanilla: 'Mojang’s own server', paper: 'Fast, plugins', folia: 'Paper on many threads', purpur: 'Paper with more options',
   fabric: 'Lightweight mods', quilt: 'Fabric-compatible mods', forge: 'Classic mod loader', neoforge: 'Modern Forge mods', velocity: 'Proxy for several servers',
+  modpack: 'From Modrinth, ready to play',
 };
 let serversOpRunning = false;
 let serversTimer;
@@ -1268,7 +1269,7 @@ async function loadServers() {
           el('td', { class: 'primary-cell', 'data-label': 'Server' },
             el('span', { class: 'srv-name' }, el('b', {}, s.name), s.id === active ? el('span', { class: 'pill own' }, 'Shown') : null, s.kind === 'proxy' ? el('span', { class: 'pill' }, 'Proxy') : null),
             s.name !== s.id ? el('span', { class: 'sub mono' }, s.id) : null),
-          el('td', { class: 'nowrap', 'data-label': 'Software' }, `${names[s.distribution] || s.distribution} ${s.version}`, s.build ? el('span', { class: 'sub' }, typeof s.build === 'number' ? `build ${s.build}` : `loader ${s.build}`) : null),
+          el('td', { class: 'nowrap', 'data-label': 'Software' }, s.modpack ? el('span', { title: `Modpack ${s.modpack.name} ${s.modpack.version}, ${s.modpack.files} files` }, `${s.modpack.name} ${s.modpack.version}`) : null, s.modpack ? el('span', { class: 'sub' }, `${names[s.distribution] || s.distribution} ${s.version}`) : `${names[s.distribution] || s.distribution} ${s.version}`, s.build ? el('span', { class: 'sub' }, typeof s.build === 'number' ? `build ${s.build}` : `loader ${s.build}`) : null),
           el('td', { class: 'mono num', 'data-label': 'Port' }, String(s.port)),
           el('td', { class: 'nowrap', 'data-label': 'Memory' }, fmt.bytes(s.memoryMb * 1024 * 1024), el('span', { class: 'sub' }, `Java ${s.java}${s.flags === 'zgc' ? ', ZGC' : ''}${s.portLock ? ', ports locked' : ''}`)),
           el('td', { 'data-label': 'State' }, serverStateLabel(s)),
@@ -1411,7 +1412,11 @@ function updateServerFormKind() {
   // The software choices are radio buttons that exist once the list loaded.
   const d = f.distribution?.value || '';
   const isProxy = d === 'velocity';
+  const isPack = d === 'modpack';
   serverForm.querySelectorAll('[data-kind="server"]').forEach((n) => (n.hidden = isProxy));
+  serverForm.querySelectorAll('.not-modpack').forEach((n) => (n.hidden = isPack));
+  f.version.required = !isPack;
+  $('modpack-pick').hidden = !isPack;
   $('server-new-proxy').hidden = !PROXY_READY.has(d) || !serversList.some((s) => s.kind === 'proxy');
   $('server-new-extra').hidden = !f.portLock.checked;
 }
@@ -1442,11 +1447,93 @@ $('server-new-cancel').addEventListener('click', () => toggleServerForm(false));
 
 function renderDistributions(list) {
   distLoaded = true;
-  $('dist-grid').replaceChildren(...list.map((d) => el('label', { class: 'dist-card', title: VERIFY_NOTE[d.verify] || '' },
-    el('input', { type: 'radio', name: 'distribution', value: d.id, required: true, onchange: () => loadVersions(d) }),
+  const pack = { id: 'modpack', name: 'Modpack', kind: 'server', verify: null };
+  $('dist-grid').replaceChildren(...[...list, pack].map((d) => el('label', { class: 'dist-card', title: VERIFY_NOTE[d.verify] || '' },
+    el('input', { type: 'radio', name: 'distribution', value: d.id, required: true, onchange: () => (d.id === 'modpack' ? openModpacks() : loadVersions(d)) }),
     el('b', {}, d.name),
     el('span', { class: 'note' }, DIST_NOTE[d.id] || (d.kind === 'proxy' ? 'Proxy' : 'Server')))));
 }
+
+// --- modpacks: a Modrinth pack picked here; the helper installs it ---
+let modpackPick = null; // { project, versions, version }
+let modpackSearch;
+function openModpacks() {
+  const f = serverForm.elements;
+  f.port.value = freePort(25565);
+  updateServerFormKind();
+  $('server-new-note').textContent = 'Modpack: every file is checked against its SHA-512 from Modrinth.';
+  // Modpacks need more than plain servers; 6 GB when it fits.
+  const six = [...f.memoryMb.options].find((o) => o.value === '6144');
+  if (six && !six.disabled && Number(f.memoryMb.value) < 6144) {
+    f.memoryMb.value = '6144';
+    memoryNote($('server-new-memory'), f.memoryMb);
+  }
+  if (!$('modpack-hits').childElementCount) searchModpacks();
+  $('modpack-q').focus();
+}
+
+async function searchModpacks() {
+  const q = $('modpack-q').value.trim();
+  const box = $('modpack-hits');
+  try {
+    const { hits } = await api('GET', `/api/distributions/modpacks/search?q=${encodeURIComponent(q)}`);
+    if (q !== $('modpack-q').value.trim()) return;
+    box.replaceChildren(...(hits.length ? hits.map((h) => el('label', { class: 'modpack-hit' },
+      el('input', { type: 'radio', name: 'modpackProject', value: h.id, checked: modpackPick?.project.id === h.id, onchange: () => pickModpack(h) }),
+      pluginIcon(h.icon),
+      el('b', {}, h.title),
+      el('span', { class: 'sub' }, `${h.author} · ${new Intl.NumberFormat(undefined, { notation: 'compact' }).format(h.downloads)} downloads · ${h.description}`))) : [el('p', { class: 'note' }, `No modpacks found for “${q}”.`)]));
+  } catch (e) {
+    box.replaceChildren(el('p', { class: 'note warn-note' }, `Modrinth can't be reached: ${e.message}`));
+  }
+}
+$('modpack-q').addEventListener('input', () => {
+  clearTimeout(modpackSearch);
+  modpackSearch = setTimeout(searchModpacks, 300);
+});
+$('modpack-q').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    clearTimeout(modpackSearch);
+    searchModpacks();
+  }
+});
+
+const LOADER_NAME = { fabric: 'Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge', vanilla: 'Vanilla' };
+async function pickModpack(project) {
+  const sel = $('modpack-version');
+  modpackPick = { project, versions: [], version: null };
+  sel.replaceChildren(option('', 'Loading versions…'));
+  const f = serverForm.elements;
+  const slug = String(project.slug || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  if (!f.id.value || f.id.dataset.auto === '1') {
+    f.id.value = /^[a-z0-9]/.test(slug) ? slug : 'modpack';
+    f.id.dataset.auto = '1';
+  }
+  try {
+    const { versions } = await api('GET', `/api/distributions/modpacks/${encodeURIComponent(project.id)}/versions`);
+    if (modpackPick?.project !== project) return;
+    modpackPick.versions = versions;
+    sel.replaceChildren(...(versions.length
+      ? versions.map((v) => option(v.id, `${v.version} · ${LOADER_NAME[v.distribution]} ${v.mc}${v.type !== 'release' ? ` (${v.type})` : ''}`))
+      : [option('', 'No server-installable versions')]));
+    pickModpackVersion();
+  } catch (e) {
+    sel.replaceChildren(option('', 'Versions unavailable'));
+    toast(e.message, 'bad');
+  }
+}
+
+function pickModpackVersion() {
+  if (!modpackPick) return;
+  const v = modpackPick.versions.find((x) => x.id === $('modpack-version').value) || null;
+  modpackPick.version = v;
+  $('modpack-note').textContent = v
+    ? `${modpackPick.project.title} ${v.version} runs on ${LOADER_NAME[v.distribution]} for Minecraft ${v.mc}${v.size ? ` (pack ${fmt.bytes(v.size)}, the mods come on top)` : ''}. rconsole downloads every mod, checks it against the pack's SHA-512 and leaves out client-only ones.`
+    : 'rconsole downloads the pack, its mods (each checked against the pack\'s SHA-512), the loader and Java. Mods the pack marks as client-only are left out.';
+}
+$('modpack-version').addEventListener('change', pickModpackVersion);
+serverForm.elements.id.addEventListener('input', () => delete serverForm.elements.id.dataset.auto);
 
 const option = (value, label) => el('option', { value }, label);
 async function loadVersions(d) {
@@ -1484,11 +1571,14 @@ serverForm.addEventListener('submit', async (e) => {
   const f = serverForm.elements;
   if (!f.distribution.value) return toast('Pick the server software.', 'bad');
   const proxy = f.distribution.value === 'velocity';
+  const pack = f.distribution.value === 'modpack' ? modpackPick?.version : null;
+  if (f.distribution.value === 'modpack' && !pack) return toast('Pick a modpack and its version.', 'bad');
   if (!proxy && !f.eula.checked) return toast('Accept the Minecraft EULA to install a server.', 'bad');
   const buildRaw = f.build.value;
   const body = {
-    id: f.id.value.trim(), name: f.id.value.trim(), distribution: f.distribution.value, version: f.version.value,
-    build: buildRaw === '' ? null : /^\d+$/.test(buildRaw) && ['paper', 'folia', 'velocity', 'purpur'].includes(f.distribution.value) ? Number(buildRaw) : buildRaw,
+    id: f.id.value.trim(), name: f.id.value.trim(), distribution: pack ? pack.distribution : f.distribution.value, version: pack ? pack.mc : f.version.value,
+    build: pack || buildRaw === '' ? null : /^\d+$/.test(buildRaw) && ['paper', 'folia', 'velocity', 'purpur'].includes(f.distribution.value) ? Number(buildRaw) : buildRaw,
+    modpack: pack ? { versionId: pack.id, name: modpackPick.project.title } : null,
     port: Number(f.port.value), memoryMb: Number(f.memoryMb.value), flags: f.flags.value,
     start: f.start.checked, autostart: f.autostart.checked, eula: !proxy && f.eula.checked,
     proxy: !proxy && !$('server-new-proxy').hidden ? f.proxy.value || null : null,
@@ -1500,8 +1590,11 @@ serverForm.addEventListener('submit', async (e) => {
       const op = await sendServerRequest('POST', '/api/servers', body, 'Install it anyway?');
       if (!op) return;
       renderServersOp(op);
-      toast(`Installing ${body.id}. This takes a minute or two.`);
+      toast(`Installing ${body.id}. ${pack ? 'A modpack takes a few minutes.' : 'This takes a minute or two.'}`);
       serverForm.reset();
+      modpackPick = null;
+      $('modpack-hits').replaceChildren();
+      $('modpack-version').replaceChildren(option('', 'Choose a modpack first'));
       toggleServerForm(false);
       watchServers();
     } catch (err) {
