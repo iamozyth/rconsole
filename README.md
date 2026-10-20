@@ -59,7 +59,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 - **Live console**: the server log as it happens, filterable, with a chat-and-joins view and a command prompt with history and **autocomplete** for commands, subcommands, players, game modes and game rules, including plugin commands.
 - **Command palette** (Ctrl/⌘ K): jump anywhere, run any action, or type a Minecraft command.
 - **Server power**: start, stop and restart with in-game countdowns; **maintenance mode** that lets only operators in and restores the whitelist afterwards.
-- **Dashboard**: server state, TPS, players, memory, last backup, problems, updates and disk as tiles, the last six hours as charts, who's online and what changed recently.
+- **Dashboard**: the shown server with start, restart, stop, backup and save buttons; TPS, players, CPU and memory as cards with the shape of the last hours (a click puts that metric on the big chart, 1 hour to 7 days); last backup, problems, updates and disk; every installed server with its players (from a server list ping, so servers rconsole doesn't show count too), CPU and memory; the next scheduled tasks, recent problems, backup history, who's online and what changed recently.
 - **Server switcher** at the top of the sidebar for every server rconsole runs.
 
 **Players and security**

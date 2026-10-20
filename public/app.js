@@ -911,69 +911,380 @@ function renderStatus(s) {
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard: what needs attention, at a glance (tiles from /api/status, the
-// rest loaded when the dashboard opens)
+// Dashboard: the shown server at a glance (header, metric cards, health
+// strip from /api/status), its history, the other servers, and what is
+// coming up or went wrong. The rest loads when the dashboard opens.
 // ---------------------------------------------------------------------------
 
 let dashBackups = null;
 let dashUpdates = null;
+let dashMetrics = null;
+let dashMetric = 'tps';
+let dashRange = '6h';
+try {
+  dashMetric = localStorage.getItem('rconsole.dashMetric') || dashMetric;
+  dashRange = localStorage.getItem('rconsole.dashRange') || dashRange;
+} catch {}
 
-function tile({ label, value, sub, tone = '', href, onclick, icon: iconName }) {
-  const body = [el('span', { class: 'dt-label' }, iconName ? icon(iconName) : null, label), el('b', { class: 'dt-value' }, value), sub ? el('span', { class: 'dt-sub' }, sub) : null];
-  return href ? el('a', { class: `dash-tile ${tone}`, href }, ...body)
-    : onclick ? el('button', { class: `dash-tile ${tone}`, type: 'button', onclick }, ...body)
-      : el('div', { class: `dash-tile ${tone}` }, ...body);
+// Short relative time for narrow columns: "4m", "3h", "2d" ("in 3h" ahead).
+function shortAgo(iso) {
+  const diff = Date.parse(iso) - Date.now();
+  const abs = Math.abs(diff) / 1000;
+  const v = abs < 60 ? 'now' : abs < 3600 ? `${Math.round(abs / 60)}m` : abs < 86400 ? `${Math.round(abs / 3600)}h` : `${Math.round(abs / 86400)}d`;
+  return v === 'now' ? v : diff > 0 ? `in ${v}` : v;
 }
 
-function renderDashboardTiles() {
+// A small line of real samples, no axes: the shape of the last hours.
+function sparkline(values, { max, min = 0, label }) {
+  const W = 120, H = 32;
+  const pts = values.map((v, i) => [i, v]).filter(([, v]) => v != null);
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', class: 'spark', role: 'img', 'aria-label': label });
+  if (pts.length < 2) return svg;
+  const hi = max ?? Math.max(...pts.map(([, v]) => v), 1);
+  const x = (i) => (i / (values.length - 1)) * W;
+  const y = (v) => H - 2 - ((Math.min(v, hi) - min) / (hi - min || 1)) * (H - 4);
+  // One line and one filled area per stretch without gaps.
+  let d = '';
+  let fill = '';
+  let seg = [];
+  const flush = () => {
+    if (seg.length > 1) fill += `M${seg[0][0]},${H}L${seg.map((p) => p.join(',')).join('L')}L${seg[seg.length - 1][0]},${H}Z`;
+    seg = [];
+  };
+  let prev = -2;
+  for (const [i, v] of pts) {
+    if (i !== prev + 1) flush();
+    const p = [x(i).toFixed(1), y(v).toFixed(1)];
+    d += `${i === prev + 1 ? 'L' : 'M'}${p.join(',')}`;
+    seg.push(p);
+    prev = i;
+  }
+  flush();
+  svg.append(svgEl('path', { d: fill, class: 'spark-fill' }), svgEl('path', { d, class: 'spark-line' }));
+  return svg;
+}
+
+// The metrics the cards show and the big chart can switch to.
+const DASH_METRICS = {
+  tps: { label: 'TPS', icon: 'insights' },
+  players: { label: 'Players', icon: 'players' },
+  cpu: { label: 'CPU', icon: 'server' },
+  mem: { label: 'Memory', icon: 'save' },
+};
+
+function renderDashHero(s) {
+  const p = s.power || {};
+  const running = s.rcon?.ok;
+  const shown = serversList.find((x) => x.id === serversActive);
+  const state = p.available ? p.active : running ? 'active' : 'inactive';
+  $('dh-state').dataset.state = s.maintenance?.enabled ? 'maint' : state === 'active' && running ? 'ok' : state === 'failed' ? 'bad' : state === 'activating' || state === 'deactivating' ? 'busy' : 'off';
+  $('dh-name').textContent = shown?.name || s.platform?.name || 'Minecraft';
+  const label = p.available ? POWER_LABEL[p.active] || p.active : running ? 'Running' : 'Offline';
+  const facts = [
+    el('b', {}, s.maintenance?.enabled ? `${label} · maintenance` : label),
+    running && p.since ? `for ${fmt.relative(p.since).replace(/ ago$/, '')}` : p.active === 'failed' && p.result ? p.result : null,
+    [s.platform?.name, s.platform?.mcVersion, s.platform?.build ? `#${s.platform.build}` : null].filter(Boolean).join(' ') || null,
+    shown ? `port ${shown.port}` : null,
+    s.game?.daytime != null && running ? `day ${s.game.day ?? '?'}, ${fmt.gameTime(s.game.daytime)}` : null,
+  ].filter(Boolean);
+  $('dh-facts').replaceChildren(...facts.flatMap((f, i) => (i ? [el('span', { class: 'dh-dotsep', 'aria-hidden': 'true' }, '·'), f] : [f])));
+  const busyNow = Boolean(p.pending) || s.op?.running || s.restart?.remaining != null;
+  const can = p.available;
+  $('dh-start').hidden = !can || p.active === 'active';
+  $('dh-restart').hidden = can && p.active !== 'active';
+  $('dh-stop').hidden = can && p.active !== 'active';
+  for (const id of ['dh-start', 'dh-restart', 'dh-stop']) $(id).disabled = !can || busyNow;
+  $('dh-save').disabled = !running;
+  $('dh-backup').disabled = Boolean(s.backup?.running);
+  const banner = s.restart?.remaining != null ? `${s.restart.verb === 'stopping' ? 'Stopping' : 'Restarting'} in ${fmt.countdown(s.restart.remaining)}. Players are being warned in chat.`
+    : s.op?.running ? `${s.op.label}: ${s.op.step}…`
+      : s.backup?.running ? 'Backup running…'
+        : null;
+  $('dh-banner').hidden = !banner;
+  $('dh-banner').textContent = banner || '';
+}
+
+function renderDashCards() {
   const s = lastStatus;
   if (!s) return;
-  const p = s.power || {};
   const g = s.game || {};
+  const m = dashMetrics;
   const running = s.rcon?.ok;
-  const state = p.available ? POWER_LABEL[p.active] || p.active : running ? 'Running' : 'Offline';
-  const heap = s.heap?.used != null ? s.heap : null;
+  const heap = s.heap?.used != null && s.heap.max ? s.heap : null;
+  const pcpu = m ? lastOf(m.pcpu) : null;
+  const range = { '1h': 'hour', '6h': '6 hours', '24h': '24 hours', '7d': '7 days' }[dashRange];
+  const tps = m ? nums(m.tps) : [];
+  const players = m ? nums(m.players) : [];
+  const cards = {
+    tps: {
+      value: g.tps != null ? g.tps.toFixed(1) : '–', unit: g.tps != null ? 'TPS' : '',
+      tone: g.tps == null ? '' : g.tps >= 19 ? 'good' : g.tps >= 15 ? 'warn' : 'bad',
+      sub: running ? [g.mspt != null ? `${g.mspt.toFixed(1)} ms/tick` : null, tps.length ? `low ${Math.min(...tps).toFixed(1)} in ${range}` : null].filter(Boolean).join(' · ') || null : 'Server not running',
+      spark: m && sparkline(m.tps, { max: 20, label: `TPS, last ${range}` }),
+    },
+    players: {
+      value: g.players ? String(g.players.online) : '–', unit: g.players ? `/ ${g.players.max}` : '',
+      sub: players.length ? `peak ${Math.max(...players)} in ${range}` : running ? 'Nobody online' : 'Server not running',
+      spark: m && sparkline(m.players, { max: Math.max(4, ...players), label: `Players online, last ${range}` }),
+    },
+    cpu: {
+      value: pcpu != null ? fmt.pct(pcpu) : s.host?.cpu != null ? fmt.pct(s.host.cpu) : '–', unit: pcpu != null ? 'Minecraft' : 'host',
+      tone: pcpu != null ? level(pcpu, 0.7, 0.9).replace('meh', 'warn').replace('good', '') : '',
+      sub: s.host?.cpu != null ? `host ${fmt.pct(s.host.cpu)}${s.host.cores ? ` of ${s.host.cores} cores` : ''}` : null,
+      spark: m && sparkline(m.pcpu.some((v) => v != null) ? m.pcpu : m.cpu, { max: 1, label: `CPU, last ${range}` }),
+    },
+    mem: {
+      value: heap ? fmt.bytes(heap.used) : s.host?.mem ? fmt.bytes(s.host.mem.total - s.host.mem.available) : '–', unit: heap ? 'heap' : 'used',
+      tone: s.host?.mem?.available < 300 * 2 ** 20 ? 'warn' : heap ? level(heap.used / heap.max, 0.75, 0.9).replace('meh', 'warn').replace('good', '') : '',
+      sub: heap ? `of ${fmt.bytes(heap.max)} · host ${fmt.bytes(s.host.mem.available)} free` : s.host?.mem ? `of ${fmt.bytes(s.host.mem.total)}` : null,
+      spark: m && sparkline((m.heap || []).some((v) => v != null) ? m.heap : m.mem, { max: 1, label: `Memory, last ${range}` }),
+    },
+  };
+  $('dash-cards').replaceChildren(...Object.entries(DASH_METRICS).map(([key, def]) => {
+    const c = cards[key];
+    return el('button', { class: `dash-card ${c.tone || ''}`, type: 'button', 'aria-pressed': String(key === dashMetric), onclick: () => pickDashMetric(key) },
+      el('span', { class: 'dc-label' }, icon(def.icon), def.label),
+      el('span', { class: 'dc-value' }, el('b', {}, c.value), c.unit ? el('small', {}, c.unit) : null),
+      c.spark || el('span', { class: 'spark' }),
+      c.sub ? el('span', { class: 'dc-sub' }, c.sub) : null);
+  }));
+}
+
+function healthItem({ label, value, sub, tone = '', href, onclick, icon: iconName, meter: ratio }) {
+  const body = [
+    el('span', { class: 'dh-ico' }, icon(iconName)),
+    el('span', { class: 'dh-body' },
+      el('span', { class: 'dh-label' }, label),
+      el('b', { class: 'dh-value' }, value),
+      sub ? el('span', { class: 'dh-sub' }, sub) : null,
+      ratio != null ? meter(ratio, 1, '') : null),
+  ];
+  const cls = `dash-health-item ${tone}`;
+  return href ? el('a', { class: cls, href }, ...body) : onclick ? el('button', { class: cls, type: 'button', onclick }, ...body) : el('div', { class: cls }, ...body);
+}
+
+function renderDashHealth() {
+  const s = lastStatus;
+  if (!s) return;
   const b = dashBackups;
   const lastBackup = b?.files?.[0];
   const backupAge = lastBackup ? Date.now() - Date.parse(lastBackup.created) : null;
   const prob = s.problems || {};
   const selfNew = s.self?.available || 0;
-  const tiles = [
-    tile({ label: 'Server', icon: 'power', value: state, tone: running ? 'good' : p.active === 'failed' ? 'bad' : 'warn', href: '#server/overview',
-      sub: running && p.since ? `for ${fmt.relative(p.since).replace(/ ago$/, '')}` : s.maintenance?.enabled ? 'Maintenance mode' : p.result && p.result !== 'success' ? p.result : null }),
-    tile({ label: 'Performance', icon: 'insights', value: g.tps != null ? `${g.tps.toFixed(1)} TPS` : '–', tone: g.tps == null ? '' : g.tps >= 19 ? 'good' : g.tps >= 15 ? 'warn' : 'bad', href: '#insights/metrics',
-      sub: g.mspt != null ? `${g.mspt.toFixed(1)} ms per tick` : running ? null : 'Server not running' }),
-    tile({ label: 'Players', icon: 'players', value: g.players ? `${g.players.online} / ${g.players.max}` : '–', href: '#players',
-      sub: g.players?.players?.length ? g.players.players.slice(0, 3).join(', ') + (g.players.players.length > 3 ? ` +${g.players.players.length - 3}` : '') : 'Nobody online' }),
-    tile({ label: heap ? 'Java heap' : 'Memory', icon: 'server', href: '#insights/metrics',
-      value: heap ? `${fmt.bytes(heap.used)}` : fmt.bytes(s.host.mem.total - s.host.mem.available),
-      sub: heap ? `of ${fmt.bytes(heap.max)} · host ${fmt.bytes(s.host.mem.available)} free` : `of ${fmt.bytes(s.host.mem.total)}`,
-      tone: s.host.mem.available < 300 * 2 ** 20 ? 'warn' : heap ? level(heap.used / heap.max, 0.75, 0.9).replace('meh', 'warn') : '' }),
-    tile({ label: 'Last backup', icon: 'backups', href: '#backups',
+  const disk = s.host?.disk;
+  const used = disk ? 1 - disk.available / disk.total : null;
+  $('dash-health').replaceChildren(
+    healthItem({ label: 'Last backup', icon: 'backups', href: '#backups',
       value: s.backup?.running ? 'Running…' : lastBackup ? fmt.relative(lastBackup.created) : b ? 'None yet' : '–',
       sub: s.backup?.lastError ? 'The last backup failed' : lastBackup ? `${lastBackup.world}, ${fmt.bytes(lastBackup.size)}` : b ? 'Schedule one under Automation' : null,
       tone: s.backup?.lastError || (b && !lastBackup) ? 'bad' : backupAge > 2 * 86400000 ? 'warn' : lastBackup ? 'good' : '' }),
-    tile({ label: 'Problems', icon: 'alert', onclick: openProblems,
+    healthItem({ label: 'Problems', icon: 'alert', onclick: openProblems,
       value: prob.unseen ? `${prob.unseen} new` : 'All clear', tone: prob.critical ? 'bad' : prob.unseen ? 'warn' : 'good',
       sub: prob.critical ? `${prob.critical} critical` : prob.unseen ? 'Errors in the last 24 hours' : 'Nothing new in 24 hours' }),
-    tile({ label: 'Updates', icon: 'updates', href: '#server/updates',
-      value: dashUpdates?.server ? 'Available' : selfNew ? 'rconsole' : 'Up to date', tone: dashUpdates?.server || selfNew ? 'info' : '',
+    healthItem({ label: 'Updates', icon: 'updates', href: '#server/updates',
+      value: dashUpdates?.server ? 'Available' : selfNew ? 'rconsole' : 'Up to date', tone: dashUpdates?.server || selfNew ? 'info' : 'good',
       sub: [dashUpdates?.server ? `${s.platform?.name || 'Server'} ${dashUpdates.server}` : null, selfNew ? `rconsole: ${selfNew} new change${selfNew === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') || `${s.platform?.name || ''} ${s.platform?.mcVersion || ''}${s.platform?.build ? ` #${s.platform.build}` : ''}`.trim() }),
-    tile({ label: 'Disk', icon: 'save', value: s.host.disk ? `${fmt.bytes(s.host.disk.available)} free` : '–',
-      tone: s.host.disk ? level(1 - s.host.disk.available / s.host.disk.total, 0.8, 0.92).replace('meh', 'warn').replace('good', '') : '',
-      sub: s.host.disk ? `of ${fmt.bytes(s.host.disk.total)} · host up ${fmt.duration(s.host.uptime)}` : null }),
-  ];
-  $('dash-tiles').replaceChildren(...tiles);
-  // Online now: faces, a click opens the profile.
+    healthItem({ label: 'Disk', icon: 'save', value: disk ? `${fmt.bytes(disk.available)} free` : '–', meter: used,
+      tone: disk ? level(used, 0.8, 0.92).replace('meh', 'warn') : '',
+      sub: disk ? `of ${fmt.bytes(disk.total)} · host up ${fmt.duration(s.host.uptime)}` : null }),
+  );
+}
+
+function renderDashOnline() {
+  const s = lastStatus;
+  if (!s) return;
+  const g = s.game || {};
   const online = g.players?.players || [];
   $('dash-count').textContent = g.players ? `${g.players.online} / ${g.players.max}` : '';
   $('dash-online').replaceChildren(...(online.length
     ? online.map((name) => el('li', { class: 'clickable', onclick: () => openPlayer(name) }, avatar(name), el('span', { class: 'who-cell' }, el('span', { class: 'name' }, name)), el('span', { class: 'meta' }, 'Profile')))
-    : [emptyItem(running ? 'Nobody is online right now.' : 'The player list shows when the server runs.')]));
+    : [emptyItem(s.rcon?.ok ? 'Nobody is online right now.' : 'The player list shows when the server runs.')]));
+}
+
+// Every status poll (5 s): what /api/status alone answers.
+function renderDashboardTiles() {
+  if (!lastStatus) return;
+  renderDashHero(lastStatus);
+  renderDashCards();
+  renderDashHealth();
+  renderDashOnline();
+}
+
+// The big chart: one metric, the range picked above it.
+function renderDashChart() {
+  const m = dashMetrics;
+  if (!m) return;
+  const base = { t: m.t, from: m.from, to: m.to, step: m.step, up: m.up, height: 220 };
+  const pct = (v) => fmt.pct(v);
+  const stat = (label, v) => el('div', {}, el('dt', {}, label), el('dd', {}, v));
+  const box = $('dash-chart');
+  box.querySelector('.legend')?.remove(); // the series change with the metric
+  let stats = [];
+  if (dashMetric === 'tps') {
+    const tps = nums(m.tps);
+    const mspt = nums(m.mspt);
+    lineChart(box, { ...base, label: 'TPS', max: 20, yFmt: (v) => String(Math.round(v)), series: [{ values: m.tps, label: 'TPS', fmt: (v) => v.toFixed(1) }, ...(mspt.length ? [{ values: m.mspt, label: 'MSPT', fmt: (v) => `${v.toFixed(1)} ms`, tipOnly: true }] : [])] });
+    // Paper's tps command reports no tick time; then there is no MSPT to show.
+    stats = [['Avg TPS', avg(tps)?.toFixed(1) ?? '–'], ['Low', tps.length ? Math.min(...tps).toFixed(1) : '–'], ...(mspt.length ? [['Avg MSPT', `${avg(mspt).toFixed(1)} ms`], ['Worst', `${Math.max(...mspt).toFixed(1)} ms`]] : [])];
+  } else if (dashMetric === 'players') {
+    const pl = nums(m.players);
+    lineChart(box, { ...base, label: 'Players online', minMax: 4, yFmt: (v) => (Number.isInteger(v) ? String(v) : ''), series: [{ values: m.players, label: 'Players', fmt: String }] });
+    stats = [['Now', lastOf(m.players) ?? '–'], ['Peak', pl.length ? Math.max(...pl) : '–'], ['Avg', pl.length ? avg(pl).toFixed(1) : '–']];
+  } else if (dashMetric === 'cpu') {
+    const pc = nums(m.pcpu);
+    lineChart(box, { ...base, label: 'CPU', max: 1, yFmt: pct, series: [{ values: m.pcpu, label: 'Minecraft', fmt: pct }, { values: m.cpu, label: 'Host', fmt: pct, cls: 'alt' }] });
+    stats = [['Minecraft avg', pc.length ? pct(avg(pc)) : '–'], ['Peak', pc.length ? pct(Math.max(...pc)) : '–'], ['Host now', lastOf(m.cpu) != null ? pct(lastOf(m.cpu)) : '–']];
+  } else {
+    const heap = (m.heap || []).some((v) => v != null);
+    const h = nums(m.heap || []);
+    lineChart(box, { ...base, label: 'Memory', max: 1, yFmt: pct, series: [
+      ...(heap ? [{ values: m.heap, label: 'Java heap in use', fmt: pct }] : []),
+      { values: m.mem, label: 'Host used', fmt: pct, cls: heap ? 'alt' : '' },
+    ] });
+    stats = [...(heap ? [['Heap avg', h.length ? pct(avg(h)) : '–'], ['Heap peak', h.length ? pct(Math.max(...h)) : '–']] : []), ['Host now', lastOf(m.mem) != null ? pct(lastOf(m.mem)) : '–'], ['Minecraft RSS', lastOf(m.rss) != null ? fmt.bytes(lastOf(m.rss)) : '–']];
+  }
+  $('dash-stats').replaceChildren(...stats.map(([l, v]) => stat(l, String(v))));
+  const down = m.up.filter((v) => v === 0).length;
+  $('dash-perf-title').textContent = { tps: 'Performance', players: 'Players online', cpu: 'CPU', mem: 'Memory' }[dashMetric];
+  $('dash-chart-note').textContent = !m.t.length ? 'Collecting; the first points arrive within 30 seconds.'
+    : down ? `Shaded: server down (${fmt.duration((down * m.step))}).` : `${m.step === 30 ? '30-second samples' : '5-minute averages'}, no downtime.`;
+}
+
+function pickDashMetric(key) {
+  dashMetric = key;
+  try { localStorage.setItem('rconsole.dashMetric', key); } catch {}
+  renderDashCards();
+  renderDashChart();
+}
+
+$('dash-range').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-range]');
+  if (!b) return;
+  dashRange = b.dataset.range;
+  try { localStorage.setItem('rconsole.dashRange', dashRange); } catch {}
+  for (const x of $('dash-range').querySelectorAll('[data-range]')) x.setAttribute('aria-checked', String(x === b));
+  loadDashMetrics();
+});
+for (const x of $('dash-range').querySelectorAll('[data-range]')) x.setAttribute('aria-checked', String(x.dataset.range === dashRange));
+
+async function loadDashMetrics() {
+  try {
+    dashMetrics = await api('GET', `/api/metrics?range=${dashRange}`);
+    renderDashChart();
+    renderDashCards();
+  } catch (e) {
+    $('dash-chart-note').textContent = `Can't load metrics: ${e.message}`;
+  }
+}
+
+// Every server rconsole installed, with what it does right now.
+function renderDashServers(list) {
+  const panel = $('dash-servers-panel');
+  panel.hidden = list.length < 2 && !(serversAttached && list.length);
+  if (panel.hidden) return;
+  const rank = (s) => (s.id === serversActive ? 0 : s.state?.active === 'active' ? 1 : 2);
+  const sorted = [...list].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  const running = list.filter((s) => s.state?.active === 'active');
+  const playing = running.reduce((n, s) => n + (s.live?.players?.online || 0), 0);
+  $('dash-servers-note').textContent = `${running.length} of ${list.length} running${playing ? ` · ${playing} player${playing === 1 ? '' : 's'} in total` : ''}.`;
+  $('dash-servers').replaceChildren(...sorted.map((s) => {
+    const live = s.live || {};
+    const on = s.state?.active === 'active';
+    const memMax = s.memoryMb * 2 ** 20;
+    const software = s.kind === 'proxy' ? 'Velocity proxy' : `${s.distribution[0].toUpperCase()}${s.distribution.slice(1)} ${s.version}`;
+    const admin = (s.myRole || myRole) === 'admin';
+    return el('li', { class: `dash-server${s.id === serversActive ? ' shown' : ''}` },
+      el('span', { class: 'sw-dot', 'data-state': on ? 'ok' : s.state?.active === 'failed' ? 'bad' : 'off' }),
+      el('span', { class: 'ds-name' }, el('b', {}, s.name), s.id === serversActive ? el('span', { class: 'pill own' }, 'Shown') : null, el('span', { class: 'sub' }, `${software} · port ${s.port}`)),
+      el('span', { class: 'ds-stat', title: live.players?.sample?.length ? live.players.sample.join(', ') : null },
+        el('small', {}, s.kind === 'proxy' ? 'Connected' : 'Players'), on && live.players ? `${live.players.online} / ${live.players.max}` : '–'),
+      el('span', { class: 'ds-stat' }, el('small', {}, 'CPU'), on && live.cpu != null ? fmt.pct(live.cpu) : '–'),
+      el('span', { class: 'ds-stat ds-mem' }, el('small', {}, 'Memory'), on && live.rss != null ? `${fmt.bytes(live.rss)}` : '–',
+        Object.assign(meter(on && live.rss != null ? live.rss : 0, memMax, ''), { title: `of ${fmt.bytes(memMax)} set` })),
+      el('span', { class: 'ds-act' },
+        admin && !on && s.state?.available ? serverButton('Start', 'play', (b) => serverAction(s, 'start', b).then(loadDashServers)) : null,
+        s.id !== serversActive && s.kind === 'server' ? serverButton('Show', 'server', (b) => showServer(s, b)) : null));
+  }));
+}
+
+async function loadDashServers() {
+  try {
+    const r = await api('GET', '/api/servers?live');
+    serversList = r.servers;
+    serversActive = r.active;
+    serversAttached = r.attached;
+    renderDashServers(r.servers);
+    renderSwitcher();
+    if (lastStatus) renderDashHero(lastStatus);
+  } catch {
+    $('dash-servers-panel').hidden = true;
+  }
+}
+
+function dashItem({ time, title, main, sub, tone = '', onclick, href }) {
+  const body = [el('time', { title: title || null }, time), el('span', { class: 'dl-main' }, main, sub ? el('span', { class: 'sub' }, sub) : null)];
+  const cls = `dash-li ${tone}`;
+  if (href) return el('li', {}, el('a', { class: cls, href }, ...body));
+  if (onclick) return el('li', {}, el('button', { class: cls, type: 'button', onclick }, ...body));
+  return el('li', { class: cls }, ...body);
+}
+
+async function loadDashUpcoming() {
+  try {
+    const { tasks, servers, shown } = await api('GET', '/api/tasks');
+    const name = (id) => (id === null ? null : servers.find((x) => x.id === id)?.name || id);
+    const many = servers.length > 1;
+    const next = tasks.filter((t) => t.enabled && t.nextRun).sort((a, b) => a.nextRun.localeCompare(b.nextRun)).slice(0, 5);
+    const events = tasks.filter((t) => t.enabled && t.trigger.type === 'event').length;
+    $('dash-upcoming').replaceChildren(...(next.length
+      ? next.map((t) => dashItem({ time: shortAgo(t.nextRun), title: fmt.date(t.nextRun), href: '#automation', tone: t.running ? 'run' : '',
+          main: t.name || t.steps.map((st) => st.type[0].toUpperCase() + st.type.slice(1).replace(/-/g, ' ')).join(' → '),
+          sub: [fmt.date(t.nextRun), many && t.server !== shown ? name(t.server) : null, /^error/i.test(t.lastResult || '') ? 'last run failed' : null].filter(Boolean).join(' · ') }))
+      : [emptyItem(tasks.length ? 'Nothing scheduled.' : 'No tasks yet. Schedule backups and restarts under Automation.')]),
+      ...(events ? [el('li', { class: 'dash-li-foot' }, `${events} more run${events === 1 ? 's' : ''} on events.`)] : []));
+  } catch (e) {
+    $('dash-upcoming').replaceChildren(emptyItem(`Can't load tasks: ${e.message}`));
+  }
+}
+
+async function loadDashProblems() {
+  try {
+    const { groups } = await api('GET', '/api/problems?days=7');
+    const top = groups.slice(0, 4);
+    $('dash-problems-count').textContent = groups.length ? String(groups.length) : '';
+    $('dash-problems').replaceChildren(...(top.length
+      ? top.map((x) => dashItem({ time: shortAgo(new Date(x.last).toISOString()), title: fmt.date(new Date(x.last).toISOString()), onclick: openProblems,
+          tone: x.severity === 'critical' || x.severity === 'error' ? 'bad' : 'warn',
+          main: problemTitle(x), sub: [x.count > 1 ? `${x.count}×` : null, x.plugin, x.unseen ? 'new' : null].filter(Boolean).join(' · ') || null }))
+      : [emptyItem('No errors or warnings in the last 7 days.')]));
+  } catch (e) {
+    $('dash-problems').replaceChildren(emptyItem(`Can't scan the logs: ${e.message}`));
+  }
+}
+$('dash-problems-all').addEventListener('click', openProblems);
+
+function renderDashBackups() {
+  const b = dashBackups;
+  if (!b) return;
+  const files = b.files || [];
+  const total = files.reduce((n, f) => n + f.size, 0);
+  $('dash-backups-note').textContent = files.length ? `${files.length} kept, ${fmt.bytes(total)}${b.keep ? ` · keeps the newest ${b.keep}` : ''}.` : 'None yet.';
+  // Sizes of the last backups, oldest left: growth or a broken one shows.
+  const recent = files.slice(0, 14).reverse();
+  const max = Math.max(...recent.map((f) => f.size), 1);
+  $('dash-backup-bars').replaceChildren(...recent.map((f) => {
+    const bar = el('span', { title: `${fmt.date(f.created)}: ${fmt.bytes(f.size)}` });
+    bar.style.height = `${Math.max(6, Math.round((f.size / max) * 100))}%`; // CSSOM: the CSP allows no style attributes
+    return bar;
+  }));
+  $('dash-backup-bars').hidden = recent.length < 3;
+  $('dash-backups').replaceChildren(...(files.length
+    ? files.slice(0, 4).map((f) => dashItem({ time: shortAgo(f.created), title: fmt.date(f.created), href: '#backups', main: f.world, sub: `${fmt.bytes(f.size)} · ${fmt.date(f.created)}` }))
+    : [emptyItem('No backups yet. Press Back up now, or schedule one under Automation.')]));
 }
 
 function activityItem(when, who, what, detail, bad) {
-  return el('li', { class: bad ? 'bad' : '' }, el('time', { title: fmt.date(when) }, fmt.relative(when)), el('span', {}, el('b', {}, who), ` ${what}`, detail ? el('span', { class: 'sub' }, ` ${detail}`) : null));
+  return el('li', { class: bad ? 'bad' : '' }, el('time', { title: fmt.date(when) }, shortAgo(when)), el('span', {}, el('b', {}, who), ` ${what}`, detail ? el('span', { class: 'sub' }, ` ${detail}`) : null));
 }
 
 // Below admin there is no audit log to show: joins and leaves from the log.
@@ -986,21 +1297,55 @@ function renderJoins() {
     : [el('li', { class: 'empty' }, 'Nobody joined or left since the log started.')]));
 }
 
+async function dashPower(action) {
+  const name = $('dh-name').textContent;
+  let seconds = 0;
+  if (action !== 'start') {
+    const delay = delaySelect(60);
+    if (!(await confirmAction({
+      title: `${action === 'stop' ? 'Stop' : 'Restart'} ${name}?`,
+      body: action === 'stop' ? 'Players are warned, the world is saved and the server stays off until you start it.' : 'Players are warned, the world is saved and the server comes straight back.',
+      confirm: action === 'stop' ? 'Stop server' : 'Restart server', tone: action === 'stop' ? 'danger' : 'primary', icon: action === 'stop' ? 'stop' : 'restart',
+      content: fld(action === 'stop' ? 'Stop' : 'Restart', delay),
+    }))) return;
+    seconds = Number(delay.value);
+  }
+  await startOp('/api/server/power', { action, seconds });
+}
+$('dh-start').addEventListener('click', (e) => busy(e.currentTarget, () => dashPower('start')));
+$('dh-restart').addEventListener('click', (e) => busy(e.currentTarget, () => dashPower('restart')));
+$('dh-stop').addEventListener('click', (e) => busy(e.currentTarget, () => dashPower('stop')));
+$('dh-backup').addEventListener('click', (e) => busy(e.currentTarget, async () => {
+  try {
+    renderBackupState((await api('POST', '/api/backups', {})).state);
+    toast('Backup started.');
+    refreshStatus(true);
+  } catch (err) {
+    toast(err.message, 'bad');
+  }
+}));
+$('dh-save').addEventListener('click', (e) => busy(e.currentTarget, async () => {
+  try {
+    const { output } = await api('POST', '/api/command', { command: 'save-all' });
+    toast(output ? output.split('\n')[0].slice(0, 120) : 'World saved.');
+  } catch (err) {
+    toast(err.message, 'bad');
+  }
+}));
+
 async function loadDashboard() {
   renderDashboardTiles();
   const jobs = [
-    api('GET', '/api/backups').then((b) => { dashBackups = b; renderDashboardTiles(); }).catch(() => {}),
+    api('GET', '/api/backups').then((b) => { dashBackups = b; renderDashHealth(); renderDashBackups(); }).catch(() => {}),
     api('GET', '/api/updates').then((u) => {
       const b = u.newerBuilds?.[0];
       dashUpdates = { server: b ? `#${b.id}` : u.newerVersions?.length ? u.newerVersions[0] : null };
-      renderDashboardTiles();
+      renderDashHealth();
     }).catch(() => {}),
-    api('GET', '/api/metrics?range=6h').then((m) => {
-      const base = { t: m.t, from: m.from, to: m.to, step: m.step, up: m.up };
-      lineChart($('dash-tps'), { ...base, label: 'TPS', max: 20, yFmt: (v) => String(Math.round(v)), series: [{ values: m.tps, label: 'TPS', fmt: (v) => v.toFixed(1) }] });
-      lineChart($('dash-players'), { ...base, label: 'Players online', minMax: 4, yFmt: (v) => (Number.isInteger(v) ? String(v) : ''), series: [{ values: m.players, label: 'Players', fmt: String }] });
-      $('dash-chart-note').textContent = m.t.length ? 'TPS and players online. Shaded: server down.' : 'Collecting; the first points arrive within 30 seconds.';
-    }).catch(() => {}),
+    loadDashMetrics(),
+    loadDashServers(),
+    loadDashUpcoming(),
+    loadDashProblems(),
   ];
   // Daily activity needs the player history (moderators and admins).
   $('ph-daily').closest('.panel').hidden = !atLeast('moderator');
@@ -1031,9 +1376,15 @@ async function loadDashboard() {
   await Promise.all(jobs);
 }
 tabLoaders.dashboard = loadDashboard;
+// Metrics and the server list every 30 s (samples arrive that often), the rest every minute.
+let dashTick = 0;
 setInterval(() => {
-  if (!document.hidden && document.body.dataset.area === 'dashboard') loadDashboard();
-}, 60000);
+  if (document.hidden || document.body.dataset.area !== 'dashboard') return;
+  if (++dashTick % 2) {
+    loadDashMetrics();
+    loadDashServers();
+  } else loadDashboard();
+}, 30000);
 
 // Server software: chip in the top bar; Plugins/Mods tab follows what it loads.
 let platformKey = '';
@@ -3422,10 +3773,11 @@ function chartTip(box) {
 function lineChart(box, o) {
   const draw = () => {
     const W = box.clientWidth || 600;
-    const H = 168;
+    const H = o.height || 168;
     const L = 44, R = 10, T = 10, B = 24;
     charts.get(box).width = W;
-    const all = o.series.flatMap((s) => s.values).filter((v) => v != null);
+    const drawn = o.series.filter((s) => !s.tipOnly); // tipOnly: in the tooltip, not drawn
+    const all = drawn.flatMap((s) => s.values).filter((v) => v != null);
     const max = o.max ?? niceMax(Math.max(...all, o.minMax || 0));
     const x = (t) => L + ((t - o.from) / (o.to - o.from)) * (W - L - R);
     const y = (v) => T + (1 - Math.min(v, max) / max) * (H - T - B);
@@ -3454,7 +3806,7 @@ function lineChart(box, o) {
         }
       });
     }
-    o.series.forEach((s, si) => {
+    drawn.forEach((s, si) => {
       let d = '';
       let fill = '';
       let seg = [];
@@ -3477,7 +3829,7 @@ function lineChart(box, o) {
       if (d) svg.append(svgEl('path', { d, class: `line ${s.cls || ''}` }));
     });
     const cursor = svgEl('line', { y1: T, y2: H - B, class: 'cursor', visibility: 'hidden' });
-    const dots = o.series.map((s) => svgEl('circle', { r: 3.5, class: `dot ${s.cls || ''}`, visibility: 'hidden' }));
+    const dots = drawn.map((s) => svgEl('circle', { r: 3.5, class: `dot ${s.cls || ''}`, visibility: 'hidden' }));
     svg.append(cursor, ...dots);
     const empty = !o.t.length ? svgEl('text', { x: (L + W - R) / 2, y: (T + H - B) / 2, class: 'empty' }, 'No samples yet') : null;
     if (empty) svg.append(empty);
@@ -3494,7 +3846,7 @@ function lineChart(box, o) {
       cursor.setAttribute('x1', cx);
       cursor.setAttribute('x2', cx);
       cursor.setAttribute('visibility', 'visible');
-      o.series.forEach((s, si) => {
+      drawn.forEach((s, si) => {
         const v = s.values[i];
         dots[si].setAttribute('visibility', v == null ? 'hidden' : 'visible');
         if (v != null) { dots[si].setAttribute('cx', cx); dots[si].setAttribute('cy', y(v)); }
@@ -3512,8 +3864,8 @@ function lineChart(box, o) {
     });
     box.querySelector('svg')?.remove();
     box.prepend(svg);
-    if (o.series.length > 1 && !box.querySelector('.legend')) {
-      box.append(el('div', { class: 'legend' }, ...o.series.map((s) => el('span', { class: s.cls || '' }, el('i'), s.label))));
+    if (drawn.length > 1 && !box.querySelector('.legend')) {
+      box.append(el('div', { class: 'legend' }, ...drawn.map((s) => el('span', { class: s.cls || '' }, el('i'), s.label))));
     }
   };
   if (!charts.has(box)) chartObserver.observe(box);
