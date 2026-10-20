@@ -19,6 +19,9 @@ const instances = require('../lib/instances');
 const properties = require('../lib/properties');
 const names = require('../lib/names');
 const velocity = require('../lib/velocity');
+const modpack = require('../lib/modpack');
+const modrinth = require('../lib/modrinth');
+const archive = require('../lib/archive');
 
 const SV = config.serversDir;
 const javaRoot = () => path.join(SV, '.java');
@@ -206,15 +209,20 @@ const RECOMMENDED = {
   'simulation-distance': '6',
   'sync-chunk-writes': 'false',
 };
+const WHITELIST = { 'white-list': 'true', 'enforce-whitelist': 'true', 'log-ips': 'false' };
 
-function writeServerProperties(dir, { port, rconPort, motd, recommended, proxied }) {
+function writeServerProperties(dir, { port, rconPort, motd, recommended, proxied, pack = {} }) {
   const doc = properties.set(properties.parse(''), {
+    motd: String(motd || 'A Minecraft server').replace(/[\r\n]/g, ' ').slice(0, 59),
+    ...(recommended ? RECOMMENDED : {}),
+    // A modpack's own settings (view distance, difficulty…) over the
+    // recommended ones, except the whitelist; rconsole's port and RCON win.
+    ...pack,
+    ...(recommended ? WHITELIST : {}),
     'server-port': String(port),
     'enable-rcon': 'true',
     'rcon.port': String(rconPort),
     'rcon.password': crypto.randomBytes(24).toString('base64url'),
-    motd: String(motd || 'A Minecraft server').replace(/[\r\n]/g, ' ').slice(0, 59),
-    ...(recommended ? RECOMMENDED : {}),
     // Behind the proxy: reachable from this machine only; the proxy checks
     // accounts and forwards who the player is.
     ...(proxied ? { 'server-ip': '127.0.0.1', 'online-mode': 'false' } : {}),
@@ -280,6 +288,109 @@ async function whitelistOwner(dir, name) {
   }
 }
 
+// --- modpacks ----------------------------------------------------------------------
+
+const PACK_RESERVE = 2 * 1024 ** 3; // left free for the server and its logs
+const PACK_CONCURRENCY = 6;
+
+function freeBytes(dir) {
+  try {
+    const s = fs.statfsSync(dir);
+    return s.bavail * s.bsize;
+  } catch {
+    return Infinity; // Node < 18.15: the extractor's own checks still apply
+  }
+}
+
+// Downloads the .mrpack of Modrinth version `versionId`, checks it and
+// unpacks it into a folder of its own. The caller removes `dir`.
+async function fetchPack(versionId, dir) {
+  if (!modrinth.ID_RE.test(String(versionId))) fail('Invalid modpack version');
+  const v = await modrinth.version(versionId);
+  if (v.id !== versionId) fail('Modrinth answered with another version');
+  const file = modpack.packFile(v, process.env.MODRINTH_API || 'https://api.modrinth.com/v2');
+  const body = await download({ url: file.url, algo: 'sha512', hash: file.sha512 });
+  fs.mkdirSync(dir, { mode: 0o750 });
+  const zip = path.join(dir, 'pack.mrpack');
+  fs.writeFileSync(zip, body, { mode: 0o600, flag: 'wx' });
+  const out = path.join(dir, 'pack');
+  fs.mkdirSync(out, { mode: 0o750 });
+  const fd = fs.openSync(zip, 'r');
+  try {
+    if (archive.detect(Buffer.from(body.subarray(0, 512))) !== 'zip') fail('The modpack is not a zip file');
+    await archive.extract(fd, out, { maxBytes: Math.max(0, freeBytes(SV) - PACK_RESERVE) });
+  } catch (err) {
+    fail(`Can't unpack the modpack: ${err.message}`);
+  } finally {
+    fs.closeSync(fd);
+  }
+  const indexFile = path.join(out, 'modrinth.index.json');
+  if (!fs.lstatSync(indexFile, { throwIfNoEntry: false })?.isFile()) fail('The modpack has no modrinth.index.json');
+  const index = modpack.parseIndex(fs.readFileSync(indexFile, 'utf8'));
+  if (index.bytes > freeBytes(SV) - PACK_RESERVE) fail(`The modpack needs ${(index.bytes / 1024 ** 3).toFixed(1)} GB, more than the free disk space allows`);
+  return { ...index, projectId: modrinth.ID_RE.test(String(v.project_id)) ? v.project_id : null, versionId, root: out };
+}
+
+// Copies a folder of the unpacked pack over the server folder. Only plain
+// files and folders exist there (the extractor makes nothing else); each
+// path is checked as the index's are. server.properties is returned instead
+// of copied, for merging.
+function overlay(from, dir, props) {
+  if (!fs.lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return;
+  const walk = (rel) => {
+    for (const e of fs.readdirSync(path.join(from, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (r === 'server.properties' && e.isFile()) {
+        Object.assign(props, properties.toObject(properties.parse(fs.readFileSync(path.join(from, r), 'utf8'))));
+        continue;
+      }
+      const parts = modpack.safePath(r);
+      const dest = path.join(dir, ...parts);
+      if (e.isDirectory()) {
+        const st = noLinks(dest);
+        if (st && !st.isDirectory()) fail(`The modpack has both a file and a folder named ${r}`);
+        if (!st) fs.mkdirSync(dest, { mode: 0o750 });
+        walk(r);
+      } else if (e.isFile()) {
+        const st = noLinks(dest);
+        if (st?.isDirectory()) fail(`The modpack has both a file and a folder named ${r}`);
+        fs.copyFileSync(path.join(from, r), dest);
+        fs.chmodSync(dest, 0o640);
+      }
+    }
+  };
+  walk('');
+}
+
+// Downloads the pack's files into the server folder (a few at a time, each
+// checked against its sha512), then copies overrides/ and
+// server-overrides/ over it. Returns the pack's server.properties settings.
+async function installPack(dir, pack) {
+  const queue = [...pack.files];
+  const worker = async () => {
+    for (let f = queue.shift(); f; f = queue.shift()) {
+      const body = await download({ url: f.url, algo: 'sha512', hash: f.sha512 });
+      let p = dir;
+      for (const part of f.parts.slice(0, -1)) {
+        p = path.join(p, part);
+        const st = noLinks(p);
+        if (st && !st.isDirectory()) fail(`The modpack has both a file and a folder named ${f.path}`);
+        if (!st) fs.mkdirSync(p, { mode: 0o750 });
+      }
+      fs.writeFileSync(path.join(dir, ...f.parts), body, { mode: 0o640, flag: 'wx' });
+    }
+  };
+  // The first failure ends the other workers after their current file.
+  await Promise.all(Array.from({ length: PACK_CONCURRENCY }, () => worker().catch((err) => {
+    queue.length = 0;
+    throw err;
+  })));
+  const props = {};
+  overlay(path.join(pack.root, 'overrides'), dir, props);
+  overlay(path.join(pack.root, 'server-overrides'), dir, props);
+  return modpack.mergeProperties(props);
+}
+
 // Creates SERVERS_DIR/<id> and installs the server in it. On any failure
 // the half-made folder is removed again.
 async function serverCreate(args) {
@@ -299,13 +410,23 @@ async function serverCreate(args) {
   }
   const recommended = args.recommended !== false;
 
-  const resolved = await distributions.resolve(wish.distribution, wish.version, wish.build);
-  const major = await java.majorFor(wish.distribution, wish.version);
-  await javaInstall({ major });
-
+  // A modpack decides the distribution, Minecraft and loader version; the
+  // wish must agree with it (rconsole showed them from Modrinth).
+  const packDir = path.join(SV, tmpName(`.${wish.id}-pack`));
   const staging = path.join(SV, tmpName(`.${wish.id}`));
-  fs.mkdirSync(staging, { mode: 0o750 });
   try {
+    let pack = null;
+    if (args.modpack) {
+      if (wish.kind !== 'server' || wish.proxy) fail('A modpack server can\'t be a proxy or join one');
+      pack = await fetchPack(args.modpack.versionId, packDir);
+      if (pack.distribution !== wish.distribution || pack.mc !== wish.version) fail(`The modpack needs ${pack.distribution} for Minecraft ${pack.mc}, not ${wish.distribution} ${wish.version}`);
+      wish.build = pack.loaderVersion;
+    }
+    const resolved = await distributions.resolve(wish.distribution, wish.version, wish.build);
+    const major = await java.majorFor(wish.distribution, wish.version);
+    await javaInstall({ major });
+
+    fs.mkdirSync(staging, { mode: 0o750 });
     const body = await download(resolved);
     fs.writeFileSync(path.join(staging, resolved.file), body, { mode: 0o640, flag: 'wx' });
     if (resolved.install === 'installer') {
@@ -315,12 +436,13 @@ async function serverCreate(args) {
     }
     const launch = findLaunch(staging, resolved);
     if (!launch) fail(`The ${resolved.distribution} installer finished, but no server to start was found`);
+    const packProps = pack ? await installPack(staging, pack) : {};
     let rconPort = null;
     let whitelisted = null;
     if (wish.kind === 'proxy') writeVelocityConfig(staging, launch.path, wish.port);
     if (wish.kind === 'server') {
       rconPort = freeRconPort(wish.port);
-      writeServerProperties(staging, { port: wish.port, rconPort, motd: wish.name, recommended, proxied: Boolean(wish.proxy) });
+      writeServerProperties(staging, { port: wish.port, rconPort, motd: pack?.name || wish.name, recommended, proxied: Boolean(wish.proxy), pack: packProps });
       fs.writeFileSync(path.join(staging, 'eula.txt'), `# Accepted in rconsole by ${eula.by} on ${eula.at}: https://aka.ms/MinecraftEULA\neula=true\n`, { mode: 0o640 });
       const paperConfigs = PAPER_FAMILY.has(wish.distribution) && newConfigs(resolved.version);
       if (paperConfigs && (recommended || wish.proxy)) fs.mkdirSync(path.join(staging, 'config'), { mode: 0o750 });
@@ -331,13 +453,15 @@ async function serverCreate(args) {
     const instance = instances.validate({
       ...wish, build: resolved.build, java: major, launch, created: new Date().toISOString(),
       eula, rconPort,
+      modpack: pack && { projectId: pack.projectId, versionId: pack.versionId, name: pack.name, version: pack.version, files: pack.files.length },
     });
     fs.writeFileSync(path.join(staging, 'instance.json'), `${JSON.stringify(instance, null, 2)}\n`, { mode: 0o640, flag: 'wx' });
     fs.renameSync(staging, dir);
     if (wish.proxy) registerWithProxy(wish.proxy, wish.id, wish.port);
-    return { id: wish.id, distribution: resolved.distribution, version: resolved.version, build: resolved.build, java: major, verified: resolved.algo, whitelisted, proxy: wish.proxy };
+    return { id: wish.id, distribution: resolved.distribution, version: resolved.version, build: resolved.build, java: major, verified: resolved.algo, whitelisted, proxy: wish.proxy, modpack: pack && { name: pack.name, version: pack.version, files: pack.files.length, clientOnly: pack.clientOnly } };
   } finally {
     fs.rmSync(staging, { recursive: true, force: true });
+    fs.rmSync(packDir, { recursive: true, force: true });
   }
 }
 

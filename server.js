@@ -18,6 +18,8 @@ const { Ops } = require('./lib/ops');
 const { Servers } = require('./lib/servers');
 const active = require('./lib/active');
 const distributions = require('./lib/distributions');
+const modrinth = require('./lib/modrinth');
+const modpack = require('./lib/modpack');
 const { Worlds } = require('./lib/worlds');
 const { Uploads } = require('./lib/uploads');
 const { Maintenance } = require('./lib/maintenance');
@@ -1262,6 +1264,9 @@ async function catalog(key, fn) {
   const hit = catalogCache.get(key);
   if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.value;
   const value = await fn();
+  // Searches make one key each; the oldest go first.
+  if (catalogCache.size >= 200) catalogCache.delete(catalogCache.keys().next().value);
+  catalogCache.delete(key);
   catalogCache.set(key, { at: Date.now(), value });
   return value;
 }
@@ -1282,11 +1287,42 @@ route('GET', /^\/api\/distributions\/([a-z]+)\/versions\/([0-9.]+)\/builds$/, as
   }
 });
 
+// Modrinth modpacks for a new server. The helper downloads and checks the
+// pack itself; these only fill the form.
+const MODPACK_LOADERS = ['fabric', 'quilt', 'forge', 'neoforge'];
+route('GET', /^\/api\/distributions\/modpacks\/search$/, async (req) => {
+  const query = (new URL(req.url, 'http://x').searchParams.get('q') || '').trim().slice(0, 100);
+  try {
+    return { hits: await catalog(`m:${query.toLowerCase()}`, () => modrinth.search(query, null, { loaders: MODPACK_LOADERS, projectType: 'modpack', strict: false })) };
+  } catch (err) {
+    throw httpError(502, err.message);
+  }
+});
+
+route('GET', /^\/api\/distributions\/modpacks\/([A-Za-z0-9_-]{2,64})\/versions$/, async (req, res, [project]) => {
+  let list;
+  try {
+    list = await catalog(`mv:${project}`, () => modrinth.projectVersions(project));
+  } catch (err) {
+    throw httpError(/Invalid/.test(err.message) ? 400 : 502, err.message);
+  }
+  const versions = list
+    .map((v) => ({
+      id: v.id, name: v.name, version: v.version_number, type: v.version_type, date: v.date_published,
+      mc: (v.game_versions || []).filter((g) => distributions.VERSION_RE.test(g))[0] || null,
+      distribution: modpack.distributionOf(v.loaders), size: (v.files || []).find((f) => /\.mrpack$/i.test(f.filename))?.size ?? null,
+    }))
+    .filter((v) => v.mc && v.distribution && v.size !== null && modrinth.ID_RE.test(v.id))
+    .slice(0, 50);
+  return { versions };
+});
+
 route('POST', /^\/api\/servers$/, async (req) => {
   const b = await readJson(req);
   const wish = {
     id: b.id, name: b.name, distribution: b.distribution, version: b.version, build: b.build ?? null, memoryMb: b.memoryMb, port: b.port, flags: b.flags, autostart: b.autostart === true, eula: b.eula === true,
     proxy: b.proxy || null, recommended: b.recommended !== false, owner: b.owner || null, portLock: b.portLock === true, extraPorts: b.extraPorts ?? [],
+    modpack: b.modpack || null,
   };
   return [202, servers.create(wish, { user: req.user, start: b.start !== false, force: b.force === true })];
 });
