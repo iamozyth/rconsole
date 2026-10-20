@@ -4,6 +4,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const config = require('./lib/config');
 const { Rcon } = require('./lib/rcon');
 const { LogTail } = require('./lib/logtail');
@@ -37,6 +38,7 @@ const { Problems } = require('./lib/problems');
 const hostcheck = require('./lib/hostcheck');
 const mapDetect = require('./lib/mapdetect');
 const instances = require('./lib/instances');
+const slp = require('./lib/slp');
 const { Offsite } = require('./lib/offsite');
 const { Spark } = require('./lib/spark');
 const { PlayerInfo } = require('./lib/playerinfo');
@@ -1362,6 +1364,20 @@ route('GET', /^\/api\/servers$/, async (req) => {
   // Only the servers this account may see, each with the account's role there.
   const all = await servers.list();
   const list = all.map((i) => ({ ...i, myRole: users.serverRole(req.user, i.id) })).filter((i) => i.myRole !== 'none');
+  // ?live: what each running server does right now, for the dashboard.
+  if (new URL(req.url, 'http://x').searchParams.has('live')) {
+    await Promise.all(list.filter((i) => i.state.active === 'active').map(async (i) => {
+      const pw = servers.power(i.id);
+      // CPU is the change since the last reading; the first one takes two.
+      const cpuOf = async () => {
+        let p = await pw.processStats().catch(() => null);
+        if (p && p.cpu == null) p = await new Promise((r) => setTimeout(r, 500)).then(() => pw.processStats()).catch(() => p);
+        return p;
+      };
+      const [proc, ping] = await Promise.all([cpuOf(), slp.ping({ port: i.port }).catch(() => null)]);
+      i.live = { rss: proc?.rss ?? null, cpu: proc?.cpu == null ? null : proc.cpu / (os.cpus().length || 1), players: ping ? { online: ping.online, max: ping.max, sample: ping.sample } : null, version: ping?.version || null };
+    }));
+  }
   // Game ports in use, so the form suggests a free one.
   const usedPorts = all.map((s) => s.port); // hidden ones too
   if (legacyServer && !config.activeServer) usedPorts.push(Number((await readProperties(config.mcDir))['server-port']) || 25565);

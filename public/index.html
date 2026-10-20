@@ -147,24 +147,78 @@
   <main id="main">
     <!-- Dashboard: everything that needs attention, at a glance -->
     <section class="area" id="tab-dashboard" role="tabpanel">
-      <div class="dash-tiles" id="dash-tiles"></div>
+      <section class="panel dash-hero" id="dash-hero" aria-labelledby="dh-name">
+        <div class="dh-id">
+          <span class="dh-state" id="dh-state" data-state=""><span class="dh-pulse"></span></span>
+          <div class="dh-text">
+            <h2 id="dh-name">Server</h2>
+            <p class="dh-facts" id="dh-facts"></p>
+          </div>
+        </div>
+        <div class="dh-actions" data-min-role="admin">
+          <button class="btn btn-primary" id="dh-start" hidden><svg><use href="#pg-play"/></svg>Start</button>
+          <button class="btn" id="dh-restart"><svg><use href="#pg-restart"/></svg>Restart</button>
+          <button class="btn" id="dh-stop"><svg><use href="#pg-stop"/></svg>Stop</button>
+          <span class="dh-sep" aria-hidden="true"></span>
+          <button class="btn" id="dh-backup"><svg><use href="#pg-backups"/></svg>Back up now</button>
+          <button class="btn" id="dh-save"><svg><use href="#pg-save"/></svg>Save world</button>
+          <a class="btn btn-quiet" href="#console"><svg><use href="#pg-console"/></svg>Console</a>
+        </div>
+        <p class="dh-banner" id="dh-banner" role="status" hidden></p>
+      </section>
+
+      <div class="dash-cards" id="dash-cards" role="group" aria-label="Pick a metric for the chart"></div>
+      <div class="dash-health" id="dash-health"></div>
+
       <div class="dash-grid">
-        <section class="panel">
-          <header class="panel-head"><div class="head-text"><h2>Last 6 hours</h2><p class="note" id="dash-chart-note">TPS and players online.</p></div><a class="btn btn-quiet btn-sm" href="#insights/metrics">All metrics</a></header>
-          <div class="panel-body dash-charts"><div class="chart" id="dash-tps"></div><div class="chart" id="dash-players"></div></div>
-        </section>
-        <section class="panel">
-          <header class="panel-head"><h2>Online now</h2><span class="count" id="dash-count"></span><a class="btn btn-quiet btn-sm" href="#players">All players</a></header>
-          <ul class="people" id="dash-online"></ul>
-        </section>
-        <section class="panel">
-          <header class="panel-head"><div class="head-text"><h2>Daily activity</h2><p class="note">Hours played per day, from the server logs.</p></div></header>
-          <div class="panel-body"><div class="chart" id="ph-daily"></div></div>
-        </section>
-        <section class="panel" id="dash-activity-panel">
-          <header class="panel-head"><h2 id="dash-activity-title">Recent activity</h2><a class="btn btn-quiet btn-sm" id="dash-activity-more" href="#insights/activity" data-min-global-role="admin">All activity</a></header>
-          <ol class="activity" id="dash-activity"></ol>
-        </section>
+        <div class="dash-col">
+          <section class="panel" id="dash-perf">
+            <header class="panel-head dash-perf-head">
+              <h2 id="dash-perf-title">Performance</h2>
+              <div class="segmented" role="radiogroup" aria-label="Time range" id="dash-range">
+                <button role="radio" aria-checked="false" data-range="1h">1h</button>
+                <button role="radio" aria-checked="true" data-range="6h">6h</button>
+                <button role="radio" aria-checked="false" data-range="24h">24h</button>
+                <button role="radio" aria-checked="false" data-range="7d">7d</button>
+              </div>
+            </header>
+            <div class="panel-body">
+              <div class="dash-perf-meta"><p class="note" id="dash-chart-note"></p><dl class="chart-stats" id="dash-stats"></dl></div>
+              <div class="chart" id="dash-chart"></div>
+            </div>
+          </section>
+          <section class="panel" id="dash-servers-panel" hidden>
+            <header class="panel-head"><div class="head-text"><h2>Servers</h2><p class="note" id="dash-servers-note"></p></div><a class="btn btn-quiet btn-sm" href="#servers">Manage</a></header>
+            <ul class="dash-servers" id="dash-servers"></ul>
+          </section>
+          <section class="panel">
+            <header class="panel-head"><div class="head-text"><h2>Daily activity</h2><p class="note">Hours played per day, from the server logs.</p></div></header>
+            <div class="panel-body"><div class="chart" id="ph-daily"></div></div>
+          </section>
+        </div>
+        <div class="dash-col">
+          <section class="panel">
+            <header class="panel-head"><h2>Online now</h2><span class="count" id="dash-count"></span><a class="btn btn-quiet btn-sm" href="#players">All players</a></header>
+            <ul class="people" id="dash-online"></ul>
+          </section>
+          <section class="panel">
+            <header class="panel-head"><h2>Coming up</h2><a class="btn btn-quiet btn-sm" href="#automation">Automation</a></header>
+            <ol class="dash-list" id="dash-upcoming"></ol>
+          </section>
+          <section class="panel">
+            <header class="panel-head"><h2>Problems</h2><span class="count" id="dash-problems-count"></span><button class="btn btn-quiet btn-sm" type="button" id="dash-problems-all">All problems</button></header>
+            <ol class="dash-list" id="dash-problems"></ol>
+          </section>
+          <section class="panel">
+            <header class="panel-head"><div class="head-text"><h2>Backups</h2><p class="note" id="dash-backups-note"></p></div><a class="btn btn-quiet btn-sm" href="#backups">All backups</a></header>
+            <div class="dash-backup-bars" id="dash-backup-bars" aria-hidden="true"></div>
+            <ol class="dash-list" id="dash-backups"></ol>
+          </section>
+          <section class="panel" id="dash-activity-panel">
+            <header class="panel-head"><h2 id="dash-activity-title">Recent activity</h2><a class="btn btn-quiet btn-sm" id="dash-activity-more" href="#insights/activity" data-min-global-role="admin">All activity</a></header>
+            <ol class="activity" id="dash-activity"></ol>
+          </section>
+        </div>
       </div>
     </section>
 
