@@ -210,7 +210,7 @@ function applyRole(role, globalRole = role) {
   document.body.dataset.role = myRole;
   document.body.dataset.globalRole = myGlobalRole;
   // Forms that change things are read-only below their role.
-  for (const id of ['settings-form', 'task-form', 'world-new']) if ($(id)) $(id).inert = !atLeast('admin');
+  for (const id of ['settings-form', 'task-form', 'world-new', 'world-import']) if ($(id)) $(id).inert = !atLeast('admin');
   for (const id of ['notify-form', 'os-form', 'server-new', 'sys-web', 'sys-security', 'sys-backups']) if ($(id)) $(id).inert = !globalAtLeast('admin');
   if (!atLeast('admin') || !globalAtLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
 }
@@ -1522,7 +1522,7 @@ function renderOp(op) {
   $('op-icon').setAttribute('href', op.running ? '#pg-server' : '#pg-alert');
   $('op-text').textContent = op.running ? `${op.label}: ${op.step}…` : recentFail ? `${op.label} failed: ${op.error}` : '';
   if (opWasRunning && !op.running) {
-    toast(op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.`, op.error ? 'bad' : 'ok');
+    toast(op.error ? `${op.label} failed: ${op.error}` : `${op.label}: done.${op.result?.note ? ` ${op.result.note}` : ''}`, op.error ? 'bad' : 'ok');
     if (document.body.dataset.area === 'world') loadWorlds();
     if (document.body.dataset.area === 'backups') loadBackupsArea();
   }
@@ -1903,6 +1903,230 @@ worldForm.addEventListener('submit', async (e) => {
     startOp('/api/worlds', { name, seed: f.seed.value.trim(), type: f.type.value, seconds: Number(f.seconds.value) }, `Creating ${name}. The server switches to it ${serverRunning() ? 'after the countdown' : 'on next start'}.`));
   worldForm.reset();
   toggleWorldForm(false);
+});
+
+// --- Import a world from an archive -------------------------------------------
+// The archive goes up in chunks (resumable after a dropped connection), then
+// the helper unpacks and checks it and moves the world into place. The
+// upload keeps going when the drawer is closed; reopening shows it.
+
+const importForm = $('world-import');
+const importFileInput = $('import-file');
+let importFile = null;
+let importing = null; // { id, xhr, cancelled } while uploading
+
+const ARCHIVE_EXT = /\.(zip|tar|tgz|txz|tzst|gz|zst|xz|bz2)$/i;
+function worldNameFrom(fileName) {
+  let n = fileName;
+  while (ARCHIVE_EXT.test(n)) n = n.replace(ARCHIVE_EXT, '');
+  n = n.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').replace(/_(nether|the_end)$/, '').slice(0, 32) || 'imported';
+  let name = n;
+  for (let i = 2; worldNames.includes(name); i++) name = `${n.slice(0, 29)}-${i}`;
+  return name;
+}
+const validWorldName = (n) => /^[A-Za-z0-9_-]{1,32}$/.test(n) && !/_(nether|the_end)$/.test(n) && !/^[-.]/.test(n);
+
+function renderImportOptions() {
+  const name = importForm.elements.name.value.trim();
+  const exists = worldNames.includes(name);
+  const isActive = name === activeWorldName;
+  const running = serverRunning();
+  const box = $('import-options');
+  const prev = { replace: box.querySelector('[name=replace]')?.checked, activate: box.querySelector('[name=activate]')?.checked, seconds: box.querySelector('[name=seconds]')?.value };
+  const check = (field, label, note, checked) => el('label', { class: 'radio-row' },
+    el('input', { type: 'checkbox', name: field, checked: checked || undefined }),
+    el('span', {}, el('b', {}, label), el('span', { class: 'note' }, note)));
+  const delay = delaySelect(Number(prev.seconds ?? 60));
+  const rows = [];
+  if (exists) {
+    rows.push(check('replace', `Replace ${name}`,
+      isActive
+        ? `This is the active world. ${running ? 'Players are warned, the server stops, the world' : 'It'} is backed up for safety, then replaced${running ? ', and the server starts again' : ''}. Pick another name to keep both.`
+        : 'It is backed up for safety, then replaced. Pick another name to keep both.', prev.replace));
+    if (isActive && running) rows.push(fld('Stop the server', delay));
+  } else {
+    rows.push(check('activate', 'Switch to it after the import', running ? `The server restarts into it after a countdown. ${activeWorldName || 'The current world'} stays on disk.` : 'It is played from the next start.', prev.activate));
+    if (running) rows.push(Object.assign(fld('Restart', delay), { hidden: !prev.activate }));
+  }
+  box.replaceChildren(...rows);
+  box.onchange = () => {
+    const act = box.querySelector('[name=activate]');
+    const delayFld = box.querySelector('.fld');
+    if (act && delayFld) delayFld.hidden = !act.checked;
+  };
+}
+
+function pickImportFile(file) {
+  if (!file || importing) return;
+  importFile = file;
+  $('import-file-name').textContent = file.name;
+  const looksRight = ARCHIVE_EXT.test(file.name);
+  $('import-file-note').textContent = `${fmt.bytes(file.size)}${looksRight ? '' : '. This doesn\'t look like a .zip or .tar archive; it is checked once the upload starts.'}`;
+  $('import-drop').dataset.state = 'picked';
+  importForm.elements.name.value = worldNameFrom(file.name);
+  renderImportOptions();
+}
+
+function setImportBusy(on) {
+  importing = on ? importing : null;
+  for (const c of importForm.querySelectorAll('input, select')) c.disabled = on;
+  $('import-drop').toggleAttribute('aria-disabled', on);
+  $('world-import-go').hidden = on;
+  $('world-import-cancel').textContent = on ? 'Cancel upload' : 'Cancel';
+  $('import-progress').hidden = !on;
+  $('world-import-toggle').lastChild.textContent = on ? 'Uploading…' : 'Import world';
+}
+
+function resetImport() {
+  importFile = null;
+  importForm.reset();
+  importFileInput.value = '';
+  $('import-file-name').textContent = 'Choose a world archive';
+  $('import-file-note').textContent = 'or drop it here. A .zip of the world folder (as Finder or Windows make it), .tar.gz, .tar.zst or .tar.xz; a zip of a whole server folder works too. Nether and End come along.';
+  delete $('import-drop').dataset.state;
+  $('import-meter').style.width = '0';
+  $('import-options').replaceChildren();
+  setImportBusy(false);
+}
+
+// One chunk, with upload progress (fetch can't report it).
+function putChunk(id, offset, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    importing.xhr = xhr;
+    xhr.open('PUT', `/api/worlds/uploads/${id}?offset=${offset}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      let data = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {}
+      if (xhr.status === 401) location.replace('/login');
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(Object.assign(new Error(data.error || `Upload failed (HTTP ${xhr.status})`), { status: xhr.status }));
+    };
+    xhr.onerror = () => reject(new Error('Connection lost'));
+    xhr.onabort = () => reject(Object.assign(new Error('Upload cancelled'), { cancelled: true }));
+    xhr.send(blob);
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function uploadArchive(file) {
+  const up = await api('POST', '/api/worlds/uploads', { name: file.name, size: file.size });
+  importing.id = up.id;
+  let offset = up.received;
+  const started = Date.now();
+  let failures = 0;
+  const show = (sent) => {
+    const pct = (sent / file.size) * 100;
+    $('import-meter').style.width = `${pct.toFixed(1)}%`;
+    const secs = (Date.now() - started) / 1000;
+    const rate = secs > 1 ? sent / secs : 0;
+    const left = rate ? Math.round((file.size - sent) / rate) : null;
+    $('import-status').textContent = `${fmt.bytes(sent)} of ${fmt.bytes(file.size)}${rate ? ` · ${fmt.bytes(rate)}/s` : ''}${left != null && left > 0 ? ` · ${left < 60 ? `${left}s` : fmt.duration(left)} left` : ''}`;
+    $('world-import-toggle').lastChild.textContent = `Uploading ${Math.floor(pct)}%`;
+  };
+  show(offset);
+  // Chunks of about 20 seconds each: big on a fast line, small enough on a
+  // slow one to finish well inside proxy and server request timeouts.
+  let chunk = 4 * 1024 * 1024;
+  while (offset < file.size) {
+    if (importing.cancelled) throw Object.assign(new Error('Upload cancelled'), { cancelled: true });
+    const start = offset;
+    const end = Math.min(file.size, offset + chunk);
+    const t0 = Date.now();
+    try {
+      offset = (await putChunk(up.id, offset, file.slice(offset, end), (loaded) => show(start + loaded))).received;
+      const perSecond = (end - start) / Math.max(0.05, (Date.now() - t0) / 1000);
+      chunk = Math.max(1024 * 1024, Math.min(up.chunkSize, Math.round(perSecond * 20)));
+      failures = 0;
+    } catch (e) {
+      // Wrong file, no space, signed out: no point retrying.
+      if (e.cancelled || (e.status && e.status < 500 && ![408, 409, 429].includes(e.status))) throw e;
+      if (++failures > 8) throw new Error(`Upload failed: ${e.message}`);
+      for (let s = Math.min(30, 2 ** failures); s > 0 && !importing.cancelled; s--) {
+        $('import-status').textContent = `${e.message}. Retrying in ${s}s…`;
+        await sleep(1000);
+      }
+      offset = await api('GET', `/api/worlds/uploads/${up.id}`).then((st) => st.received).catch(() => offset);
+    }
+    show(offset);
+  }
+  return up.id;
+}
+
+importForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (importing) return;
+  const f = importForm.elements;
+  const name = f.name.value.trim();
+  if (!importFile) return toast('Choose a world archive first.', 'bad');
+  if (!validWorldName(name)) return toast('World names use letters, digits, - and _ (max 32), and can\'t end in _nether or _the_end.', 'bad');
+  const exists = worldNames.includes(name);
+  const replace = Boolean(importForm.querySelector('[name=replace]')?.checked);
+  const activate = Boolean(importForm.querySelector('[name=activate]')?.checked);
+  const seconds = Number(importForm.querySelector('[name=seconds]')?.value ?? 60);
+  if (exists && !replace) return toast(`A world named ${name} exists. Tick "Replace" or pick another name.`, 'bad');
+  if (lastStatus?.op?.running) return toast(`Wait for "${lastStatus.op.label}" to finish first.`, 'bad');
+  if (replace && name === activeWorldName && serverRunning() && !(await confirmAction({
+    title: `Replace the active world ${name}?`,
+    body: 'After the upload, players are warned, the server stops, the current world is backed up, and the uploaded one takes its place. The backup is under Backups if you want it back.',
+    confirm: 'Upload and replace', tone: 'danger', icon: 'worlds',
+  }))) return;
+  importing = { id: null, xhr: null, cancelled: false };
+  setImportBusy(true);
+  const file = importFile;
+  try {
+    const upload = await uploadArchive(file);
+    $('import-status').textContent = 'Uploaded. Starting the import…';
+    const op = await api('POST', '/api/worlds/import', { upload, name, replace, activate, seconds });
+    renderOp(op);
+    refreshStatus(true);
+    toast(`${file.name} is uploaded. Importing it as ${name}; the bar at the top shows the progress.`);
+    resetImport();
+    closeDrawer('drawer-import');
+  } catch (err) {
+    const id = importing?.id;
+    if (id && err.status !== 415) api('DELETE', `/api/worlds/uploads/${id}`).catch(() => {}); // 415: the server dropped it already
+    if (!err.cancelled) toast(err.message, 'bad');
+    setImportBusy(false);
+    $('import-meter').style.width = '0';
+  }
+});
+
+$('world-import-toggle').addEventListener('click', () => {
+  if (!importing && !importFile) resetImport();
+  else if (!importing) renderImportOptions();
+  openDrawer('drawer-import', importing ? $('world-import-cancel') : $('import-file'));
+});
+$('world-import-cancel').addEventListener('click', () => {
+  if (importing) {
+    importing.cancelled = true;
+    importing.xhr?.abort();
+    return;
+  }
+  resetImport();
+  closeDrawer('drawer-import');
+});
+importFileInput.addEventListener('change', () => pickImportFile(importFileInput.files[0]));
+importForm.elements.name.addEventListener('input', renderImportOptions);
+const dropzone = $('import-drop');
+for (const type of ['dragenter', 'dragover']) dropzone.addEventListener(type, (e) => {
+  e.preventDefault();
+  if (!importing) dropzone.dataset.over = '';
+});
+for (const type of ['dragleave', 'drop']) dropzone.addEventListener(type, () => delete dropzone.dataset.over);
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const item = e.dataTransfer.items?.[0];
+  if (item?.webkitGetAsEntry?.()?.isDirectory) return toast('That is a folder. Zip it first (Finder: right-click → Compress; Windows: Send to → Compressed folder), then drop the .zip.', 'bad');
+  pickImportFile(e.dataTransfer.files[0]);
+});
+window.addEventListener('beforeunload', (e) => {
+  if (importing) e.preventDefault();
 });
 
 async function loadBackups() {
@@ -2447,16 +2671,24 @@ $('plugin-search').addEventListener('submit', async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Schedule
+// Automation: tasks with a trigger and a chain of steps
 // ---------------------------------------------------------------------------
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const TYPE = {
-  restart: { label: 'Restart', icon: 'restart' },
-  backup: { label: 'Backup', icon: 'backups' },
-  command: { label: 'Command', icon: 'console' },
+const STEP = {
+  say: { label: 'Tell players', icon: 'send' },
+  command: { label: 'Run a command', icon: 'console' },
+  wait: { label: 'Wait', icon: 'history' },
+  backup: { label: 'Back up the world', icon: 'backups' },
+  restart: { label: 'Restart with countdown', icon: 'restart' },
+  stop: { label: 'Stop with countdown', icon: 'stop' },
+  start: { label: 'Start the server', icon: 'play' },
+  'if-empty': { label: 'Only go on if nobody is online', icon: 'players' },
 };
+const EVENT_LABEL = { start: 'When the server starts', crash: 'When the server crashes', empty: 'When nobody is online', log: 'When the log shows a line' };
 let tasksLoaded = false;
+let taskMeta = { servers: [], shown: null, events: {} };
+let editingTask = null; // id while editing
 
 function describeDays(days) {
   if (!days.length || days.length === 7) return 'Daily';
@@ -2465,43 +2697,76 @@ function describeDays(days) {
   return [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => DAY_NAMES[d]).join(', ');
 }
 
+const secs = (s) => (s >= 60 && s % 60 === 0 ? `${s / 60} min` : `${s} s`);
+function describeStep(st) {
+  switch (st.type) {
+    case 'say': return `Tell players “${st.message}”`;
+    case 'command': return `/${st.command}`;
+    case 'wait': return `Wait ${secs(st.seconds)}`;
+    case 'restart': return st.warnSeconds ? `Restart after ${secs(st.warnSeconds)} warning` : 'Restart now';
+    case 'stop': return st.warnSeconds ? `Stop after ${secs(st.warnSeconds)} warning` : 'Stop now';
+    default: return STEP[st.type]?.label || st.type;
+  }
+}
+
+function describeTrigger(t) {
+  if (t.type === 'time') return [t.time, describeDays(t.days)];
+  if (t.type === 'cron') return [el('span', { class: 'mono' }, t.cron), 'Cron'];
+  const extra = t.event === 'empty' ? `for ${t.minutes} min` : t.event === 'log' ? `“${t.match}”` : '';
+  return [EVENT_LABEL[t.event] || t.event, [extra, `at most every ${t.cooldownMinutes} min`].filter(Boolean).join(', ')];
+}
+
+const serverLabel = (id) => (id === null ? (taskMeta.shown === null && lastStatus?.platform?.name) || 'Attached server' : taskMeta.servers.find((x) => x.id === id)?.name || id);
+const taskTitle = (t) => t.name || t.steps.map((st) => STEP[st.type]?.label || st.type).join(', ');
+
 async function loadTasks() {
-  if (!tasksLoaded) skeletonRows($('task-list'), 5);
+  if (!tasksLoaded) skeletonRows($('task-list'), 6);
   try {
-    const { tasks } = await api('GET', '/api/tasks');
+    const { tasks, servers, shown, events } = await api('GET', '/api/tasks');
+    taskMeta = { servers, shown, events };
     tasksLoaded = true;
     $('n-tasks').textContent = tasks.length || '';
+    const many = servers.length > 1;
+    $('task-list').closest('table').classList.toggle('one-server', !many);
+    $('task-list').closest('table').classList.add('task-table');
     $('task-list').replaceChildren(...(tasks.length
       ? tasks.map((t) => {
-          const detail = t.type === 'command' ? `/${t.command}` : t.type === 'restart' ? `${t.warnMinutes} min warning` : 'World, nether and end';
           const failed = /^error/i.test(t.lastResult || '');
+          const [whenMain, whenSub] = describeTrigger(t.trigger);
+          const running = t.running ? `Running: step ${t.running.step + 1} of ${t.steps.length}` : null;
           return el('tr', {},
             el('td', { class: 'primary-cell', 'data-label': 'Task' },
-              t.name || TYPE[t.type].label, ' ',
-              el('span', { class: `pill ${t.enabled ? 'own' : ''}` }, t.enabled ? 'Active' : 'Paused'),
-              el('span', { class: `sub ${t.type === 'command' ? 'mono' : ''}` }, detail)),
-            el('td', { 'data-label': 'When' }, `${t.time}`, el('span', { class: 'sub' }, describeDays(t.days))),
-            el('td', { 'data-label': 'Next run' }, t.enabled && t.nextRun ? when(t.nextRun) : '–'),
-            el('td', { 'data-label': 'Last result' }, t.lastRun
-              ? el('span', { class: `result ${failed ? 'bad' : ''}` }, t.lastResult, el('span', { class: 'sub' }, fmt.relative(t.lastRun)))
-              : el('span', { class: 'result' }, 'Not run yet')),
+              taskTitle(t), ' ',
+              el('span', { class: `pill ${t.enabled ? 'own' : ''}` }, running ? 'Running' : t.enabled ? 'Active' : 'Paused'),
+              el('span', { class: 'sub step-chain' }, t.steps.map(describeStep).join(' → '))),
+            el('td', { 'data-label': 'Server', class: 'task-server' }, serverLabel(t.server), t.server !== shown && t.steps.some((st) => st.type === 'backup' || st.type === 'if-empty') ? el('span', { class: 'sub' }, 'Runs while shown') : ''),
+            el('td', { 'data-label': 'When' }, whenMain, el('span', { class: 'sub' }, whenSub)),
+            el('td', { 'data-label': 'Next run' }, t.enabled && t.nextRun ? when(t.nextRun) : t.trigger.type === 'event' && t.enabled ? 'On event' : '–'),
+            el('td', { 'data-label': 'Last result' }, running
+              ? el('span', { class: 'result' }, running)
+              : t.lastRun
+                ? el('span', { class: `result ${failed ? 'bad' : ''}` }, t.lastResult, el('span', { class: 'sub' }, fmt.relative(t.lastRun)))
+                : el('span', { class: 'result' }, 'Not run yet')),
             el('td', { class: 'act' },
-              taskButton(t.enabled ? 'Pause' : 'Resume', t.enabled ? 'pause' : 'play', () => taskAction('PATCH', t, { enabled: !t.enabled })),
               taskButton('Run now', 'play', () => runTask(t)),
+              taskButton('Edit', 'settings', () => editTask(t), false, true),
+              taskButton(t.enabled ? 'Pause' : 'Resume', t.enabled ? 'pause' : 'play', () => taskAction('PATCH', t, { enabled: !t.enabled }), false, true),
               taskButton('Delete', 'delete', async () => {
-                if (await confirmAction({ title: `Delete “${t.name || TYPE[t.type].label}”?`, body: `${TYPE[t.type].label} at ${t.time}, ${describeDays(t.days).toLowerCase()}.`, confirm: 'Delete task', tone: 'danger', icon: 'delete' })) await taskAction('DELETE', t);
-              }, true)));
+                if (await confirmAction({ title: `Delete “${taskTitle(t)}”?`, body: `${typeof whenMain === 'string' ? whenMain : t.trigger.cron}${typeof whenSub === 'string' ? `, ${whenSub.toLowerCase()}` : ''}.`, confirm: 'Delete task', tone: 'danger', icon: 'delete' })) await taskAction('DELETE', t);
+              }, true, true)));
         })
-      : [emptyRow(5, el('b', {}, 'No scheduled tasks. '), 'A nightly restart at 04:00 and a backup at 04:30 keep the server fresh and recoverable. Press New task.')]));
+      : [emptyRow(6, el('b', {}, 'No tasks yet. '), 'A nightly restart at 04:00 and a backup at 04:30 keep the server fresh and recoverable. Press New task and start from one of the ready-made ones.')]));
   } catch (e) {
-    $('task-list').replaceChildren(emptyRow(5, `Can't load tasks: ${e.message}`));
+    $('task-list').replaceChildren(emptyRow(6, `Can't load tasks: ${e.message}`));
   }
 }
 tabLoaders.automation = loadTasks;
-$('task-new').addEventListener('click', () => openDrawer('drawer-task', taskForm.elements.type));
+$('task-new').addEventListener('click', () => openTaskForm(null));
 
-function taskButton(label, iconName, fn, danger) {
-  const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}` }, icon(iconName), label);
+function taskButton(label, iconName, fn, danger, iconOnly) {
+  const btn = iconOnly
+    ? el('button', { class: `btn btn-quiet btn-sm btn-icon${danger ? ' danger' : ''}`, 'aria-label': label, title: label }, icon(iconName))
+    : el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}` }, icon(iconName), label);
   btn.addEventListener('click', () => busy(btn, fn));
   return btn;
 }
@@ -2518,11 +2783,14 @@ async function taskAction(method, task, body) {
 }
 
 async function runTask(task) {
-  const label = task.name || TYPE[task.type].label;
-  const opts = task.type === 'restart'
-    ? { title: `Restart now?`, body: `Starts the ${task.warnMinutes}-minute countdown with chat warnings, then restarts the server.`, confirm: 'Start countdown', tone: 'primary', icon: 'restart' }
-    : { title: `Run “${label}” now?`, body: task.type === 'command' ? `/${task.command}` : 'Takes a world backup now.', confirm: 'Run now', tone: 'primary', icon: TYPE[task.type].icon };
-  if (!(await confirmAction(opts))) return;
+  const label = taskTitle(task);
+  const hasCountdown = task.steps.find((st) => st.type === 'restart' || st.type === 'stop');
+  const ok = await confirmAction({
+    title: `Run “${label}” now?`,
+    body: `${task.steps.map(describeStep).join(' → ')}${hasCountdown ? '. Players see the countdown in chat.' : '.'}`,
+    confirm: 'Run now', tone: 'primary', icon: 'play',
+  });
+  if (!ok) return;
   try {
     await api('POST', `/api/tasks/${task.id}/run`);
     toast(`Started “${label}”.`);
@@ -2533,12 +2801,39 @@ async function runTask(task) {
   refreshStatus(true);
 }
 
+// --- the task form ---
+
 const taskForm = $('task-form');
-function syncTaskForm() {
-  const type = taskForm.elements.type.value;
-  taskForm.querySelectorAll('[data-for]').forEach((l) => (l.hidden = l.dataset.for !== type));
+let taskSteps = [];
+let taskTrigger = 'time';
+
+const PRESETS = {
+  nightly: { name: 'Nightly restart', trigger: { type: 'time', time: '04:00', days: [] }, steps: [{ type: 'restart', warnSeconds: 300 }] },
+  'backup-restart': { name: 'Backup and restart', trigger: { type: 'time', time: '04:00', days: [] }, steps: [{ type: 'say', message: 'Backup and restart in 5 minutes' }, { type: 'backup' }, { type: 'restart', warnSeconds: 300 }] },
+  'empty-restart': { name: 'Restart when empty', trigger: { type: 'event', event: 'empty', minutes: 30, cooldownMinutes: 360 }, steps: [{ type: 'if-empty' }, { type: 'restart', warnSeconds: 0 }] },
+  'crash-start': { name: 'Start after a crash', trigger: { type: 'event', event: 'crash', cooldownMinutes: 10 }, steps: [{ type: 'wait', seconds: 30 }, { type: 'start' }] },
+  'hourly-backup': { name: 'Backup every 2 hours', trigger: { type: 'cron', cron: '0 */2 * * *' }, steps: [{ type: 'backup' }] },
+};
+const STEP_DEFAULTS = { say: { message: '' }, command: { command: '' }, wait: { seconds: 60 }, restart: { warnSeconds: 300 }, stop: { warnSeconds: 300 } };
+
+function setTrigger(type) {
+  taskTrigger = type;
+  $('task-trigger').querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.trigger === type)));
+  syncTaskForm();
 }
-taskForm.elements.type.addEventListener('change', syncTaskForm);
+$('task-trigger').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-trigger]');
+  if (b) setTrigger(b.dataset.trigger);
+});
+
+function syncTaskForm() {
+  const ev = taskForm.elements.event.value;
+  taskForm.querySelectorAll('[data-trigger-for]').forEach((l) => {
+    l.hidden = l.dataset.triggerFor !== taskTrigger || (l.dataset.eventFor && l.dataset.eventFor !== ev);
+  });
+  if (taskTrigger === 'cron') previewCron();
+}
+taskForm.elements.event.addEventListener('change', syncTaskForm);
 // "Every day" and single days exclude each other; no day picked means every day.
 taskForm.querySelector('.days').addEventListener('change', (e) => {
   const all = taskForm.querySelector('.days input[value=all]');
@@ -2547,25 +2842,139 @@ taskForm.querySelector('.days').addEventListener('change', (e) => {
   all.checked = !days.some((d) => d.checked);
 });
 
+let cronTimer = null;
+function previewCron() {
+  clearTimeout(cronTimer);
+  const note = $('task-cron-note');
+  const expr = taskForm.elements.cron.value.trim();
+  if (!expr) {
+    note.textContent = 'Minute, hour, day of month, month, weekday. Server time.';
+    note.classList.remove('bad');
+    return;
+  }
+  cronTimer = setTimeout(async () => {
+    try {
+      const { next } = await api('GET', `/api/tasks/preview?cron=${encodeURIComponent(expr)}`);
+      note.textContent = next.length ? `Next: ${next.map((d) => fmt.date(d)).join(' · ')}` : 'This expression never runs.';
+      note.classList.toggle('bad', !next.length);
+    } catch (e) {
+      note.textContent = e.message;
+      note.classList.add('bad');
+    }
+  }, 300);
+}
+taskForm.elements.cron.addEventListener('input', previewCron);
+
+function stepField(st, key, attrs, label) {
+  const input = el('input', { class: `field${key === 'command' ? ' mono' : ''}`, value: st[key] ?? '', 'aria-label': label, ...attrs });
+  input.addEventListener('input', () => (st[key] = attrs.type === 'number' ? Number(input.value) : input.value));
+  return input;
+}
+
+function renderSteps() {
+  const list = $('task-steps');
+  list.replaceChildren(...taskSteps.map((st, i) => {
+    const move = (d) => {
+      const j = i + d;
+      if (j < 0 || j >= taskSteps.length) return;
+      [taskSteps[i], taskSteps[j]] = [taskSteps[j], taskSteps[i]];
+      renderSteps();
+    };
+    const fields = [];
+    if (st.type === 'say') fields.push(stepField(st, 'message', { placeholder: 'Restart in 5 minutes', maxlength: 200 }, 'Message'));
+    if (st.type === 'command') fields.push(stepField(st, 'command', { placeholder: 'save-all', maxlength: 1000, spellcheck: 'false' }, 'Command'));
+    if (st.type === 'wait') fields.push(stepField(st, 'seconds', { type: 'number', min: 1, max: 3600 }, 'Seconds'), el('span', { class: 'unit' }, 'seconds'));
+    if (st.type === 'restart' || st.type === 'stop') fields.push(stepField(st, 'warnSeconds', { type: 'number', min: 0, max: 3600 }, 'Warning in seconds'), el('span', { class: 'unit' }, 's warning'));
+    const btn = (label, iconName, fn, disabled) => {
+      const b = el('button', { type: 'button', class: 'btn btn-quiet btn-icon btn-sm', 'aria-label': label, title: label, ...(disabled ? { disabled: '' } : {}) }, icon(iconName));
+      b.addEventListener('click', fn);
+      return b;
+    };
+    return el('li', { class: 'step' },
+      el('span', { class: 'step-n' }, String(i + 1)),
+      el('div', { class: 'step-main' }, el('span', { class: 'step-label' }, icon(STEP[st.type].icon), STEP[st.type].label), fields.length ? el('div', { class: 'step-fields' }, ...fields) : ''),
+      el('div', { class: 'step-tools' },
+        btn('Move up', 'chev', () => move(-1), i === 0),
+        btn('Move down', 'chev', () => move(1), i === taskSteps.length - 1),
+        btn('Remove step', 'remove', () => {
+          taskSteps.splice(i, 1);
+          renderSteps();
+        })));
+  }));
+  if (!taskSteps.length) list.append(el('li', { class: 'steps-empty' }, 'No steps yet. Add the first one below.'));
+}
+
+$('task-step-add').addEventListener('click', () => {
+  const type = $('task-step-type').value;
+  taskSteps.push({ type, ...(STEP_DEFAULTS[type] || {}) });
+  renderSteps();
+  $('task-steps').lastElementChild?.querySelector('input')?.focus();
+});
+
+function fillTaskForm(t) {
+  const f = taskForm.elements;
+  f.name.value = t.name || '';
+  const tr = t.trigger || { type: 'time', time: '04:00', days: [] };
+  f.time.value = tr.time || '04:00';
+  const days = tr.days || [];
+  taskForm.querySelectorAll('.days input').forEach((i) => (i.checked = i.value === 'all' ? !days.length : days.includes(Number(i.value))));
+  f.cron.value = tr.cron || '';
+  f.event.value = tr.event || 'crash';
+  f.minutes.value = tr.minutes ?? 30;
+  f.match.value = tr.match || '';
+  f.cooldownMinutes.value = tr.cooldownMinutes ?? 10;
+  taskSteps = (t.steps || []).map((st) => ({ ...st }));
+  setTrigger(tr.type);
+  renderSteps();
+}
+
+function openTaskForm(task) {
+  editingTask = task?.id || null;
+  const f = taskForm.elements;
+  f.server.replaceChildren(...taskMeta.servers.map((x) => el('option', { value: x.id ?? '' }, `${serverLabel(x.id)}${x.id === taskMeta.shown ? ' (shown)' : ''}${x.kind === 'proxy' ? ' · proxy' : ''}`)));
+  f.event.replaceChildren(...Object.keys(EVENT_LABEL).map((k) => el('option', { value: k }, EVENT_LABEL[k])));
+  f.server.value = String((task ? task.server : taskMeta.shown) ?? '');
+  f.server.disabled = taskMeta.servers.length < 2;
+  $('task-preset-fld').hidden = Boolean(task);
+  f.preset.value = '';
+  $('drawer-task-title').textContent = task ? 'Edit task' : 'New task';
+  $('task-save').replaceChildren(icon(task ? 'check' : 'add'), task ? 'Save task' : 'Add task');
+  $('task-error').textContent = '';
+  fillTaskForm(task || { trigger: { type: 'time', time: '04:00', days: [] }, steps: [] });
+  openDrawer('drawer-task', task ? f.name : f.preset);
+}
+const editTask = (t) => openTaskForm(t);
+
+taskForm.elements.preset.addEventListener('change', () => {
+  const p = PRESETS[taskForm.elements.preset.value];
+  if (!p) {
+    fillTaskForm({ trigger: { type: taskTrigger, time: taskForm.elements.time.value }, steps: [] });
+    return;
+  }
+  fillTaskForm(p);
+  taskForm.elements.name.value = p.name;
+});
+
+function taskBody() {
+  const f = taskForm.elements;
+  const trigger = taskTrigger === 'time'
+    ? { type: 'time', time: f.time.value, days: [...taskForm.querySelectorAll('.days input:checked')].filter((i) => i.value !== 'all').map((i) => Number(i.value)) }
+    : taskTrigger === 'cron'
+      ? { type: 'cron', cron: f.cron.value }
+      : { type: 'event', event: f.event.value, minutes: Number(f.minutes.value), match: f.match.value, cooldownMinutes: Number(f.cooldownMinutes.value) };
+  return { name: f.name.value, server: f.server.value === '' ? null : f.server.value, trigger, steps: taskSteps };
+}
+
 taskForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const f = taskForm.elements;
-  const body = {
-    type: f.type.value,
-    time: f.time.value,
-    name: f.name.value,
-    days: [...taskForm.querySelectorAll('.days input:checked')].filter((i) => i.value !== 'all').map((i) => Number(i.value)),
-    warnMinutes: Number(f.warnMinutes.value),
-    command: f.command.value,
-  };
-  await busy(taskForm.querySelector('.form-actions .btn'), async () => {
+  const body = taskBody();
+  await busy($('task-save'), async () => {
     try {
-      await api('POST', '/api/tasks', body);
+      const saved = editingTask ? await api('PATCH', `/api/tasks/${editingTask}`, body) : await api('POST', '/api/tasks', body);
       $('task-error').textContent = '';
-      f.name.value = '';
-      f.command.value = '';
       closeDrawer('drawer-task');
-      toast(`${TYPE[body.type].label} scheduled at ${body.time}, ${describeDays(body.days).toLowerCase()}.`);
+      const [main, sub] = describeTrigger(saved.trigger);
+      toast(`${editingTask ? 'Saved' : 'Added'} “${taskTitle(saved)}”: ${typeof main === 'string' ? main : saved.trigger.cron}${typeof sub === 'string' && saved.trigger.type === 'time' ? `, ${sub.toLowerCase()}` : ''}.`);
       await loadTasks();
     } catch (err) {
       $('task-error').textContent = err.message;
@@ -2775,10 +3184,15 @@ async function loadSelfUpdate(refresh) {
     const c = o.check || {};
     $('self-current').textContent = o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Unknown version';
     const behind = c.status === 'ahead' ? c.behind : 0;
+    // Too old a Node.js: Update installs the right one even with no new commits.
+    const nodeOld = o.node && !o.node.ok ? o.node : null;
     $('self-pill').hidden = !o.current || Boolean(c.error && !c.status);
     $('self-pill').className = `pill ${behind ? 'own' : 'ok'}`;
     $('self-pill').replaceChildren(icon(behind ? 'updates' : 'check'), behind ? `${behind} new commit${behind === 1 ? '' : 's'}` : c.status === 'diverged' ? 'Diverged from GitHub' : 'Up to date');
-    $('self-info').textContent = c.error ? `Can't check github.com/${o.repo}: ${c.error}` : '';
+    $('self-info').textContent = [
+      c.error ? `Can't check github.com/${o.repo}: ${c.error}` : '',
+      nodeOld ? `rconsole needs Node.js ${nodeOld.need} or newer and runs on ${nodeOld.version}. Server → Updates → Update installs Node.js ${nodeOld.need} from NodeSource and restarts rconsole.` : '',
+    ].filter(Boolean).join(' ');
     // Only a status about the installed version is news: a finished update
     // must have ended on it, a failed one must have started from it.
     const cur = o.current?.sha || '';
@@ -2795,15 +3209,15 @@ async function loadSelfUpdate(refresh) {
       el('a', { class: 'mono', href: `https://github.com/${o.repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener' }, x.sha),
       el('span', {}, x.message),
       x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : null)));
-    $('self-note').hidden = !behind;
+    $('self-note').hidden = !behind && !nodeOld;
     // The overview row says "up to date"; the panel only appears when there is more to show.
-    $('self-panel').hidden = !behind && $('self-status').hidden && !(c.error && !c.status);
+    $('self-panel').hidden = !behind && !nodeOld && $('self-status').hidden && !(c.error && !c.status);
     $('self-update').disabled = !o.canUpdate || u?.state === 'running';
     $('self-update').title = o.canUpdate ? '' : 'Needs the systemd install (see README)';
     summaryRow('self', {
       version: o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}${updatedAgo}` : 'Unknown version',
-      state: u?.state === 'running' ? ['own', 'updates', 'Updating…'] : c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
-      action: behind && o.canUpdate
+      state: u?.state === 'running' ? ['own', 'updates', 'Updating…'] : nodeOld ? ['own', 'updates', `Needs Node.js ${nodeOld.need}`] : c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
+      action: (behind || nodeOld) && o.canUpdate
         ? el('button', { class: 'btn btn-sm btn-primary', disabled: u?.state === 'running' || undefined, onclick: () => $('self-update').click() }, icon('updates'), 'Update')
         : el('a', { class: 'btn btn-sm', href: `https://github.com/${o.repo}/commits/${o.branch}`, target: '_blank', rel: 'noopener' }, 'Changes'),
     });
@@ -4187,7 +4601,7 @@ function paletteActions() {
   act('Show problems and errors', 'alert', 'problems errors crash exception plugin failed bell', openProblems);
   act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist addresses', () => showTab('players/addresses'));
   act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });
-  act('Add a scheduled task…', 'schedule', 'cron schedule task timer automation', () => { showTab('automation'); openDrawer('drawer-task', taskForm.elements.type); });
+  act('Add a scheduled task…', 'schedule', 'cron schedule task timer automation event chain', () => { showTab('automation'); loadTasks().then(() => openTaskForm(null)); });
   act('Refresh the command list from the server', 'refresh', 'commands autocomplete reload plugins', () => loadServerCommands(true).then(() => toast(`${serverCommands?.length || 0} commands from the server.`)));
   act('Sign out', 'signout', 'logout sign out', signOut);
   for (const c of commandCatalog().values()) {

@@ -13,7 +13,7 @@
   <a href="#quick-install"><img alt="Install in one command" src="https://img.shields.io/badge/install-one%20command-7c3aed"></a>
   <a href="https://github.com/iamozyth/rconsole/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/iamozyth/rconsole/actions/workflows/test.yml/badge.svg"></a>
   <a href="https://github.com/iamozyth/rconsole/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/iamozyth/rconsole?color=7c3aed"></a>
-  <img alt="Node.js 18+" src="https://img.shields.io/badge/node-%E2%89%A518-339933">
+  <img alt="Node.js 24+" src="https://img.shields.io/badge/node-%E2%89%A524-339933">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen">
   <img alt="Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge, vanilla" src="https://img.shields.io/badge/servers-Paper%20%C2%B7%20Spigot%20%C2%B7%20Fabric%20%C2%B7%20Forge%20%C2%B7%20vanilla-555">
   <a href="LICENSE"><img alt="License: PolyForm Strict 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Strict-555"></a>
@@ -74,9 +74,10 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 
 **Worlds and backups**
 - Switch worlds, create new ones (seed and type), delete with an automatic archive.
+- **Import a world** from your computer: drop a `.zip` (as Finder or Windows make it), `.tar.gz`, `.tar.zst` or `.tar.xz` of a world folder, or of a whole server folder. Resumable uploads of any size; the archive is checked before anything changes, the world it replaces is backed up first. See [Importing a world](#importing-a-world).
 - Per-world **backups** with autosave paused during the copy, retention, download, and **restore** over a world or as a new one.
 - **Offsite copies** in any S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3, Wasabi, MinIO), optionally encrypted before they leave the machine, uploaded after every backup.
-- **Automation**: restarts, backups and commands, daily or weekly.
+- **Automation**: tasks that chain steps (tell players, wait, back up, restart or stop with a countdown, start, run commands, go on only if nobody is online), daily at a time, on a cron schedule, or when something happens: the server started or crashed, nobody has been online for a while, or the log shows a line. Each task belongs to one server.
 
 **Updates and plugins**
 - **One check for everything**: rconsole itself, the server software and your plugins or mods.
@@ -118,7 +119,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 ## Requirements
 
 - Linux with systemd: Debian or Ubuntu for the installer (developed on Debian); other distributions with the manual setup.
-- Node.js 18 or newer (installed automatically if missing).
+- Node.js 24 or newer. The installer adds it from [NodeSource](https://github.com/nodesource/distributions) when the system has none or an older one (Debian 12 ships 18, Debian 13 ships 20).
 - x86-64 or ARM64 for the servers rconsole installs (Java comes from Adoptium for both).
 - Or an existing Minecraft server running as a systemd service under its own user, with RCON (the installer turns it on).
 
@@ -201,7 +202,7 @@ With no Minecraft server on the machine (or with `--new`), the installer sets rc
 
 For an existing server, the installer finds the server (its service, folder, user, jar and software: Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge or vanilla) and shows what it found before changing anything. Then it:
 
-- installs Node.js, git and polkit if missing;
+- installs git, polkit, zstd and nftables if missing, and Node.js 24 from NodeSource unless Node.js 24 or newer is already there;
 - clones rconsole to `/opt/rconsole` and creates the `rconsole` system user;
 - turns on RCON with a generated password if needed (the old file is kept as `server.properties.before-rconsole`);
 - makes the server folder group-readable, creates the backup folder, and adds `Restart=always` to the Minecraft service if it has no restart policy (rconsole restarts the server by stopping it);
@@ -248,8 +249,13 @@ RestartSec=10
 
 ### 3. Install
 
+Node.js 24 from NodeSource (Debian's own `nodejs` is too old), then git:
+
 ```sh
-sudo apt install -y nodejs git
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo tee /etc/apt/keyrings/nodesource.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_24.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
+sudo apt update && sudo apt install -y nodejs git
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin rconsole
 sudo mkdir -p /opt/rconsole && sudo chown $USER: /opt/rconsole
 gh repo clone iamozyth/rconsole /opt/rconsole
@@ -406,15 +412,17 @@ http:
 ```
 
 Add the IP Traefik connects from under **Settings → System → Web access → Trusted proxies** (rconsole offers it when it sees requests coming through an untrusted proxy), or set `TRUST_PROXY`.
+World uploads need no extra settings (see [Importing a world](#importing-a-world)); if you add a `buffering` middleware, keep `maxRequestBodyBytes` above 16 MB.
 
 ## Updating
 
 rconsole checks GitHub every 6 hours for new commits on `main` (Server → Updates shows the changelog, the rail shows a notice) and can update itself with one click. The update runs in `rconsole-selfupdate.service` as root, a fixed script (`bin/self-update.sh`) that takes no input from rconsole:
 
 1. fetches and fast-forwards `/opt/rconsole` (refuses if the checkout has local changes or has diverged),
-2. checks the new code parses, otherwise stays on the old version,
-3. installs changed unit files and the polkit rule, unless your installed copy was customized (then it tells you what to merge),
-4. restarts rconsole, and rolls back if it doesn't come up.
+2. installs the Node.js the new version needs from NodeSource when the system's is older (also when there are no new commits), otherwise stays on the old version,
+3. checks the new code parses, otherwise stays on the old version,
+4. installs changed unit files and the polkit rule, unless your installed copy was customized (then it tells you what to merge),
+5. restarts rconsole, and rolls back if it doesn't come up.
 
 One-time setup (rconsole must be a `git clone` in `/opt/rconsole`):
 
@@ -447,6 +455,21 @@ By default the updater trusts whatever is on `main` on GitHub. To install only r
 3. Add `SELF_UPDATE_SIGNERS=/etc/rconsole-signers` to `/etc/rconsole.env` and restart rconsole.
 
 From then on, **Update rconsole** moves to the newest `v*` tag with a valid signature from one of those keys, and only forward. The Updates view compares against the latest GitHub release instead of `main`.
+
+## Automation
+
+Automation runs tasks. A task has a trigger, a server and up to ten steps that run one after another.
+
+**Triggers**
+- **At a time**: daily, or on chosen weekdays (server time).
+- **Cron**: a five-field expression (`*/30 * * * *`, `0 4 * * 1-5`, `@daily`); the form shows the next three runs.
+- **When something happens**: the server started; it stopped unexpectedly (a crash, not a stop from rconsole); nobody has been online for N minutes; the log shows a line containing some text. Event tasks run at most once per cooldown (10 minutes by default).
+
+**Steps**: tell players (in chat), run a command, wait, back up the world, restart or stop with a countdown (with chat warnings), start the server, and "only go on if nobody is online", which ends the task while players are on. When a task starts with a restart or stop, the countdown begins early so the server restarts at the set time.
+
+**Servers**: tasks for the server rconsole shows use its RCON. Tasks for another server rconsole installed run through its console and its systemd unit, so they can restart, stop, start, warn players and run commands while another server is shown. Backups, player counts and the "nobody online" and log events need RCON and the log, so they work for the shown server only. The form starts from ready-made tasks: nightly restart, backup then restart, restart when empty, start again after a crash, backup every two hours.
+
+Tasks from before 4.7 keep working: each becomes a daily task with one step, for the server shown when rconsole updated.
 
 ## Updates
 
@@ -582,6 +605,19 @@ It exports up/TPS/MSPT/players, host CPU, memory and disk, the Minecraft process
 
 rconsole reads the jars through the `minecraft` group, so they need to be group-readable (`sudo chmod -R g+rX /srv/minecraft/plugins`).
 
+## Importing a world
+
+World → **Import world** takes an archive of a world from your computer, a singleplayer save, a world from another host or a download, and adds it to the active server.
+
+- **What to upload**: the world folder (the one with `level.dat` in it) packed as `.zip`, `.tar`, `.tar.gz`, `.tar.zst`, `.tar.xz` or `.tar.bz2`. Finder's *Compress*, Windows' *Send to → Compressed folder* and `zip -r` all work, as does an rconsole backup. A zip of a whole server folder works too: rconsole finds the world in it. Bukkit's `<world>_nether` and `<world>_the_end` next to it come along; the 26.x layout (`dimensions/` inside the world) needs nothing extra.
+- **Uploads** go up in chunks to `BACKUP_DIR/.uploads`, sized to take about 20 seconds each, so slow lines, proxies with request limits and dropped connections are fine: the upload carries on where it stopped. It keeps going if you close the drawer (the button shows the progress). Unfinished uploads are removed after a day; the upload needs its size plus 1 GB free on the backup disk.
+- **New name**: the world is unpacked next to the others; nothing is stopped. Tick *Switch to it* to restart into it.
+- **Existing name**: tick *Replace*. The current world is backed up first (under Backups), then replaced. For the active world players are warned, the server stops for the swap and starts again.
+- **Checks**: the helper unpacks the archive itself (not with `tar` or `unzip`) into a private folder on the server's disk, as the Minecraft user: only plain files and folders, no links, no absolute or `..` paths, no more than the free disk space less 2 GB, zip checksums verified. Only then is the world moved into place, with folders `0750` and files `0640` so rconsole can read it. A broken archive changes nothing.
+- **Versions**: the import reports the Minecraft version the world was saved with. The server upgrades an older world on its first start (keep the backup); a world from a newer version than the server's may not load.
+
+Traefik needs no change for uploads: it has no body size limit by default, and each request is one chunk.
+
 ## Plugin configs
 
 **Server → Files** (admins) lists the text config files under `plugins/` (Paper, Spigot, Purpur, Folia) or `config/` (Fabric, Quilt, Forge, NeoForge): `.yml .yaml .json .json5 .properties .toml .conf .cfg .txt`, up to 512 KB each.
@@ -615,7 +651,7 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.
 - **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.
 - **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
-- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
+- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths; uploaded worlds are unpacked by its own code, never through links, within a disk budget) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
 - **Installed servers**: downloads are resolved and checked by the helper, never taken from rconsole; only HTTPS from the publisher's own hosts, only with the publisher's checksum (see [Servers](#servers) for which one). Archives are listed before they are unpacked. `instance.json` is validated wherever it's read, and the java command line is built only from checked values (memory, a fixed flag profile, a plain relative launch path). Each server runs in its own sandboxed `rconsole-mc@` unit without rconsole's environment file, so plugins never see rconsole's secrets; it sees only its own folder, with `instance.json` read-only, no capabilities and its own IPC namespace. Helper jobs get rconsole's settings but not its secrets. Plugins installed by hand, or changed since rconsole installed them, are marked under Plugins.
 - **RCON** is plain text, so `rconsole-limits.service` drops connections to the RCON ports that don't come from this machine. Problems warns when one is reachable anyway.
 - **polkit** lets the `rconsole` user start exactly these job units, start/stop/restart `minecraft.service` and `rconsole-mc@<name>.service`, nothing else. Signed-in users are full admins: RCON commands and plugin installs (from Modrinth) run with the Minecraft server's rights by design. rconsole itself can't make the helper write outside its fixed job types, and updates only install downloads whose hash matches the publisher's API.

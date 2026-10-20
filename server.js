@@ -19,6 +19,7 @@ const { Servers } = require('./lib/servers');
 const active = require('./lib/active');
 const distributions = require('./lib/distributions');
 const { Worlds } = require('./lib/worlds');
+const { Uploads } = require('./lib/uploads');
 const { Maintenance } = require('./lib/maintenance');
 const { readProperties } = require('./lib/access');
 const { Pending } = require('./lib/pending');
@@ -78,7 +79,9 @@ const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: con
 const power = new Power({ unit: config.mcService, log });
 const countdown = new Countdown({ rcon, log, power });
 const ops = new Ops({ log });
-const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs, backups, power, countdown, ops, rcon, log });
+const uploads = new Uploads({ backupDir: config.backupDir, log, explain: require('./lib/worldimport').explainNotWorld });
+setInterval(() => uploads.prune(), 3600 * 1000).unref();
+const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs, backups, power, countdown, ops, rcon, log, uploads, gameVersion: () => gameVersion() });
 const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
 const pending = new Pending({ stateDir: config.stateDir, power });
 const platform = platformLib.detector(config.mcDir);
@@ -173,7 +176,7 @@ function readLimitsStatus() {
 }
 const problems = new Problems({
   mcDir: config.mcDir, stateDir: config.stateDir, log, onProblem: (g) => notify.onProblem(g),
-  checks: () => [...hostcheck.check({ rcon: rconPorts(), firewall: readLimitsStatus() }), ...proxyCheck()],
+  checks: () => [...hostcheck.check({ rcon: rconPorts(), firewall: readLimitsStatus() }), ...proxyCheck(), ...nodeCheck()],
 });
 // One-tap actions from notifications (opt-in, see lib/notify.js).
 notify.handlers = {
@@ -191,7 +194,69 @@ notify.handlers = {
     return 'Starting';
   },
 };
-const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log, audit: (e) => audit.record(e) });
+// What a task's steps act on. The server rconsole shows: its RCON, the
+// shared countdown and backups. Another server rconsole installed: its
+// console and unit, without RCON (no replies, player counts or backups).
+// null is the server rconsole attached to in MC_DIR.
+const shownKey = () => config.activeServer ?? null;
+const otherCountdowns = new Map(); // server id -> Countdown
+const taskTargets = {
+  kind(server) {
+    if (server === null) return legacyServer || !config.activeServer ? 'server' : null;
+    try {
+      return servers.get(server).kind;
+    } catch {
+      return null;
+    }
+  },
+  get(server) {
+    if (server === shownKey()) {
+      return {
+        send: (cmd) => rcon.send(cmd),
+        announce: (text) => countdown.announce(text),
+        countdown,
+        power,
+        backup: () => backups.run(),
+        players: async () => {
+          stats.invalidate('players');
+          const s = await stats.get().catch(() => null);
+          return s?.game?.players ? s.game.players.online : null;
+        },
+      };
+    }
+    if (server === null) throw new Error(`rconsole shows ${config.activeServer} now; tasks of ${path.basename(legacy.mcDir)} run while it is shown`);
+    const i = servers.get(server);
+    const fifo = { send: async (cmd) => (await servers.send(i.id, cmd), '') };
+    if (!otherCountdowns.has(i.id)) otherCountdowns.set(i.id, new Countdown({ rcon: fifo, log, power: servers.power(i.id) }));
+    const cd = otherCountdowns.get(i.id);
+    return {
+      send: fifo.send,
+      announce: (text) => (i.kind === 'proxy' ? Promise.resolve() : cd.announce(text)),
+      countdown: cd,
+      power: servers.power(i.id),
+      backup: () => Promise.reject(new Error(`backups run on the server rconsole shows; show ${i.id} under Servers first`)),
+      players: async () => null,
+    };
+  },
+};
+const scheduler = new Scheduler({ stateDir: config.stateDir, log, audit: (e) => audit.record(e), targets: taskTargets, defaultServer: shownKey() });
+// Start and crash events: every server's unit, every 30 s, while a task
+// waits for one.
+const powerSeen = new Map(); // server key -> last state
+async function watchPower() {
+  if (!scheduler.tasks.some((t) => t.enabled && t.trigger.type === 'event' && ['start', 'crash'].includes(t.trigger.event))) return powerSeen.clear();
+  const watched = [[shownKey(), power, () => ops.busy() || countdown.endsAt != null || Boolean(updates.running)]];
+  for (const i of instances.list(config.serversDir)) {
+    if (i.id !== config.activeServer) watched.push([i.id, servers.power(i.id), () => serverOps.busy() || otherCountdowns.get(i.id)?.endsAt != null]);
+  }
+  for (const [key, p, planned] of watched) {
+    const st = await p.state().catch(() => null);
+    if (!st?.available) continue;
+    const prev = powerSeen.get(key);
+    powerSeen.set(key, st);
+    scheduler.onPower(key, prev, st, { planned: planned() });
+  }
+}
 const users = new Users(config.stateDir);
 const sessions = new Sessions(path.join(config.stateDir, 'sessions.json'));
 const throttle = new Throttle();
@@ -331,6 +396,15 @@ function noteProxy(req) {
   if (!req.headers['x-forwarded-for'] || fromTrustedProxy(req)) return;
   untrustedProxy = { address: String(req.socket.remoteAddress).replace(/^::ffff:/, ''), at: Date.now() };
 }
+// Older than engines.node: the update that brought this version ran with
+// the previous self-update script, which doesn't install Node.js. The next
+// run of bin/self-update.sh does, even when there's nothing new.
+function nodeCheck() {
+  const { need, ok } = selfUpdate.node();
+  if (ok) return [];
+  return [{ kind: 'host', severity: 'warning', title: `Node.js ${process.version} is too old`, message: `rconsole ${require('./package.json').version} needs Node.js ${need} or newer.`, hint: `Server → Updates → rconsole → Update installs Node.js ${need} from NodeSource and restarts rconsole (or run: sudo systemctl start rconsole-selfupdate.service).` }];
+}
+
 function proxyCheck() {
   if (!untrustedProxy || Date.now() - untrustedProxy.at > 24 * 3600 * 1000) return [];
   const a = untrustedProxy.address;
@@ -640,6 +714,14 @@ const route = (method, pattern, handler, audited = true) => routes.push({ method
 
 // Audit names for state-changing requests: [method, path, (params, body, query) => [action, target]].
 const dec = decodeURIComponent;
+const humanBytes = (n) => (!(n >= 0) ? '?' : n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
+const taskName = (id) => {
+  try {
+    return scheduler.label(scheduler.get(id));
+  } catch {
+    return id;
+  }
+};
 const AUDIT_NAMES = [
   ['POST', /^\/api\/command$/, (p, b) => ['command', `/${String(b.command || '').replace(/^\//, '')}`]],
   ['POST', /^\/api\/server\/power$/, (p, b) => [`server ${b.action}`, b.seconds ? `in ${b.seconds}s` : '']],
@@ -652,6 +734,8 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/plugins\/([^/]+)$/, ([f]) => ['plugin remove', dec(f)]],
   ['POST', /^\/api\/worlds$/, (p, b) => ['world create', b.name]],
   ['POST', /^\/api\/worlds\/([\w-]+)\/activate$/, ([n]) => ['world switch', n]],
+  ['POST', /^\/api\/worlds\/uploads$/, (p, b) => ['world upload', b.name ? `${String(b.name).slice(0, 120)} (${humanBytes(Number(b.size))})` : '']],
+  ['POST', /^\/api\/worlds\/import$/, (p, b) => ['world import', `${b.name}${b.replace ? ' (replacing it)' : ''}${b.activate ? ', switch to it' : ''}`]],
   ['DELETE', /^\/api\/worlds\/([\w-]+)$/, ([n], b, q) => ['world delete', `${n}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['POST', /^\/api\/backups$/, (p, b) => ['backup create', b.world || 'active world']],
   ['POST', /^\/api\/backups\/([^/]+)\/restore$/, ([n], b) => [`backup restore`, `${dec(n)} → ${b.mode === 'new' ? b.target : 'replace'}`]],
@@ -685,10 +769,10 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b, q) => ['server delete', `${id}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
-  ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
-  ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task edit', id]],
-  ['DELETE', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task delete', id]],
-  ['POST', /^\/api\/tasks\/([\w-]+)\/run$/, ([id]) => ['task run', id]],
+  ['POST', /^\/api\/tasks$/, (p, b) => ['task create', String(b.name || (b.steps || []).map((x) => x?.type).join(' → '))]],
+  ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id], b) => [b.enabled !== undefined && Object.keys(b).length === 1 ? `task ${b.enabled ? 'resume' : 'pause'}` : 'task edit', taskName(id)]],
+  ['DELETE', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task delete', taskName(id)]],
+  ['POST', /^\/api\/tasks\/([\w-]+)\/run$/, ([id]) => ['task run', taskName(id)]],
 ];
 
 // Who may call what. Reading needs a viewer, changing anything an admin,
@@ -709,14 +793,20 @@ const ROLE_RULES = [
   ['GET', /^\/api\/about$/, 'admin'], // paths and settings of this install
   ['GET', /^\/api\/sso$/, 'admin'],
   ['GET', /^\/api\/backups\/[^/]+$/, 'admin'], // downloads whole worlds
+  // Automation routes resolve their own target server before allowing writes.
+  ['POST', /^\/api\/tasks$/, 'viewer'],
+  ['PATCH', /^\/api\/tasks\/[\w-]+$/, 'viewer'],
+  ['DELETE', /^\/api\/tasks\/[\w-]+$/, 'viewer'],
+  ['POST', /^\/api\/tasks\/[\w-]+\/run$/, 'viewer'],
 ];
 const requiredRole = (method, pathname) => ROLE_RULES.find(([m, re]) => m === method && re.test(pathname))?.[2] || (method === 'GET' || method === 'HEAD' ? 'viewer' : 'admin');
 
 // Whose role a request is checked against. rconsole's own settings, users
 // and the server list: the account's role. /api/servers/<id>/…: the role
-// on that server. Everything else works on the server rconsole shows.
+// on that server. Automation handlers check each task's target server.
+// Everything else works on the server rconsole shows.
 const SHOWN = config.activeServer || ATTACHED;
-const GLOBAL_ROUTES = /^\/api\/(me(\/.*)?|logout|users(\/.*)?|sso|notify(\/.*)?|about|self-update|system(\/.*)?|audit|offsite(\/.*)?|distributions\/.*|servers)$/;
+const GLOBAL_ROUTES = /^\/api\/(me(\/.*)?|logout|users(\/.*)?|sso|notify(\/.*)?|about|self-update|system(\/.*)?|audit|offsite(\/.*)?|distributions\/.*|servers|tasks(\/.*)?)$/;
 function scopeOf(pathname) {
   const m = pathname.match(/^\/api\/servers\/([a-z0-9-]+)(\/|$)/);
   if (m) return m[1];
@@ -1356,6 +1446,27 @@ route('POST', /^\/api\/worlds\/([\w-]+)\/pregenerate$/, async (req, res, [name])
   return { started: true, world: name, radius: Number(radius) };
 });
 
+// Uploading a world: create, send chunks (resumable), then import.
+route('POST', /^\/api\/worlds\/uploads$/, async (req) => {
+  const { name, size } = await readJson(req);
+  return [201, uploads.create({ name, size, user: req.user })];
+});
+route('GET', /^\/api\/worlds\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => uploads.status(id));
+route('PUT', /^\/api\/worlds\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => {
+  if (!String(req.headers['content-type']).startsWith('application/octet-stream')) throw httpError(415, 'Content-Type must be application/octet-stream');
+  const offset = new URL(req.url, 'http://x').searchParams.get('offset');
+  return uploads.append(id, offset, req, req.user);
+}, false);
+route('DELETE', /^\/api\/worlds\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => {
+  uploads.meta(id);
+  uploads.remove(id);
+  return { ok: true };
+}, false);
+route('POST', /^\/api\/worlds\/import$/, async (req) => {
+  const { upload, name, replace, activate, seconds } = await readJson(req);
+  return [202, worlds.importUpload(String(upload || ''), { name: String(name || '').trim(), replace: Boolean(replace), activate: Boolean(activate), seconds: delayOf(seconds), user: req.user })];
+});
+
 route('DELETE', /^\/api\/worlds\/([\w-]+)$/, async (req, res, [name]) => {
   const archive = new URL(req.url, 'http://x').searchParams.get('archive') !== '0';
   return [202, worlds.remove(name, { archive, user: req.user })];
@@ -1426,22 +1537,63 @@ route('POST', /^\/api\/updates$/, async (req) => {
   return [202, updates.start({ version: String(version || ''), build: b, rollback: Boolean(rollback), backup: backup !== false, restartSeconds, user: req.user })];
 });
 
-route('GET', /^\/api\/tasks$/, async () => ({ tasks: scheduler.list() }));
+// Automation: tasks for every server, plus the servers they can be for.
+const taskRole = (user, server) => users.serverRole(user, server == null ? ATTACHED : server);
+function requireTaskAdmin(req, server) {
+  const role = taskRole(req.user, server);
+  if (!roleAtLeast(role, 'admin')) throw httpError(403, `Your role (${role}) can't manage tasks for this server`);
+}
+route('GET', /^\/api\/tasks$/, async (req) => ({
+  tasks: scheduler.list().filter((task) => taskRole(req.user, task.server) !== 'none'),
+  shown: shownKey(),
+  servers: [
+    ...(legacyServer && taskRole(req.user, null) !== 'none' ? [{ id: null, name: path.basename(legacy.mcDir), kind: 'server' }] : []),
+    ...instances.list(config.serversDir).filter((i) => taskRole(req.user, i.id) !== 'none').map((i) => ({ id: i.id, name: i.name || i.id, kind: i.kind })),
+  ],
+  events: require('./lib/scheduler').EVENTS,
+}));
+// The next runs of a cron expression, for the form.
+route('GET', /^\/api\/tasks\/preview$/, async (req) => {
+  const cron = require('./lib/cron');
+  let c;
+  try {
+    c = cron.parse(new URL(req.url, 'http://x').searchParams.get('cron'));
+  } catch (err) {
+    throw httpError(400, err.message);
+  }
+  const next = [];
+  for (let d = new Date(); next.length < 3;) {
+    d = cron.next(c, d);
+    if (!d) break;
+    next.push(d.toISOString());
+  }
+  return { next };
+});
 route('POST', /^\/api\/tasks$/, async (req) => {
-  const task = await scheduler.create(await readJson(req));
-  log(`${req.user}: created task ${task.type} ${task.time}`);
+  const input = await readJson(req, 32 * 1024);
+  requireTaskAdmin(req, input.server === undefined ? shownKey() : input.server);
+  const task = await scheduler.create(input);
+  log(`${req.user}: created task "${scheduler.label(task)}"`);
   return [201, task];
 });
-route('PATCH', /^\/api\/tasks\/([\w-]+)$/, async (req, res, [id]) => scheduler.update(id, await readJson(req)));
+route('PATCH', /^\/api\/tasks\/([\w-]+)$/, async (req, res, [id]) => {
+  const current = scheduler.get(id);
+  requireTaskAdmin(req, current.server);
+  const input = await readJson(req, 32 * 1024);
+  requireTaskAdmin(req, input.server === undefined ? current.server : input.server);
+  return scheduler.update(id, input);
+});
 route('DELETE', /^\/api\/tasks\/([\w-]+)$/, async (req, res, [id]) => {
+  requireTaskAdmin(req, scheduler.get(id).server);
   await scheduler.remove(id);
   log(`${req.user}: deleted task ${id}`);
   return { ok: true };
 });
 route('POST', /^\/api\/tasks\/([\w-]+)\/run$/, async (req, res, [id]) => {
-  scheduler.get(id);
+  requireTaskAdmin(req, scheduler.get(id).server);
+  if (scheduler.running.has(id)) throw httpError(409, 'This task is running right now');
   log(`${req.user}: ran task ${id}`);
-  scheduler.run(id).catch(() => {}); // restarts and backups can take minutes
+  scheduler.run(id, { user: req.user }).catch(() => {}); // restarts and backups can take minutes
   return [202, { ok: true }];
 });
 
@@ -1740,6 +1892,9 @@ scheduler.load().then(() => {
     wasUp = up;
   });
   logTail.on('line', (line) => problems.onLogLine(line));
+  logTail.on('line', (line) => problems.ready && scheduler.onLogLine(shownKey(), line));
+  metrics.onSample((sample) => scheduler.onPlayers(shownKey(), sample.up === 1 ? sample.players : null));
+  setInterval(() => watchPower().catch((err) => log(`scheduler: ${err.message}`)), 30 * 1000).unref();
   setTimeout(() => (problems.ready = true), 5000).unref(); // after the tail's first read of old lines
   logTail.on('line', (line) => notify.onLogLine(line));
   const updateCheck = () => notify.checkUpdates({ updates, plugins, selfUpdate }).catch((err) => log(`notify: ${err.message}`));
@@ -1756,6 +1911,7 @@ scheduler.load().then(() => {
   listener.start(config.webHost, config.webPort, { host: envListen.webHost.value, port: envListen.webPort.value }).then(({ host, port }) => {
     [config.webHost, config.webPort] = [host, port];
     if (listener.fellBack) problems.record({ kind: 'host', severity: 'warning', title: 'Saved web address not available', message: `${listener.fellBack.error}. rconsole listens on ${host}:${port} from /etc/rconsole.env instead. Check Settings → System → Web access.` });
+    if (!selfUpdate.node().ok) log(`WARNING: rconsole needs Node.js ${selfUpdate.node().need} or newer, this is ${process.version}. Update rconsole once more (Server → Updates) to install it.`);
     log(`rconsole listening on http://${host}:${port}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
     if (config.trustProxy.length) log(`trusting X-Forwarded-* from ${config.trustProxy.join(', ')}`);
