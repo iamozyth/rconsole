@@ -704,7 +704,7 @@
             <h3 class="form-section wide">Where alerts go</h3>
             <label class="fld"><span>Topic URL</span><input class="field" name="url" type="url" placeholder="https://ntfy.sh/your-secret-topic" maxlength="200"></label>
             <label class="fld"><span>Access token (optional)</span><input class="field" name="token" type="password" placeholder="tk_…" maxlength="200" autocomplete="new-password"></label>
-            <p class="note wide" id="ntfy-url-note">Tapping a notification opens the matching page here. The address comes from Settings → System → Rconsole URL.</p>
+            <p class="note wide" id="ntfy-url-note">Tapping a notification opens the matching page here. The address comes from Settings → System → Web access.</p>
             <fieldset class="fld wide discord"><legend>Discord</legend>
               <div class="discord-grid">
                 <label class="fld"><span>Webhook for alerts</span><input class="field mono" name="dcUrl" type="password" maxlength="200" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"></label>
@@ -754,17 +754,71 @@
             <p class="note" id="self-info"></p>
           </div>
         </section>
-        <section class="panel">
-          <header class="panel-head"><div class="head-text"><h2>Set on the server</h2><p class="note">These come from <code>/etc/rconsole.env</code>; change them there and restart rconsole (<code>sudo systemctl restart rconsole</code>).</p></div></header>
-          <dl class="set-facts" id="env-facts"></dl>
+        <section class="panel" data-min-role="admin">
+          <header class="panel-head"><div class="head-text"><h2>Web access</h2><p class="note">Where rconsole listens and how people reach it. Changes apply right away, without a restart.</p></div></header>
+          <form class="panel-body sys-form" id="sys-web" autocomplete="off" novalidate>
+            <div class="fld wide">
+              <span>rconsole URL</span>
+              <div class="row" id="url-row"><input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200" aria-label="rconsole URL"><button type="button" class="btn" id="url-here">Use this address</button></div>
+              <p class="note" id="url-note">The address people open rconsole at. Single sign-on sends people back to it, and notifications link to it.</p>
+            </div>
+            <label class="fld"><span>Listen on address</span><input class="field mono" name="webHost" list="sys-hosts" maxlength="45" spellcheck="false" autocapitalize="none"><p class="note src" data-src="webHost"></p></label>
+            <datalist id="sys-hosts"><option value="0.0.0.0">All network interfaces</option><option value="127.0.0.1">This machine only</option><option value="::">All interfaces, IPv6 too</option></datalist>
+            <label class="fld"><span>Port</span><input class="field num" name="webPort" type="number" min="1" max="65535"><p class="note src" data-src="webPort"></p></label>
+            <div class="fld wide">
+              <span>Trusted reverse proxies</span>
+              <div class="row"><input class="field mono" name="trustProxy" maxlength="500" spellcheck="false" placeholder="e.g. 10.10.2.50" aria-label="Trusted reverse proxies"><button type="button" class="btn" id="sys-proxy-add" hidden></button></div>
+              <p class="note">IP addresses, comma-separated. Only these may tell rconsole the visitor's real address and that the connection is HTTPS (X-Forwarded-For, X-Forwarded-Proto).</p>
+              <p class="note src" data-src="trustProxy"></p>
+            </div>
+            <div class="sys-trial wide" id="sys-trial" role="status" hidden>
+              <svg aria-hidden="true"><use href="#pg-alert"/></svg>
+              <div class="sys-trial-text">
+                <b id="sys-trial-title"></b>
+                <p id="sys-trial-body"></p>
+              </div>
+              <div class="sys-trial-actions"><a class="btn btn-primary" id="sys-trial-open" target="_blank" rel="noopener" hidden>Open new address</a><button type="button" class="btn" id="sys-trial-cancel">Go back now</button></div>
+            </div>
+            <div class="form-actions"><p class="note" id="sys-web-note">A new address or port is tried first: rconsole keeps it once you reach it there, and goes back by itself if you don't within 3 minutes.</p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
+          </form>
         </section>
         <section class="panel" data-min-role="admin">
-          <header class="panel-head"><div class="head-text"><h2>Rconsole URL</h2><p class="note">The address people open rconsole at. Single sign-on sends people back to it, and notifications link to it.</p></div></header>
-          <form class="panel-body row url-form" id="url-form" autocomplete="off">
-            <input class="field" name="publicUrl" type="url" placeholder="https://rconsole.example.com" maxlength="200" aria-label="rconsole URL">
-            <button type="button" class="btn" id="url-here">Use this address</button>
-            <button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button>
+          <header class="panel-head"><div class="head-text"><h2>Security</h2></div></header>
+          <form class="panel-body sys-form" id="sys-security" autocomplete="off" novalidate>
+            <label class="fld"><span>Require two-factor sign-in</span>
+              <select class="field" name="require2fa"><option value="off">No</option><option value="admin">For admins</option><option value="all">For everyone</option></select>
+              <p class="note">Applies to local accounts; single sign-on accounts use the provider's. <span class="src" data-src="require2fa"></span></p>
+            </label>
+            <div class="fld">
+              <span>Prometheus metrics</span>
+              <div class="row"><span class="pill" id="sys-metrics-state"></span><button type="button" class="btn" id="sys-metrics-new"><svg><use href="#pg-key"/></svg>New token</button><button type="button" class="btn" id="sys-metrics-off">Turn off</button></div>
+              <p class="note">Serves <code>/metrics</code> to scrapers that send the token (<code>Authorization: Bearer …</code>). <span class="src" data-src="metricsToken"></span></p>
+            </div>
+            <div class="fld wide" id="sys-token-row" hidden>
+              <span>New token, shown once</span>
+              <div class="row"><input class="field mono" id="sys-token" readonly aria-label="New metrics token"><button type="button" class="btn" id="sys-token-copy"><svg><use href="#pg-copy"/></svg>Copy</button></div>
+            </div>
+            <div class="form-actions"><p class="note" id="sys-security-note"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
           </form>
+        </section>
+        <section class="panel" data-min-role="admin">
+          <header class="panel-head"><div class="head-text"><h2>Backups and updates</h2></div></header>
+          <form class="panel-body sys-form" id="sys-backups" autocomplete="off" novalidate>
+            <label class="fld"><span>Backups to keep</span><input class="field num" name="backupKeep" type="number" min="0" max="1000"><p class="note">Older ones are deleted after each backup; 0 keeps all. <span class="src" data-src="backupKeep"></span></p></label>
+            <label class="fld"><span>Compression</span>
+              <select class="field" name="backupCompression"><option value="auto">zstd when installed (faster)</option><option value="gzip">gzip (.tar.gz)</option></select>
+              <p class="note"><span class="src" data-src="backupCompression"></span></p>
+            </label>
+            <div class="fld wide">
+              <label class="switch"><input type="checkbox" role="switch" name="updateCheck"><span>Check GitHub for new rconsole versions every day</span></label>
+              <p class="note"><span class="src" data-src="updateCheck"></span></p>
+            </div>
+            <div class="form-actions"><p class="note" id="sys-backups-note"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
+          </form>
+        </section>
+        <section class="panel">
+          <header class="panel-head"><div class="head-text"><h2>Set on the server</h2><p class="note">Folders the sandbox is built around, and safeguards that root-owned services read. They're changed in <code>/etc/rconsole.env</code> only, so a stolen admin session can't move or switch them off. Restart rconsole after editing (<code>sudo systemctl restart rconsole</code>).</p></div></header>
+          <dl class="set-facts" id="env-facts"></dl>
         </section>
       </div>
     </section>

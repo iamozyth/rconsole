@@ -1,6 +1,6 @@
 {
   "name": "rconsole",
-  "version": "4.4.5",
+  "version": "4.5.0",
   "description": "A lightweight web console for managing a Minecraft server over RCON",
   "main": "server.js",
   "scripts": {

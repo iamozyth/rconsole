@@ -202,7 +202,7 @@ function applyRole(role) {
   myRole = ROLE_RANK[role] != null ? role : 'admin';
   document.body.dataset.role = myRole;
   // Forms that change things are read-only below their role.
-  for (const id of ['settings-form', 'notify-form', 'task-form', 'os-form', 'world-new', 'server-new', 'url-form']) if ($(id)) $(id).inert = !atLeast('admin');
+  for (const id of ['settings-form', 'notify-form', 'task-form', 'os-form', 'world-new', 'server-new', 'sys-web', 'sys-security', 'sys-backups']) if ($(id)) $(id).inert = !atLeast('admin');
   if (!atLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
 }
 
@@ -4534,21 +4534,14 @@ async function loadAbout() {
       row('Documentation', el('a', { href: 'https://github.com/iamozyth/rconsole#readme', target: '_blank', rel: 'noopener' }, 'README')),
       row('Release notes', el('a', { href: `https://github.com/iamozyth/rconsole/releases/tag/v${a.version}`, target: '_blank', rel: 'noopener' }, `rconsole ${a.version}`)),
       row('License', el('a', { href: 'https://github.com/iamozyth/rconsole/blob/main/LICENSE', target: '_blank', rel: 'noopener' }, 'PolyForm Strict 1.0.0')));
-    $('env-facts').replaceChildren(
-      row('rconsole URL (PUBLIC_URL)', a.publicUrl ? [mono(a.publicUrl), a.publicUrlFromEnv ? null : off(' · set below')] : warnFact('Not set: single sign-on and notification links need it. Set it below.')),
-      row('Server folder (MC_DIR)', mono(a.mcDir)),
-      row('Server service (MC_SERVICE)', mono(a.mcService)),
-      row('Backup folder (BACKUP_DIR)', mono(a.backupDir)),
-      row('rconsole data', mono(a.stateDir)),
-      row('Live map (MAP_URL)', a.mapUrl ? mono(a.mapUrl) : off('Off; choose one under World → Map')),
-      row('Prometheus (METRICS_TOKEN)', a.metrics ? 'On at /metrics' : off('Off')),
-      row('Trusted proxy (TRUST_PROXY)', a.trustProxy.length ? mono(a.trustProxy.join(', '))
-        : a.untrustedProxy ? warnFact(`None, but requests come through ${a.untrustedProxy}. Add TRUST_PROXY=${a.untrustedProxy} to /etc/rconsole.env: until then everyone shares one sign-in lockout.`)
-          : off('None')));
-    const url = $('url-form').elements.publicUrl;
-    url.value = a.publicUrl || '';
+    sysPublicUrl = a.publicUrl || '';
+    const url = sysForms.web.elements.publicUrl;
+    if (!sysDirty.has('web')) url.value = sysPublicUrl;
     url.disabled = a.publicUrlFromEnv;
-    $('url-form').querySelectorAll('button').forEach((b) => (b.hidden = a.publicUrlFromEnv));
+    $('url-here').hidden = a.publicUrlFromEnv;
+    $('url-note').textContent = a.publicUrlFromEnv
+      ? 'Set with PUBLIC_URL in /etc/rconsole.env.'
+      : 'The address people open rconsole at. Single sign-on sends people back to it, and notifications link to it.';
   } catch (e) {
     $('about-note').textContent = e.message;
   }
@@ -4556,19 +4549,249 @@ async function loadAbout() {
 
 viewLoaders['settings/account'] = renderAccount;
 viewLoaders['settings/signin'] = () => { loadSso(); loadUsers(); };
-viewLoaders['settings/system'] = () => { loadAbout(); loadSelfUpdate(); };
-$('url-here').addEventListener('click', () => ($('url-form').elements.publicUrl.value = location.origin));
-$('url-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  await busy(e.submitter || $('url-form').querySelector('.btn-primary'), async () => {
+viewLoaders['settings/system'] = () => { loadAbout(); loadSystem(); loadSelfUpdate(); };
+
+// Settings → System: rconsole's own settings (lib/system.js). A value saved
+// here wins over /etc/rconsole.env; each field says where its value comes
+// from and can go back to the env file's.
+const sysForms = { web: $('sys-web'), security: $('sys-security'), backups: $('sys-backups') };
+const SYS_FIELDS = { web: ['webHost', 'webPort', 'trustProxy'], security: ['require2fa'], backups: ['backupKeep', 'backupCompression', 'updateCheck'] };
+const sysDirty = new Set();
+let sys = null; // the last GET /api/system
+let sysPublicUrl = '';
+let sysTimer = null;
+const TRIAL_KEY = 'rconsole-address-trial';
+const sysValueText = (key, v) => {
+  if (Array.isArray(v)) return v.length ? v.join(', ') : 'none';
+  if (typeof v === 'boolean') return v ? 'on' : 'off';
+  return { require2fa: { off: 'no', admin: 'for admins', all: 'for everyone' }, backupCompression: { auto: 'zstd when installed', gzip: 'gzip' } }[key]?.[v] ?? String(v);
+};
+
+function sysSource(key) {
+  const v = sys.settings[key];
+  const reset = (label, done) => el('button', { type: 'button', class: 'link-btn', onclick: (e) => saveSystem({ reset: [key] }, e.currentTarget, done) }, label);
+  if (v.source === 'env') return [`From ${v.env} in /etc/rconsole.env.`];
+  if (v.source !== 'saved') return [];
+  const fromFile = 'Back to the value in /etc/rconsole.env.';
+  if ('set' in v) return v.envSet ? ['Saved here, in place of METRICS_TOKEN. ', reset('Use the env file’s token', fromFile)] : ['Saved here.'];
+  return v.envValue !== null
+    ? [`Saved here; /etc/rconsole.env says ${sysValueText(key, v.envValue)}. `, reset('Use that', fromFile)]
+    : ['Saved here. ', reset(`Back to the default (${sysValueText(key, v.default)})`, 'Back to the default.')];
+}
+
+function fillSysForm(name) {
+  const f = sysForms[name].elements;
+  for (const key of SYS_FIELDS[name]) {
+    const { value } = sys.settings[key];
+    if (f[key].type === 'checkbox') f[key].checked = value;
+    else f[key].value = Array.isArray(value) ? value.join(', ') : value;
+  }
+}
+
+function renderSystem() {
+  for (const name of Object.keys(sysForms)) if (!sysDirty.has(name)) fillSysForm(name);
+  for (const node of document.querySelectorAll('.src[data-src]')) node.replaceChildren(...sysSource(node.dataset.src));
+  const m = sys.settings.metricsToken;
+  $('sys-metrics-state').textContent = m.set ? 'On' : 'Off';
+  $('sys-metrics-state').classList.toggle('ok', m.set);
+  $('sys-metrics-off').hidden = !m.set;
+  $('sys-metrics-new').lastChild.textContent = m.set ? 'New token' : 'Turn on';
+  // A proxy in front that isn't trusted yet: one click adds it.
+  const proxy = sys.untrustedProxy || (sys.via.forwarded && !sys.via.trusted ? sys.via.address : null);
+  const listed = sysForms.web.elements.trustProxy.value.split(',').map((x) => x.trim());
+  $('sys-proxy-add').hidden = !proxy || listed.includes(proxy);
+  $('sys-proxy-add').textContent = `Add ${proxy}`;
+  $('sys-proxy-add').dataset.address = proxy || '';
+  const l = sys.listening;
+  $('sys-web-note').textContent = sys.fellBack
+    ? `The saved address ${sys.fellBack.host}:${sys.fellBack.port} didn't work at start (${sys.fellBack.error}); rconsole listens on ${l.host}:${l.port} from /etc/rconsole.env.`
+    : `Listening on ${l.host}:${l.port}. A new address or port is tried first and kept once you reach rconsole there; otherwise it goes back after 3 minutes.`;
+  $('sys-web-note').classList.toggle('warn-note', Boolean(sys.fellBack));
+  const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
+  const mono = (v) => el('span', { class: 'mono' }, v);
+  const fx = sys.fixed;
+  $('env-facts').replaceChildren(
+    row('Server folder (MC_DIR)', mono(fx.mcDir)),
+    row('Installed servers (SERVERS_DIR)', mono(fx.serversDir)),
+    row('Backup folder (BACKUP_DIR)', mono(fx.backupDir)),
+    row('rconsole data', mono(fx.stateDir)),
+    row('Server service (MC_SERVICE)', mono(fx.mcService)),
+    row('Jobs run as (JOB_RUNNER)', fx.jobRunner === 'systemd' ? 'systemd units' : el('span', { class: 'sub' }, 'in-process (development)')),
+    row('RCON firewall (RCON_FIREWALL)', fx.rconFirewall ? 'On' : warnFact('Off: RCON ports are reachable from other machines')),
+    row('Signed updates (SELF_UPDATE_SIGNERS)', fx.signedUpdates ? 'On' : el('span', { class: 'sub' }, 'Off')));
+  renderTrial();
+}
+
+async function loadSystem() {
+  if (!atLeast('admin')) return;
+  try {
+    sys = await api('GET', '/api/system');
+    renderSystem();
+  } catch (e) {
+    $('sys-web-note').textContent = `Can't load the settings: ${e.message}`;
+  }
+}
+
+// The token of a running address trial: only this browser knows it.
+const trialToken = () => {
+  try {
+    const t = JSON.parse(sessionStorage.getItem(TRIAL_KEY) || 'null');
+    return t && t.expiresAt > Date.now() ? t.token : null;
+  } catch {
+    return null;
+  }
+};
+
+function trialLink(t, token) {
+  const wild = ['0.0.0.0', '::'].includes(t.host);
+  const host = wild ? location.hostname : t.host.includes(':') ? `[${t.host}]` : t.host;
+  return `http://${host}:${t.port}/confirm-address#${token}`;
+}
+
+function renderTrial() {
+  clearInterval(sysTimer);
+  const t = sys?.trial;
+  $('sys-trial').hidden = !t;
+  if (!t) return;
+  const token = trialToken();
+  const open = $('sys-trial-open');
+  open.hidden = !token;
+  if (token) open.href = trialLink(t, token);
+  $('sys-trial-title').textContent = `Trying ${t.host}:${t.port}`;
+  const l = sys.listening;
+  let polling = false;
+  const tick = async () => {
+    const left = Math.max(0, Math.round((t.expiresAt - Date.now()) / 1000));
+    $('sys-trial-body').textContent = `${t.swap ? `${l.host}:${l.port} is closed meanwhile. ` : `rconsole listens there too. `}Open the new address to keep it${token ? '' : ' (from the browser that saved it)'}, or point your reverse proxy at port ${t.port}: this page confirms on its own once it reaches rconsole there. Otherwise rconsole goes back to ${l.host}:${l.port} in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}.`;
+    if (!left) {
+      clearInterval(sysTimer);
+      setTimeout(loadSystem, 1500);
+      return;
+    }
+    if (!token || polling) return;
+    polling = true;
     try {
-      await api('POST', '/api/notify', { publicUrl: $('url-form').elements.publicUrl.value.trim() });
-      toast('rconsole URL saved.');
-      loadAbout();
+      const res = await fetch('/api/system/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+      if (res.ok || res.status === 404) {
+        clearInterval(sysTimer);
+        try { sessionStorage.removeItem(TRIAL_KEY); } catch {}
+        if (res.ok) toast(`rconsole now listens on ${t.host}:${t.port}.`);
+        loadSystem();
+      }
+    } catch {} finally {
+      polling = false;
+    }
+  };
+  tick();
+  sysTimer = setInterval(tick, 3000);
+}
+
+// Saves a change; asks first when the server warns it could shut someone out.
+async function saveSystem(body, button, done = 'Saved.') {
+  await busy(button, async () => {
+    try {
+      let r;
+      try {
+        r = await api('PUT', '/api/system', body);
+      } catch (e) {
+        if (!['2fa', 'proxy'].includes(e.data?.confirm)) throw e;
+        if (!(await confirmAction({ title: e.data.confirm === '2fa' ? 'Some accounts have no two-factor sign-in' : 'Stop trusting your proxy?', body: e.message, confirm: 'Save anyway', tone: 'danger' }))) return;
+        r = await api('PUT', '/api/system', { ...body, confirm: true });
+      }
+      if (r.trial) {
+        try { sessionStorage.setItem(TRIAL_KEY, JSON.stringify({ token: r.trial.token, expiresAt: r.trial.expiresAt })); } catch {}
+        toast(`Trying ${r.trial.host}:${r.trial.port}. Open it to keep it.`);
+      } else toast(done);
+      sys = r;
+      for (const name of Object.keys(sysForms)) if (sysForms[name].contains(button)) sysDirty.delete(name);
+      renderSystem();
     } catch (err) {
       toast(err.message, 'bad');
     }
   });
+}
+
+// Only the fields that differ from what applies now.
+function sysChanges(name) {
+  const f = sysForms[name].elements;
+  const set = {};
+  for (const key of SYS_FIELDS[name]) {
+    const cur = sys.settings[key].value;
+    let v = f[key].type === 'checkbox' ? f[key].checked : f[key].value.trim();
+    if (Array.isArray(cur)) v = v.split(',').map((x) => x.trim()).filter(Boolean);
+    else if (typeof cur === 'number' && v !== '') v = Number(v);
+    if (JSON.stringify(v) !== JSON.stringify(cur)) set[key] = v;
+  }
+  return set;
+}
+
+for (const [name, form] of Object.entries(sysForms)) {
+  form.addEventListener('input', () => sysDirty.add(name));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const button = e.submitter || form.querySelector('.form-actions .btn-primary');
+    if (!sys) return;
+    const set = sysChanges(name);
+    if (name === 'web') {
+      const url = form.elements.publicUrl;
+      if (!url.disabled && url.value.trim() !== sysPublicUrl) {
+        try {
+          await api('POST', '/api/notify', { publicUrl: url.value.trim() });
+          sysPublicUrl = url.value.trim();
+          if (!Object.keys(set).length) {
+            sysDirty.delete(name);
+            return toast('rconsole URL saved.');
+          }
+        } catch (err) {
+          return toast(err.message, 'bad');
+        }
+      }
+    }
+    if (!Object.keys(set).length) {
+      sysDirty.delete(name);
+      return toast('Nothing changed.');
+    }
+    await saveSystem({ set }, button);
+  });
+}
+
+$('url-here').addEventListener('click', () => {
+  sysForms.web.elements.publicUrl.value = location.origin;
+  sysDirty.add('web');
+});
+$('sys-proxy-add').addEventListener('click', (e) => {
+  const f = sysForms.web.elements.trustProxy;
+  f.value = [...f.value.split(',').map((x) => x.trim()).filter(Boolean), e.currentTarget.dataset.address].join(', ');
+  sysDirty.add('web');
+  e.currentTarget.hidden = true;
+});
+$('sys-trial-cancel').addEventListener('click', (e) => busy(e.currentTarget, async () => {
+  try {
+    await api('DELETE', '/api/system/trial');
+    try { sessionStorage.removeItem(TRIAL_KEY); } catch {}
+    toast('Address change cancelled.');
+  } catch (err) {
+    toast(err.message, 'bad');
+  }
+  loadSystem();
+}));
+$('sys-metrics-new').addEventListener('click', async (e) => {
+  const button = e.currentTarget;
+  if (sys?.settings.metricsToken.set && !(await confirmAction({ title: 'Replace the metrics token?', body: 'Scrapers using the current token get 401 until you give them the new one.', confirm: 'Replace' }))) return;
+  const token = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  await saveSystem({ set: { metricsToken: token } }, button, 'Metrics on. Copy the token now: it isn’t shown again.');
+  if (sys?.settings.metricsToken.set) {
+    $('sys-token').value = token;
+    $('sys-token-row').hidden = false;
+  }
+});
+$('sys-token-copy').addEventListener('click', () => copyText($('sys-token').value, 'Token'));
+$('sys-metrics-off').addEventListener('click', async (e) => {
+  const button = e.currentTarget;
+  if (!(await confirmAction({ title: 'Turn off /metrics?', body: 'Prometheus gets 404 until you turn it on again with a new token.', confirm: 'Turn off', tone: 'danger' }))) return;
+  $('sys-token-row').hidden = true;
+  // Off over a METRICS_TOKEN in the env file needs a saved empty one.
+  await saveSystem(sys.settings.metricsToken.envSet ? { set: { metricsToken: '' } } : { reset: ['metricsToken'] }, button, 'Metrics off.');
 });
 $('acct-signout').addEventListener('click', () => signOut());
 

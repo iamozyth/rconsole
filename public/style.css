@@ -1151,6 +1151,21 @@ td.nowrap { white-space: nowrap; }
 .notify-form .quiet-row .field { width: auto; }
 .warn-note { color: var(--c-schedule); }
 .notify-form .form-actions .note { margin-right: auto; }
+.sys-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sys-form .form-actions .note { margin-right: auto; }
+.sys-form > .wide { grid-column: 1 / -1; }
+.sys-form .field.num { max-width: 160px; }
+.sys-form .fld > .note { margin: 0; }
+.sys-form .row { align-items: center; }
+.sys-form .row .pill { flex: none; }
+.src:empty { display: none; }
+.link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.link-btn:hover { color: var(--text); }
+.sys-trial { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--c-schedule) 40%, transparent); border-radius: var(--r-lg); background: color-mix(in srgb, var(--c-schedule) 8%, transparent); }
+.sys-trial > svg { width: 18px; height: 18px; flex: none; margin-top: 2px; fill: var(--c-schedule); }
+.sys-trial-text { flex: 1; min-width: 0; }
+.sys-trial-text p { margin: 4px 0 0; color: var(--text-2); font-size: 13px; }
+.sys-trial-actions { display: flex; gap: 8px; flex: none; flex-wrap: wrap; }
 .map-frame { position: relative; height: calc(100vh - 160px); min-height: 420px; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; background: var(--surface); }
 .map-open { position: absolute; bottom: 10px; left: 10px; z-index: 2; box-shadow: var(--shadow); } /* clear of the map's own controls, which sit at the top */
 .map-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
@@ -1545,7 +1560,9 @@ td.nowrap { white-space: nowrap; }
   .nav .nav-more { flex: 1; display: flex !important; flex-direction: column; align-items: center; justify-content: center; gap: 3px; height: 54px; padding: 4px 2px; border: 0; background: none; color: var(--text-2); font: 500 11px var(--font); cursor: pointer; }
   .nav .nav-more.on { color: var(--text); }
   .nav .nav-more.on .tile { background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); color: var(--text); }
-  .notify-form, .offsite-form { grid-template-columns: minmax(0, 1fr); }
+  .notify-form, .offsite-form, .sys-form { grid-template-columns: minmax(0, 1fr); }
+  .sys-form .fld.wide { grid-column: auto; }
+  .sys-trial { flex-wrap: wrap; }
   .notify-form .fld.wide { grid-column: auto; }
   .map-frame { height: calc(100vh - 230px); }
 }

@@ -98,13 +98,13 @@ function checkWorld(world) {
 
 // --- backup -----------------------------------------------------------------
 
-async function backup({ world, stamp }) {
+async function backup({ world, stamp, compression }) {
   world = checkWorld(world || (await activeWorld()));
   if (!names.STAMP_RE.test(stamp || '')) fail('Invalid backup timestamp');
   const dirs = worldDirs(world);
   if (!dirs.length) fail(`No world folder "${world}" in ${MC}`);
 
-  const zst = useZstd();
+  const zst = useZstd(compression);
   const name = `${world}-${stamp}.tar.${zst ? 'zst' : 'gz'}`;
   const final = path.join(BK, name);
   const partial = randomName(`${final}.partial`);
@@ -126,10 +126,12 @@ async function backup({ world, stamp }) {
   return { file: name, world, size: fs.statSync(final).size, dirs };
 }
 
-// zstd when it is installed (BACKUP_COMPRESSION=gzip keeps .tar.gz).
+// zstd when it is installed; gzip keeps .tar.gz. The request's compression
+// (Settings → System, auto or gzip) wins over BACKUP_COMPRESSION.
 let zstdFound = null;
-function useZstd() {
-  if (/^gz(ip)?$/i.test(process.env.BACKUP_COMPRESSION || '')) return false;
+function useZstd(compression) {
+  if (!['auto', 'gzip'].includes(compression)) compression = /^gz(ip)?$/i.test(process.env.BACKUP_COMPRESSION || '') ? 'gzip' : 'auto';
+  if (compression === 'gzip') return false;
   zstdFound ??= require('child_process').spawnSync('zstd', ['--version'], { stdio: 'ignore' }).status === 0;
   return zstdFound;
 }

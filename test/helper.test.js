@@ -45,6 +45,21 @@ test('backup and restore with zstd when it is installed', { skip: !hasZstd && 'z
   }
 });
 
+test('the request\'s compression wins over BACKUP_COMPRESSION', { skip: !hasZstd && 'zstd is not installed' }, async () => {
+  process.env.BACKUP_COMPRESSION = 'gzip';
+  const z = await TASKS.backup({ stamp: '2026-10-11_03-30-00', compression: 'auto' });
+  assert.equal(z.file, 'world-2026-10-11_03-30-00.tar.zst');
+  fs.rmSync(path.join(BK, z.file));
+  delete process.env.BACKUP_COMPRESSION;
+  try {
+    const g = await TASKS.backup({ stamp: '2026-10-11_03-31-00', compression: 'gzip' });
+    assert.equal(g.file, 'world-2026-10-11_03-31-00.tar.gz');
+    fs.rmSync(path.join(BK, g.file));
+  } finally {
+    process.env.BACKUP_COMPRESSION = 'gzip';
+  }
+});
+
 test('backup names the archive after the world', async () => {
   const r = await TASKS.backup({ stamp: '2026-10-11_04-00-00' });
   assert.equal(r.file, 'world-2026-10-11_04-00-00.tar.gz');
