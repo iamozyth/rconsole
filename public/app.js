@@ -4815,6 +4815,126 @@ function inventoryPanel(inv, savedAt) {
     savedAt ? el('p', { class: 'note ps-foot' }, `As last saved by the server, ${fmt.relative(savedAt)}.`) : null);
 }
 
+// Time machine: the player at each backup, what's missing now, and putting
+// the inventory or ender chest back (lib/timemachine.js).
+const tmLabel = (b) => `${fmt.date(b.created)} · ${fmt.bytes(b.size)}`;
+const itemLine = (x) => el('li', { class: `tm-item m-${materialOf(x.id)}${x.enchanted ? ' ench' : ''}` },
+  el('span', { class: 'slot-swatch', 'aria-hidden': 'true' }), el('b', {}, `${x.count.toLocaleString()}×`), ' ', x.name || itemLabel(x.id), x.name ? el('span', { class: 'note' }, ` ${itemLabel(x.id)}`) : null, x.enchanted && !x.name ? el('span', { class: 'note' }, ' enchanted') : null);
+
+function enderPanel(list) {
+  return el('div', { class: 'ps-inv' }, el('div', { class: 'ps-inv-group' }, el('h4', {}, 'Ender chest'), el('div', { class: 'slots' }, ...list.map((it) => slot(it)))));
+}
+
+function timeMachinePanel(p) {
+  const root = el('div', { class: 'tm' });
+  const pick = el('select', { class: 'field', 'aria-label': 'Backup' });
+  const body = el('div', { class: 'tm-body' });
+  let list = null;
+  let shown = null;
+  let poll = null;
+  const q = `?uuid=${encodeURIComponent(p.uuid)}`;
+  const base = `/api/players/${encodeURIComponent(p.name)}/timemachine`;
+
+  async function look() {
+    clearTimeout(poll);
+    const name = pick.value;
+    if (!name) return;
+    const b = list.backups.find((x) => x.name === name);
+    body.replaceChildren(el('p', { class: 'note tm-wait' }, el('span', { class: 'spinner' }), b && !b.indexed ? ` Reading ${fmt.date(b.created)}'s backup. The first look takes a while for a big world; after that it's instant.` : ' Loading…'));
+    try {
+      const r = await api('GET', `${base}/${encodeURIComponent(name)}${q}`);
+      if (pick.value !== name || !root.isConnected) return;
+      if (r.indexing) {
+        poll = setTimeout(look, 2000);
+        return;
+      }
+      if (b) b.indexed = true;
+      shown = r;
+      render();
+    } catch (e) {
+      body.replaceChildren(el('p', { class: 'note' }, `Can't read that backup: ${e.message}`));
+    }
+  }
+
+  function render() {
+    const r = shown;
+    const b = list.backups.find((x) => x.name === r.backup);
+    if (!r.found) return body.replaceChildren(el('p', { class: 'note' }, `${p.name} has no saved data in this backup (they hadn't joined yet).`));
+    const miss = [...(r.inventory?.missing || []).map((x) => ({ ...x, where: 'inv' })), ...(r.enderChest?.missing || []).map((x) => ({ ...x, where: 'ender' }))];
+    const gained = r.inventory?.gained || [];
+    const [inv, end] = [el('input', { type: 'checkbox', checked: true }), el('input', { type: 'checkbox', checked: Boolean(r.enderChest?.missing.length) })];
+    const restoreBtn = el('button', { class: 'btn btn-primary btn-sm', type: 'button' }, icon('rollback'), 'Restore');
+    restoreBtn.addEventListener('click', () => restore({ backup: r.backup, when: fmt.date(b.created) }, [inv.checked && 'inventory', end.checked && 'ender'].filter(Boolean), restoreBtn));
+    let tab = 'inventory';
+    const view = el('div', {});
+    const tabs = el('div', { class: 'segmented', role: 'radiogroup', 'aria-label': 'Show' },
+      ...[['inventory', 'Inventory'], ['ender', 'Ender chest']].map(([k, label]) => el('button', { role: 'radio', type: 'button', 'aria-checked': String(k === tab), onclick: (e) => {
+        tab = k;
+        for (const x of e.currentTarget.parentNode.children) x.setAttribute('aria-checked', String(x === e.currentTarget));
+        view.replaceChildren(k === 'ender' ? enderPanel(r.then.ender) : inventoryPanel(r.then, null));
+      } }, label)));
+    view.replaceChildren(inventoryPanel(r.then, null));
+    body.replaceChildren(
+      el('section', { class: `tm-diff ${miss.length ? 'has-missing' : ''}` },
+        el('h4', {}, miss.length ? `Missing since ${fmt.date(b.created)}` : 'Nothing missing'),
+        miss.length
+          ? el('ul', { class: 'tm-items' }, ...miss.slice(0, 24).map((x) => itemLine(x)), miss.length > 24 ? el('li', { class: 'note' }, `and ${miss.length - 24} more`) : null)
+          : el('p', { class: 'note' }, `${p.name} has everything they had then${r.now?.from === 'saved' ? ' (compared with their last saved state)' : ''}.`),
+        gained.length ? el('p', { class: 'note' }, `Picked up since: ${gained.slice(0, 6).map((x) => `${x.count}× ${x.name || itemLabel(x.id)}`).join(', ')}${gained.length > 6 ? ', …' : ''}.`) : null,
+        r.now?.online && r.now.from === 'saved' ? el('p', { class: 'note' }, 'Their live inventory couldn\'t be read, so this compares with their last saved state.') : null),
+      el('div', { class: 'tm-restore', 'data-min-role': 'admin' },
+        el('label', { class: 'check' }, inv, 'Inventory and armor'),
+        el('label', { class: 'check' }, end, 'Ender chest'),
+        restoreBtn,
+        el('p', { class: 'note' }, 'Position, health and levels stay as they are now. rconsole keeps what they have now, so you can go back.')),
+      el('div', { class: 'tm-then' }, el('div', { class: 'tm-then-head' }, el('h4', {}, `Then: ${[r.then.dimension, r.then.pos?.join(' '), r.then.xp != null ? `level ${r.then.xp}` : null].filter(Boolean).join(' · ')}`), tabs), view));
+  }
+
+  async function restore(src, parts, button) {
+    if (!parts.length) return toast('Tick the inventory, the ender chest or both.', 'bad');
+    const what = parts.length === 2 ? 'inventory and ender chest' : parts[0] === 'ender' ? 'ender chest' : 'inventory';
+    const online = psView?.online;
+    const ok = await confirmAction({
+      title: src.undo ? `Undo the restore for ${p.name}?` : `Restore ${p.name}'s ${what}?`,
+      body: `${src.undo ? `Puts back the ${what} they had before the restore at ${src.when}.` : `Replaces what they carry now with the ${what} from ${src.when}.`}${online ? `\n${p.name} is online: they are kicked first and can rejoin right after.` : ''}`,
+      confirm: online ? 'Kick and restore' : 'Restore', tone: 'primary', icon: 'rollback',
+    });
+    if (!ok) return;
+    await busy(button, async () => {
+      try {
+        const r = await api('POST', `${base}/restore`, { uuid: p.uuid, parts, kick: Boolean(online), ...(src.undo ? { undo: src.undo } : { backup: src.backup }) });
+        toast(`${p.name}'s ${what} is back${r.kicked ? '; they can join again' : ''}.`);
+        await load();
+      } catch (e) {
+        toast(e.message, 'bad');
+      }
+    });
+  }
+
+  async function load() {
+    try {
+      list = await api('GET', `${base}${q}`);
+    } catch (e) {
+      return root.replaceChildren(el('p', { class: 'note' }, e.message));
+    }
+    if (!list.backups.length) return root.replaceChildren(el('p', { class: 'note ps-empty' }, `No backups of ${list.world} yet. Each backup becomes a point in time you can bring ${p.name}'s things back from.`));
+    const keep = pick.value;
+    pick.replaceChildren(...list.backups.map((b) => el('option', { value: b.name, selected: b.name === keep || undefined }, tmLabel(b))));
+    const undo = list.undo.length && atLeast('admin')
+      ? el('div', { class: 'tm-undo' }, el('span', { class: 'note' }, `Restored ${fmt.relative(list.undo[0].at)}.`), (() => {
+          const btn = el('button', { class: 'btn btn-quiet btn-sm', type: 'button' }, icon('rollback'), 'Undo');
+          btn.addEventListener('click', () => restore({ undo: list.undo[0].stamp, when: fmt.date(list.undo[0].at) }, ['inventory', 'ender'], btn));
+          return btn;
+        })())
+      : null;
+    root.replaceChildren(el('div', { class: 'tm-head' }, el('label', { class: 'fld' }, el('span', {}, 'Back to'), pick), undo), body);
+    look();
+  }
+  pick.addEventListener('change', look);
+  load();
+  return root;
+}
+
 function statsPanel(st, adv) {
   const tile = (label, value, sub) => el('div', { class: 'ps-tile' }, el('dt', {}, label), el('dd', {}, value, sub ? el('small', {}, sub) : null));
   const list = (title, items) => {
@@ -4872,7 +4992,8 @@ function showPanel() {
   const v = psView;
   if (!v?.panelBody) return;
   const d = v.data;
-  v.panelBody.replaceChildren(psTab === 'stats' ? statsPanel(d.stats, d.advancements) : inventoryPanel(d.inv, d.savedAt));
+  if (psTab === 'timemachine') v.tm ||= timeMachinePanel(d.player);
+  v.panelBody.replaceChildren(psTab === 'stats' ? statsPanel(d.stats, d.advancements) : psTab === 'timemachine' ? v.tm : inventoryPanel(d.inv, d.savedAt));
   for (const b of v.tabs?.children || []) b.setAttribute('aria-checked', String(b.dataset.tab === psTab));
 }
 
@@ -4908,8 +5029,8 @@ function renderPlayer(p) {
 
   parts.push(accessBar(p));
   const inv = L || p.saved;
-  Object.assign(psView.data, { inv, savedAt: L ? L.inventoryFrom : p.saved?.savedAt, stats: p.stats, advancements: p.advancements });
-  const panels = [...(inv ? [['inventory', 'Inventory']] : []), ...(p.stats ? [['stats', 'Statistics']] : [])];
+  Object.assign(psView.data, { inv, savedAt: L ? L.inventoryFrom : p.saved?.savedAt, stats: p.stats, advancements: p.advancements, player: p });
+  const panels = [...(inv ? [['inventory', 'Inventory']] : []), ...(p.stats ? [['stats', 'Statistics']] : []), ...(p.uuid && atLeast('moderator') ? [['timemachine', 'Time machine']] : [])];
   if (panels.length) {
     if (!panels.some(([k]) => k === psTab)) psTab = panels[0][0];
     psView.panelBody = el('div', { class: 'ps-panel', role: 'tabpanel' });

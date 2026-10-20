@@ -31,6 +31,7 @@ const instances = require('../lib/instances');
 const archive = require('../lib/archive');
 const worldImport = require('../lib/worldimport');
 const files = require('../lib/files');
+const nbtedit = require('../lib/nbtedit');
 
 // MC_DIR, or the folder of the server a request names (see main()).
 let MC = config.mcDir;
@@ -230,6 +231,110 @@ async function restoreFrom(archive, file, target, replace) {
   for (const [aside] of parked) fs.rmSync(aside, { recursive: true, force: true });
   for (const d of worldDirs(target)) groupReadable(path.join(MC, d)); // the archive's modes may lock rconsole out
   return { restored: file, world: target, from: base, replaced: parked.length > 0 };
+}
+
+// --- player restore (time machine) ------------------------------------------
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const RESTORE_PARTS = { inventory: ['Inventory', 'equipment'], ender: ['EnderItems'] };
+const MAX_PLAYER_FILE = 4 * 1024 * 1024;
+
+// One member of a backup, read through a descriptor opened no-follow (tar
+// reads it from stdin), into memory: player files are a few KB.
+function memberOf(file, member) {
+  const fd = fs.openSync(path.join(BK, file), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  return new Promise((resolve, reject) => {
+    if (!fs.fstatSync(fd).isFile()) {
+      fs.closeSync(fd);
+      return reject(new Error('Backup not found'));
+    }
+    const child = spawn('tar', ['-x', unpackFlag(file), '-f', '-', '-O', '--', member], { stdio: [fd, 'pipe', 'pipe'] });
+    fs.closeSync(fd);
+    const chunks = [];
+    let size = 0;
+    let stderr = '';
+    child.stdout.on('data', (d) => {
+      size += d.length;
+      if (size > MAX_PLAYER_FILE) child.kill();
+      else chunks.push(d);
+    });
+    child.stderr.on('data', (d) => (stderr += d));
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 && size && size <= MAX_PLAYER_FILE ? resolve(Buffer.concat(chunks)) : resolve(null)));
+  });
+}
+
+// <world>/players/data (26.1+) or <world>/playerdata, whichever the world uses.
+function playerDataDir(world) {
+  for (const d of [path.join(MC, world, 'players', 'data'), path.join(MC, world, 'playerdata')]) if (exists(d)) return d;
+  return path.join(MC, world, 'players', 'data');
+}
+
+// Puts a player's inventory and/or ender chest back from a backup (or from
+// the copy an earlier restore kept). Everything else in the player's file
+// (position, health, levels) stays as it is now. The current file is kept in
+// BACKUP_DIR/.player-restores/<world>/ first. rconsole makes sure the player
+// is offline, so the server doesn't write the file again over ours.
+async function playerRestore({ uuid, backup: file, undo, parts }) {
+  if (!UUID_RE.test(String(uuid))) fail('Invalid player id');
+  const world = checkWorld(await activeWorld());
+  const want = [...new Set(Array.isArray(parts) ? parts : [])].filter((p) => Object.hasOwn(RESTORE_PARTS, p));
+  if (!want.length) fail('Nothing to restore');
+  const keepDir = path.join(BK, '.player-restores', world);
+  let source;
+  if (undo !== undefined) {
+    if (!names.STAMP_RE.test(String(undo))) fail('Invalid restore');
+    try {
+      const fd = fs.openSync(path.join(keepDir, `${uuid}-${undo}.dat`), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      try {
+        if (!fs.fstatSync(fd).isFile() || fs.fstatSync(fd).size > MAX_PLAYER_FILE) fail('Invalid restore');
+        source = fs.readFileSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch (err) {
+      fail(err.code === 'ENOENT' ? 'That earlier state is gone' : err.message);
+    }
+  } else {
+    const b = names.parseBackupName(file);
+    if (!b) fail('Invalid backup name');
+    if (b.world !== world) fail(`${file} is a backup of ${b.world}, the server plays ${world}`);
+    source = (await memberOf(file, `${world}/players/data/${uuid}.dat`)) || (await memberOf(file, `${world}/playerdata/${uuid}.dat`));
+    if (!source) fail('This player has no saved data in that backup');
+  }
+  const from = nbtedit.parse(source);
+
+  const dir = playerDataDir(world);
+  const target = path.join(dir, `${uuid}.dat`);
+  let out = source;
+  let kept = null;
+  const st = fs.lstatSync(target, { throwIfNoEntry: false });
+  if (st && !st.isFile()) fail('The player file is not a regular file');
+  if (st) {
+    const current = fs.readFileSync(target);
+    const now = nbtedit.parse(current);
+    for (const part of want) for (const key of RESTORE_PARTS[part]) nbtedit.set(now.root, key, nbtedit.get(from.root, key));
+    out = nbtedit.serialize(now);
+    realDir(path.join(BK, '.player-restores'));
+    realDir(keepDir);
+    // Two restores in the same second would share a name; take the next free one.
+    const at = new Date();
+    for (kept = names.timestamp(at); exists(path.join(keepDir, `${uuid}-${kept}.dat`)); kept = names.timestamp(at)) at.setSeconds(at.getSeconds() + 1);
+    writeExclusive(path.join(keepDir, `${uuid}-${kept}.dat`), current);
+    // The ten newest copies per player are enough to go back with.
+    const old = fs.readdirSync(keepDir).filter((f) => f.startsWith(`${uuid}-`) && f.endsWith('.dat')).sort().reverse().slice(10);
+    for (const f of old) fs.rmSync(path.join(keepDir, f), { force: true });
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = randomName(target);
+  const fd = fs.openSync(tmp, EXCL, st ? st.mode & 0o777 : 0o640);
+  try {
+    fs.writeFileSync(fd, out);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, target);
+  return { uuid, world, parts: want, kept, from: undo !== undefined ? `restore of ${undo}` : file };
 }
 
 // --- worlds -----------------------------------------------------------------
@@ -783,6 +888,7 @@ const TASKS = {
   'plugin-rollback': pluginRollback,
   'config-write': configWrite,
   'file-op': fileOp,
+  'player-restore': playerRestore,
   ...servers.TASKS,
 };
 
