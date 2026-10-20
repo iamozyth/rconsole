@@ -32,6 +32,10 @@ jobs:
       matrix:
         image: ['debian:bookworm', 'debian:trixie', 'ubuntu:24.04']
     container: ${{ matrix.image }}
+    # bin/node.sh is bash, like install.sh and self-update.sh (containers default to sh).
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - name: Distribution nodejs
