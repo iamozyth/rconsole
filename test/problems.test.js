@@ -104,6 +104,9 @@ test('problems: rconsole racing a shutdown is ignored, missing Vault gets a hint
   const v = c('[22:52:36] [Server thread/WARN]: [Essentials] Detected supported permissions plugin LuckPerms without Vault installed.');
   assert.deepStrictEqual([v.kind, v.severity, v.plugin], ['plugin', 'warning', 'Essentials']);
   assert.match(v.hint, /VaultUnlocked/);
+  const d = c('[01:52:11] [Paper Common Worker #0/ERROR]: Failed to fetch mob spawner entity at (5002, -53, 4229)');
+  assert.deepStrictEqual([d.kind, d.severity, d.plugin], ['worldgen', 'warning', null]);
+  assert.match(d.hint, /Harmless/);
 });
 
 test('problems: muted kinds leave the list and stop alerting until unmuted', async () => {
