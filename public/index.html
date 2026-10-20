@@ -353,9 +353,9 @@
     <!-- Automation: scheduled tasks -->
     <section class="area" id="tab-automation" role="tabpanel" hidden>
       <section class="panel">
-        <header class="panel-head"><div class="head-text"><h2>Scheduled tasks</h2><p class="note">Restarts with a countdown, backups and commands, at set times.</p></div><span class="count" id="n-tasks"></span><button class="btn btn-primary" id="task-new" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-add"/></svg>New task</button></header>
+        <header class="panel-head"><div class="head-text"><h2>Tasks</h2><p class="note">Chains of steps (warn, wait, back up, restart, commands) at set times, on a cron schedule, or when something happens.</p></div><span class="count" id="n-tasks"></span><button class="btn btn-primary" id="task-new" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-add"/></svg>New task</button></header>
         <table class="table">
-          <thead><tr><th>Task</th><th>When</th><th>Next run</th><th>Last result</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
+          <thead><tr><th>Task</th><th>Server</th><th>When</th><th>Next run</th><th>Last result</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
           <tbody id="task-list"></tbody>
         </table>
       </section>
@@ -942,23 +942,33 @@
 </dialog>
 <dialog class="drawer" id="drawer-task" aria-labelledby="drawer-task-title">
   <header class="drawer-head">
-    <div class="head-text"><h2 id="drawer-task-title">New task</h2></div>
+    <div class="head-text"><h2 id="drawer-task-title">New task</h2><p class="note">When it runs, and the steps it takes, one after another.</p></div>
     <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
   </header>
   <div class="drawer-body">
-          <form id="task-form" class="task-form drawer-form">
-            <label class="fld"><span>Type</span>
-              <select class="field" name="type">
-                <option value="restart">Restart with countdown</option>
-                <option value="backup">Backup</option>
-                <option value="command">Command</option>
+          <form id="task-form" class="task-form drawer-form" novalidate>
+            <label class="fld wide" id="task-preset-fld"><span>Start from</span>
+              <select class="field" name="preset">
+                <option value="">Empty task</option>
+                <option value="nightly">Nightly restart with a 5-minute warning</option>
+                <option value="backup-restart">Backup, then restart</option>
+                <option value="empty-restart">Restart when nobody has been online for 30 min</option>
+                <option value="crash-start">Start again after a crash</option>
+                <option value="hourly-backup">Backup every 2 hours (cron)</option>
               </select>
             </label>
-            <label class="fld"><span>Time</span><input class="field" type="time" name="time" value="04:00" required></label>
-            <label class="fld" data-for="restart"><span>Warning (min)</span><input class="field" type="number" name="warnMinutes" value="5" min="0" max="60"></label>
-            <label class="fld wide" data-for="command" hidden><span>Command</span><input class="field mono" name="command" placeholder="say Hello" spellcheck="false"></label>
-            <label class="fld"><span>Name</span><input class="field" name="name" placeholder="Optional"></label>
-            <fieldset class="fld days">
+            <label class="fld"><span>Name</span><input class="field" name="name" placeholder="Optional" maxlength="60"></label>
+            <label class="fld"><span>Server</span><select class="field" name="server"></select></label>
+            <fieldset class="fld wide">
+              <legend>When</legend>
+              <div class="segmented" role="radiogroup" aria-label="When" id="task-trigger">
+                <button type="button" role="radio" data-trigger="time" aria-checked="true">At a time</button>
+                <button type="button" role="radio" data-trigger="cron" aria-checked="false">Cron</button>
+                <button type="button" role="radio" data-trigger="event" aria-checked="false">When something happens</button>
+              </div>
+            </fieldset>
+            <label class="fld" data-trigger-for="time"><span>Time</span><input class="field" type="time" name="time" value="04:00"></label>
+            <fieldset class="fld days" data-trigger-for="time">
               <legend>Days</legend>
               <div class="day-row">
                 <label class="every"><input type="checkbox" value="all" checked><span>Every day</span></label>
@@ -971,9 +981,31 @@
                 <label><input type="checkbox" value="0"><span>Sun</span></label>
               </div>
             </fieldset>
+            <label class="fld wide" data-trigger-for="cron" hidden><span>Cron expression</span><input class="field mono" name="cron" placeholder="*/30 * * * *" spellcheck="false" autocomplete="off"><span class="note" id="task-cron-note">Minute, hour, day of month, month, weekday. Server time.</span></label>
+            <label class="fld" data-trigger-for="event" hidden><span>Event</span><select class="field" name="event"></select></label>
+            <label class="fld" data-trigger-for="event" data-event-for="empty" hidden><span>Nobody online for (min)</span><input class="field" type="number" name="minutes" value="30" min="1" max="1440"></label>
+            <label class="fld wide" data-trigger-for="event" data-event-for="log" hidden><span>Log line contains</span><input class="field mono" name="match" placeholder="Can't keep up!" maxlength="200" spellcheck="false"></label>
+            <label class="fld" data-trigger-for="event" hidden><span>At most every (min)</span><input class="field" type="number" name="cooldownMinutes" value="10" min="1" max="1440"></label>
+            <fieldset class="fld wide steps-fld">
+              <legend>Steps</legend>
+              <ol class="steps" id="task-steps"></ol>
+              <div class="steps-add">
+                <select class="field" id="task-step-type" aria-label="Step to add">
+                  <option value="say">Tell players</option>
+                  <option value="command">Run a command</option>
+                  <option value="wait">Wait</option>
+                  <option value="backup">Back up the world</option>
+                  <option value="restart">Restart with countdown</option>
+                  <option value="stop">Stop with countdown</option>
+                  <option value="start">Start the server</option>
+                  <option value="if-empty">Only go on if nobody is online</option>
+                </select>
+                <button type="button" class="btn btn-sm" id="task-step-add"><svg><use href="#pg-add"/></svg>Add step</button>
+              </div>
+            </fieldset>
             <div class="form-actions">
               <p class="form-error" id="task-error" role="alert"></p>
-              <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Add task</button>
+              <button class="btn btn-primary" id="task-save"><svg><use href="#pg-add"/></svg>Add task</button>
             </div>
           </form>
   </div>
