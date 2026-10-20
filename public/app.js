@@ -2924,6 +2924,226 @@ $('os-test').addEventListener('click', async (e) => {
   });
 });
 viewLoaders['world/worlds'] = loadWorlds;
+
+// ---------------------------------------------------------------------------
+// World: restore an area from a backup (lib/arearestore.js)
+// ---------------------------------------------------------------------------
+
+const AREA_KINDS = {
+  '.': ['same', 'Same as then'],
+  b: ['blocks', 'Blocks changed'],
+  c: ['contents', 'Only chests or signs changed'],
+  n: ['added', 'New since then (stays)'],
+  g: ['gone', 'Missing now'],
+  '-': ['empty', 'Never generated'],
+};
+const AREA_PICK = 4; // fewer changed blocks than this is usually the world itself (a mushroom popped)
+let area = null; // { r, selected: Set of cell indices }
+let areaPoll = null;
+
+let areaReady = Promise.resolve();
+function loadArea() {
+  return (areaReady = loadAreaNow());
+}
+
+async function loadAreaNow() {
+  const sel = $('area-backup');
+  try {
+    const [{ active }, { files }] = await Promise.all([api('GET', '/api/worlds'), api('GET', '/api/backups')]);
+    const list = files.filter((b) => b.world === active);
+    const keep = sel.value;
+    sel.replaceChildren(...(list.length ? list.map((b) => el('option', { value: b.name, selected: b.name === keep || undefined }, `${fmt.date(b.created)} · ${fmt.bytes(b.size)}`)) : [el('option', { value: '' }, `No backups of ${active} yet`)]));
+    sel.disabled = !list.length;
+    $('area-compare').disabled = !list.length;
+  } catch (e) {
+    sel.replaceChildren(el('option', { value: '' }, e.message));
+  }
+  $('area-players').replaceChildren(...(lastStatus?.game?.players?.players || []).map((n) => el('option', { value: n })));
+  loadAreaUndo();
+}
+
+async function loadAreaUndo() {
+  let r;
+  try {
+    r = await api('GET', '/api/area/restores');
+  } catch {
+    return;
+  }
+  $('area-undo-panel').hidden = !r.restores.length;
+  $('area-undo').replaceChildren(...r.restores.map((x, i) => el('li', { class: 'area-undo-row' },
+    el('span', { class: 'ip-tile' }, icon('rollback')),
+    el('span', { class: 'who-cell' }, el('span', { class: 'name' }, `${x.chunks} chunk${x.chunks === 1 ? '' : 's'} of the ${AREA_DIM[x.dimension] || x.dimension}`), el('span', { class: 'meta' }, `${fmt.date(x.at)} · from ${x.from}${x.entities ? '' : ' · blocks only'}`)),
+    i === 0 && atLeast('admin') ? el('button', { class: 'btn btn-quiet btn-sm', type: 'button', onclick: (e) => areaRestore({ undo: x.stamp, label: `the ${x.chunks} chunk${x.chunks === 1 ? '' : 's'} restored ${fmt.date(x.at)}` }, e.currentTarget) }, icon('rollback'), 'Undo') : null)));
+}
+const AREA_DIM = { overworld: 'overworld', nether: 'Nether', the_end: 'End' };
+
+$('area-player').addEventListener('change', async (e) => {
+  const name = e.target.value.trim();
+  if (!/^[A-Za-z0-9_]{1,16}$/.test(name)) return;
+  try {
+    const r = await api('GET', `/api/area/near/${encodeURIComponent(name)}`);
+    const f = $('area-form');
+    f.x.value = r.x;
+    f.z.value = r.z;
+    if (r.dimension) f.dimension.value = r.dimension;
+    toast(r.from === 'live' ? `Centred on ${r.name}, who is there now.` : `Centred where ${r.name} was last saved, ${fmt.relative(r.savedAt)}.`);
+    await areaReady;
+    if (f.backup.value) f.requestSubmit();
+  } catch (err) {
+    toast(err.message, 'bad');
+  }
+});
+
+$('area-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const x = Number(f.x.value || 0);
+  const z = Number(f.z.value || 0);
+  if (!Number.isInteger(x) || !Number.isInteger(z)) return toast('Give the centre as whole block coordinates.', 'bad');
+  const half = Number(f.size.value) / 2;
+  areaCompare({ backup: f.backup.value, dimension: f.dimension.value, x1: x - half, z1: z - half, x2: x + half - 1, z2: z + half - 1 });
+});
+
+async function areaCompare(q) {
+  clearTimeout(areaPoll);
+  const box = $('area-result');
+  box.hidden = false;
+  const url = `/api/area?${new URLSearchParams(q)}`;
+  if (!area || area.url !== url) box.replaceChildren(el('p', { class: 'note tm-wait' }, el('span', { class: 'spinner' }), ' Comparing…'));
+  let r;
+  try {
+    r = await api('GET', url);
+  } catch (e) {
+    return box.replaceChildren(el('p', { class: 'note' }, e.message));
+  }
+  if (r.preparing) {
+    box.replaceChildren(el('p', { class: 'note tm-wait' }, el('span', { class: 'spinner' }), ' Reading this part of the world out of the backup. The first look at a backup takes a while for a big world; after that it is quick.'));
+    areaPoll = setTimeout(() => areaCompare(q), 2000);
+    return;
+  }
+  const selected = new Set();
+  [...r.cells].forEach((k, i) => {
+    if ((k === 'b' && r.blocks[i] >= AREA_PICK) || k === 'c' || k === 'g') selected.add(i);
+  });
+  area = { url, q, r, selected };
+  renderArea();
+}
+
+function areaChunk(i) {
+  const { r } = area;
+  return [r.origin.cx + (i % r.w), r.origin.cz + Math.floor(i / r.w)];
+}
+
+function renderArea() {
+  const { r, selected, q } = area;
+  const box = $('area-result');
+  if (!r.found) return box.replaceChildren(el('p', { class: 'note' }, `This backup has no ${AREA_DIM[r.dimension] || r.dimension} to compare with.`));
+  const grid = el('div', { class: 'area-grid', role: 'img', 'aria-label': `${r.w} by ${r.h} chunks: ${r.counts.blocks} with changed blocks, ${r.counts.contents} with changed chests or signs` });
+  grid.style.setProperty('--cols', r.w);
+  const max = Math.max(1, ...r.blocks);
+  const cells = [...r.cells].map((k, i) => {
+    const [cx, cz] = areaChunk(i);
+    const c = el('span', { class: `area-cell k-${AREA_KINDS[k][0]}${selected.has(i) ? ' on' : ''}`, 'data-i': i,
+      title: `Chunk ${cx}, ${cz} · blocks ${cx * 16}…${cx * 16 + 15}, ${cz * 16}…${cz * 16 + 15}\n${k === 'b' ? `${r.blocks[i].toLocaleString()} block${r.blocks[i] === 1 ? '' : 's'} changed` : AREA_KINDS[k][1]}${r.contents[i] ? `, ${r.contents[i]} chest${r.contents[i] === 1 ? '' : 's'} or sign${r.contents[i] === 1 ? '' : 's'}` : ''}` });
+    if (k === 'b') c.style.setProperty('--a', (0.35 + 0.65 * Math.sqrt(r.blocks[i] / max)).toFixed(2));
+    return c;
+  });
+  grid.append(...cells);
+  // Drag to paint: the first cell decides whether the drag adds or removes.
+  let paint = null;
+  const apply = (t) => {
+    const i = Number(t?.dataset?.i);
+    if (!Number.isInteger(i) || '-n'.includes(r.cells[i])) return;
+    if (paint) selected.add(i);
+    else selected.delete(i);
+    t.classList.toggle('on', paint);
+    summary();
+  };
+  grid.addEventListener('pointerdown', (e) => {
+    const t = e.target.closest('.area-cell');
+    if (!t) return;
+    e.preventDefault();
+    paint = !selected.has(Number(t.dataset.i));
+    grid.setPointerCapture(e.pointerId);
+    apply(t);
+  });
+  grid.addEventListener('pointermove', (e) => {
+    if (paint === null) return;
+    apply(document.elementFromPoint(e.clientX, e.clientY)?.closest('.area-cell'));
+  });
+  const stop = () => (paint = null);
+  grid.addEventListener('pointerup', stop);
+  grid.addEventListener('pointercancel', stop);
+
+  const legend = el('ul', { class: 'area-legend' }, ...Object.entries(AREA_KINDS).filter(([k]) => k !== '-').map(([k, [cls, label]]) => el('li', {}, el('span', { class: `area-cell k-${cls}`, 'aria-hidden': 'true' }), label, el('b', {}, String(r.counts[cls] || 0)))),
+    el('li', {}, el('span', { class: 'area-cell on', 'aria-hidden': 'true' }), 'Chosen for the restore'));
+  const count = el('b', {});
+  const entities = el('input', { type: 'checkbox', checked: true });
+  const delay = el('select', { class: 'field', 'aria-label': 'When' }, ...[[30, 'Stop in 30 seconds'], [60, 'Stop in 1 minute'], [300, 'Stop in 5 minutes'], [0, 'Stop now']].map(([v, t]) => el('option', { value: v }, t)));
+  const go = el('button', { class: 'btn btn-primary', type: 'button' }, icon('rollback'), 'Restore');
+  function summary() {
+    const n = selected.size;
+    count.textContent = `${n} chunk${n === 1 ? '' : 's'} chosen`;
+    go.disabled = !n;
+  }
+  summary();
+  const pick = (fn) => () => {
+    selected.clear();
+    [...r.cells].forEach((k, i) => fn(k, i) && selected.add(i));
+    grid.querySelectorAll('.area-cell').forEach((c) => c.classList.toggle('on', selected.has(Number(c.dataset.i))));
+    summary();
+  };
+  const b = $('area-backup').selectedOptions[0]?.textContent.split(' · ')[0] || q.backup;
+  go.addEventListener('click', () => areaRestore({ backup: q.backup, dimension: r.dimension, chunks: [...selected].map(areaChunk), entities: entities.checked, seconds: Number(delay.value), label: `${selected.size} chunk${selected.size === 1 ? '' : 's'} of the ${AREA_DIM[r.dimension]} from ${b}` }, go));
+  const xs = [r.origin.cx * 16, (r.origin.cx + r.w) * 16 - 1];
+  const zs = [r.origin.cz * 16, (r.origin.cz + r.h) * 16 - 1];
+  const changed = r.counts.blocks + r.counts.contents + r.counts.gone;
+  box.replaceChildren(el('div', { class: 'area-layout' },
+    el('div', { class: 'area-map' },
+      el('div', { class: 'area-axes' },
+        el('span', { class: 'area-n', 'aria-hidden': 'true' }, 'N ↑'),
+        el('span', { class: 'mono note' }, `X ${xs[0]} … ${xs[1]} · Z ${zs[0]} … ${zs[1]}`)),
+      grid),
+    el('div', { class: 'area-side' },
+    el('p', { class: 'area-lede' }, changed
+      ? `${changed} of ${r.w * r.h} chunks differ from ${b}. The ones that clearly changed are chosen; click or drag over the map to change that.`
+      : `This area looks the same as in ${b}.`),
+    legend,
+    el('div', { class: 'area-pick' },
+      el('span', { class: 'note' }, 'Choose:'),
+      el('button', { class: 'btn btn-quiet btn-sm', type: 'button', onclick: pick((k, i) => (k === 'b' && r.blocks[i] >= AREA_PICK) || k === 'c' || k === 'g') }, 'What clearly changed'),
+      el('button', { class: 'btn btn-quiet btn-sm', type: 'button', onclick: pick((k) => 'bcg'.includes(k)) }, 'Every change'),
+      el('button', { class: 'btn btn-quiet btn-sm', type: 'button', onclick: pick((k) => '.bcg'.includes(k)) }, 'All'),
+      el('button', { class: 'btn btn-quiet btn-sm', type: 'button', onclick: pick(() => false) }, 'None')),
+    el('div', { class: 'area-restore', 'data-min-role': 'admin' },
+      count,
+      el('label', { class: 'check' }, entities, 'Mobs, item frames and armor stands too'),
+      delay,
+      go,
+      el('p', { class: 'note' }, 'The server stops for the restore and starts again, usually within a minute; players see a countdown. rconsole keeps the chunks as they are now, so you can undo.')))));
+
+}
+
+async function areaRestore(src, button) {
+  const ok = await confirmAction({
+    title: src.undo ? 'Undo the area restore?' : `Restore ${src.label}?`,
+    body: src.undo
+      ? `Puts ${src.label} back as they were just before that restore. The server stops for it and starts again.`
+      : `Those chunks go back to how they were in the backup${src.entities ? ', with the mobs and items that were in them' : ''}. Whatever was built there since is replaced. The server stops for it and starts again.`,
+    confirm: src.undo ? 'Undo' : 'Restore', tone: 'primary', icon: 'rollback',
+  });
+  if (!ok) return;
+  await busy(button, async () => {
+    try {
+      await api('POST', '/api/area/restore', src.undo ? { undo: src.undo, seconds: 30 } : { backup: src.backup, dimension: src.dimension, chunks: src.chunks, entities: src.entities, seconds: src.seconds });
+      toast(src.undo ? 'Undo started. The server stops in 30 seconds.' : src.seconds ? `Restore started. The server stops in ${fmt.delay(src.seconds)}.` : 'Restore started.');
+      refreshStatus(true);
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+viewLoaders['world/area'] = loadArea;
 tabLoaders.backups = loadBackupsArea;
 $('os-edit').addEventListener('click', () => openDrawer('drawer-offsite'));
 
@@ -4927,7 +5147,13 @@ function timeMachinePanel(p) {
           return btn;
         })())
       : null;
-    root.replaceChildren(el('div', { class: 'tm-head' }, el('label', { class: 'fld' }, el('span', {}, 'Back to'), pick), undo), body);
+    // Things in chests and the builds around them: World → Restore area.
+    const around = el('button', { class: 'btn btn-quiet btn-sm', type: 'button', title: 'Compare the chunks around them with a backup', onclick: () => {
+      showTab('world/area');
+      $('area-player').value = p.name;
+      $('area-player').dispatchEvent(new Event('change'));
+    } }, icon('map'), 'Area around them');
+    root.replaceChildren(el('div', { class: 'tm-head' }, el('label', { class: 'fld' }, el('span', {}, 'Back to'), pick), undo, around), body);
     look();
   }
   pick.addEventListener('change', look);

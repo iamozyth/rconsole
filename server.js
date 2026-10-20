@@ -42,7 +42,8 @@ const slp = require('./lib/slp');
 const { Offsite } = require('./lib/offsite');
 const { Spark } = require('./lib/spark');
 const { PlayerInfo } = require('./lib/playerinfo');
-const { TimeMachine } = require('./lib/timemachine');
+const { TimeMachine, readState: readPlayerState } = require('./lib/timemachine');
+const { AreaRestore } = require('./lib/arearestore');
 const { Configs, MAX_BYTES: CONFIG_MAX } = require('./lib/configs');
 const { Files, MAX_EDIT: FILE_MAX } = require('./lib/files');
 const { CommandCatalog } = require('./lib/commands');
@@ -107,6 +108,7 @@ const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersi
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
 const playerInfo = new PlayerInfo({ mcDir: config.mcDir, rcon, log });
 const timeMachine = new TimeMachine({ backups, backupDir: config.backupDir, stateDir: config.stateDir, jobs, playerInfo, activeWorld, log });
+const areaRestore = new AreaRestore({ mcDir: config.mcDir, backupDir: config.backupDir, stateDir: config.stateDir, backups, jobs, power, countdown, ops, activeWorld, log });
 const configs = new Configs({ mcDir: config.mcDir });
 const files = new Files({ mcDir: config.mcDir });
 const commandCatalog = new CommandCatalog({ rcon, log });
@@ -813,6 +815,7 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/join\/([a-f0-9]{16})\/(allow|ignore)$/, ([id, verb]) => [`join request ${verb === 'allow' ? 'allowed' : 'ignored'}`, (() => { try { return joinRequests.get(id).name; } catch { return id; } })()]],
+  ['POST', /^\/api\/area\/restore$/, (p, b) => ['area restore', b.undo ? `undo the restore of ${b.undo}` : `${Array.isArray(b.chunks) ? b.chunks.length : 0} chunks of the ${b.dimension} from ${b.backup}${b.entities === false ? ', blocks only' : ''}`]],
   ['POST', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/timemachine\/restore$/, ([n], b) => ['player restore', `${n}: ${(b.parts || []).join(' + ')} from ${b.undo ? `before the restore of ${b.undo}` : b.backup}${b.kick ? ' (kicked)' : ''}`]],
   ['POST', /^\/api\/invites$/, (p, b) => ['invite create', `${String(b.label || '').slice(0, 60) || 'invite'}: ${b.uses || 1} use(s), ${Number(b.days) === 0 ? 'no expiry' : `${b.days ?? 7} days`}${b.auto ? ', whitelists right away' : ''}`]],
   ['DELETE', /^\/api\/invites\/([a-f0-9]{12})$/, ([id]) => ['invite revoke', id]],
@@ -832,7 +835,8 @@ const ROLE_RULES = [
   ['POST', /^\/api\/chat$/, 'moderator'],
   ['GET', /^\/api\/players\/history$/, 'moderator'], // addresses of players
   ['GET', /^\/api\/join$/, 'moderator'], // their addresses too
-  ['GET', /^\/api\/players\/[A-Za-z0-9_]{1,16}\/timemachine/, 'moderator'], // looking back costs a backup's worth of reading
+  ['GET', /^\/api\/players\/[A-Za-z0-9_]{1,16}\/timemachine/, 'moderator'],
+  ['GET', /^\/api\/area/, 'moderator'], // reads backups too // looking back costs a backup's worth of reading
   ['POST', /^\/api\/join\/[a-f0-9]{16}\/(allow|ignore)$/, 'moderator'], // like whitelist add
   ['GET', /^\/api\/audit$/, 'admin'],
   ['GET', /^\/api\/notify$/, 'admin'],
@@ -1010,6 +1014,27 @@ route('POST', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/timemachine\/restore$/, as
   }
   const result = await timeMachine.restore(uuid, { backup: b.backup, undo: b.undo, parts: b.parts });
   return { ...result, kicked: Boolean(online) };
+});
+
+// Area restore (lib/arearestore.js): chunks of the world back from a backup.
+route('GET', /^\/api\/area$/, async (req) => {
+  const r = await areaRestore.compare(Object.fromEntries(new URL(req.url, 'http://x').searchParams));
+  return r.preparing ? [202, r] : r;
+});
+route('GET', /^\/api\/area\/restores$/, () => areaRestore.restores());
+// Where a player is (online) or was last saved, to centre an area on them.
+route('GET', /^\/api\/area\/near\/([A-Za-z0-9_]{1,16})$/, async (req, res, [name]) => {
+  const dim = (d) => ({ overworld: 'overworld', the_nether: 'nether', the_end: 'the_end' })[String(d || '').replace(/^minecraft:/, '')] || null;
+  const live = await playerInfo.live(name, { inventory: false }).catch(() => null);
+  if (live?.pos) return { name, x: Math.floor(live.pos[0]), z: Math.floor(live.pos[2]), dimension: dim(live.dimension), from: 'live' };
+  const f = playerInfo.playerFile('data', playerInfo.uuidOf(name), 'dat');
+  const st = f ? (() => { try { return readPlayerState(fs.readFileSync(f)); } catch { return null; } })() : null;
+  if (!st?.pos) throw httpError(404, `No position known for ${name}`);
+  return { name, x: st.pos[0], z: st.pos[2], dimension: dim(st.dimension), from: 'saved', savedAt: fs.statSync(f).mtime.toISOString() };
+});
+route('POST', /^\/api\/area\/restore$/, async (req) => {
+  const b = await readJson(req, 64 * 1024); // up to 1024 chunks
+  return [202, await areaRestore.restore({ ...b, seconds: delayOf(b.seconds) }, req.user)];
 });
 
 // Knock to join and invite links (lib/joinrequests.js).

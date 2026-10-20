@@ -357,6 +357,7 @@
       <div class="subnav segmented" role="tablist" aria-label="World sections">
         <button role="tab" data-view="worlds" aria-selected="true">Worlds</button>
         <button role="tab" data-view="map" aria-selected="false">Map</button>
+        <button role="tab" data-view="area" aria-selected="false" data-min-role="moderator">Restore area</button>
       </div>
       <div class="view" data-view="worlds">
       <section class="panel">
@@ -369,6 +370,40 @@
           <thead><tr><th>World</th><th>Dimensions</th><th class="num">Size</th><th>Last played</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
           <tbody id="world-list"></tbody>
         </table>
+      </section>
+      </div>
+      <div class="view" data-view="area" hidden>
+      <section class="panel">
+        <header class="panel-head">
+          <div class="head-text"><h2>Restore an area</h2><p class="note">Compare part of the world with a backup, chunk by chunk, and put back only what changed: a griefed base, a burned forest, a crater. Everything else stays as it is now.</p></div>
+        </header>
+        <form class="area-form panel-body" id="area-form" autocomplete="off" novalidate>
+          <label class="fld area-backup"><span>Backup</span><select class="field" name="backup" id="area-backup" required></select></label>
+          <label class="fld"><span>Dimension</span>
+            <select class="field" name="dimension">
+              <option value="overworld">Overworld</option>
+              <option value="nether">Nether</option>
+              <option value="the_end">The End</option>
+            </select>
+          </label>
+          <label class="fld"><span>Center X</span><input class="field mono" name="x" inputmode="numeric" pattern="-?[0-9]{1,8}" placeholder="0" required></label>
+          <label class="fld"><span>Center Z</span><input class="field mono" name="z" inputmode="numeric" pattern="-?[0-9]{1,8}" placeholder="0" required></label>
+          <label class="fld"><span>Size in blocks</span>
+            <select class="field" name="size">
+              <option value="64">64 × 64</option>
+              <option value="128" selected>128 × 128</option>
+              <option value="256">256 × 256</option>
+              <option value="512">512 × 512</option>
+            </select>
+          </label>
+          <label class="fld"><span>Or around a player</span><input class="field" id="area-player" list="area-players" maxlength="16" placeholder="Name" autocapitalize="none" spellcheck="false"><datalist id="area-players"></datalist></label>
+          <div class="area-go"><button class="btn btn-primary" id="area-compare"><svg><use href="#pg-search"/></svg>Compare</button></div>
+        </form>
+        <div class="area-result panel-body" id="area-result" hidden></div>
+      </section>
+      <section class="panel" id="area-undo-panel" hidden>
+        <header class="panel-head"><div class="head-text"><h2>Earlier area restores</h2><p class="note">What rconsole kept before each restore. Undo puts those chunks back as they were just before.</p></div></header>
+        <ul class="people" id="area-undo"></ul>
       </section>
       </div>
       <div class="view" data-view="map" hidden>

@@ -32,6 +32,7 @@ const archive = require('../lib/archive');
 const worldImport = require('../lib/worldimport');
 const files = require('../lib/files');
 const nbtedit = require('../lib/nbtedit');
+const region = require('../lib/region');
 
 // MC_DIR, or the folder of the server a request names (see main()).
 let MC = config.mcDir;
@@ -335,6 +336,189 @@ async function playerRestore({ uuid, backup: file, undo, parts }) {
   }
   fs.renameSync(tmp, target);
   return { uuid, world, parts: want, kept, from: undo !== undefined ? `restore of ${undo}` : file };
+}
+
+// --- area restore (time machine for the world) -------------------------------
+
+const MAX_AREA_CHUNKS = 1024;
+const CHUNK_LIMIT = 1875000; // 30 million blocks, the world's edge
+const KEEP_AREA_RESTORES = 3;
+
+function checkChunks(chunks) {
+  if (!Array.isArray(chunks) || !chunks.length) fail('Choose the chunks to restore');
+  if (chunks.length > MAX_AREA_CHUNKS) fail(`At most ${MAX_AREA_CHUNKS} chunks at a time`);
+  const seen = new Set();
+  return chunks.map((c) => {
+    if (!Array.isArray(c) || c.length !== 2 || !c.every((n) => Number.isInteger(n) && Math.abs(n) <= CHUNK_LIMIT)) fail('Invalid chunk');
+    return c;
+  }).filter(([x, z]) => !seen.has(`${x},${z}`) && seen.add(`${x},${z}`));
+}
+
+// Reads a file the helper didn't write (BACKUP_DIR), no-follow; null if absent.
+function readPlain(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) fail(`${path.basename(file)} is not a regular file`);
+    return fs.readFileSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// Writes into the world: a new file renamed over the old one, same mode.
+function replaceFile(file, data) {
+  const st = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (st && !st.isFile()) fail(`${path.basename(file)} is not a regular file`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = randomName(file);
+  const fd = fs.openSync(tmp, EXCL, st ? st.mode & 0o777 : 0o640);
+  try {
+    fs.writeFileSync(fd, data);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+}
+
+// The region files of one area out of a backup, into a private folder.
+async function extractArea(file, world, dimension, keys, kinds) {
+  const tmp = fs.mkdtempSync(path.join(MC, '.rconsole-area-'));
+  fs.chmodSync(tmp, 0o700);
+  const fd = fs.openSync(path.join(BK, file), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    if (!fs.fstatSync(fd).isFile()) fail('Backup not found');
+    await new Promise((resolve, reject) => {
+      const child = spawn('tar', ['-x', unpackFlag(file), '-f', '-', '-C', tmp, '--no-same-owner', '--no-same-permissions', '--wildcards', '--', ...region.members(world, dimension, keys, kinds)], { stdio: [fd, 'ignore', 'pipe'] });
+      let err = '';
+      child.stderr.on('data', (d) => (err += d));
+      child.on('error', reject);
+      // 2 with "Not found in archive": the layouts this backup doesn't use.
+      child.on('close', (code) => (code === 0 || (code === 2 && /not found in archive/i.test(err)) ? resolve() : reject(new Error(err.trim().split('\n').pop() || `tar exited with ${code}`))));
+    });
+  } catch (err) {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    throw err;
+  } finally {
+    fs.closeSync(fd);
+  }
+  return tmp;
+}
+
+// Puts chunks of the active world back as they were in a backup (or as they
+// were before an earlier area restore): blocks, block entities (chest
+// contents), points of interest and, if asked, entities. A chunk the backup
+// doesn't have stays as it is. The region files it changes are copied to
+// BACKUP_DIR/.area-restores/<world>/<stamp>/ first, for undo. rconsole
+// stops the server before this runs.
+async function areaRestore({ backup: file, undo, dimension, chunks, entities = true }) {
+  const world = checkWorld(await activeWorld());
+  const keepBase = path.join(BK, '.area-restores', world);
+  let srcBase;
+  let tmp = null;
+  let kinds;
+  let undoing = false;
+  if (undo !== undefined) {
+    if (!names.STAMP_RE.test(String(undo))) fail('Invalid restore');
+    srcBase = path.join(keepBase, undo);
+    if (!exists(srcBase)) fail('That earlier state is gone');
+    if (!fs.realpathSync(srcBase).startsWith(fs.realpathSync(BK) + path.sep)) fail('Invalid restore');
+    const meta = JSON.parse(readPlain(path.join(srcBase, 'meta.json'))?.toString() || 'null');
+    if (!meta) fail('That earlier state is gone');
+    ({ dimension, chunks, kinds } = meta);
+    if (!Array.isArray(kinds) || !kinds.every((k) => region.KINDS.includes(k))) fail('Invalid restore');
+    undoing = true;
+  } else {
+    const b = names.parseBackupName(file);
+    if (!b) fail('Invalid backup name');
+    if (b.world !== world) fail(`${file} is a backup of ${b.world}, the server plays ${world}`);
+    kinds = entities ? ['region', 'entities', 'poi'] : ['region', 'poi'];
+  }
+  if (!region.DIMENSIONS.includes(dimension)) fail('Invalid dimension');
+  chunks = checkChunks(chunks);
+  const groups = region.byRegion(chunks);
+  try {
+    if (!undoing) srcBase = tmp = await extractArea(file, world, dimension, [...groups.keys()], kinds);
+    const srcRoot = undoing ? JSON.parse(readPlain(path.join(srcBase, 'meta.json'))).root : region.findRoot(srcBase, world, dimension);
+    if (!srcRoot || !region.dimensionRoots(world, dimension).includes(srcRoot)) fail(`That backup has no ${dimension.replace('_', ' ')} for this area`);
+    const dstRoot = region.findRoot(MC, world, dimension) || srcRoot;
+
+    // Read everything first, so nothing is written when something is broken.
+    const plan = [];
+    const taken = [];
+    for (const [key, list] of groups) {
+      const [rx, rz] = key.split(',').map(Number);
+      const name = region.regionName(rx, rz);
+      const srcBlocks = region.parse(readPlain(path.join(srcBase, srcRoot, 'region', name)));
+      // A chunk is put back when the backup has its blocks; then entities and
+      // POI mirror the backup too (none there means none now). Undo puts
+      // back exactly what was there, including no chunk at all.
+      const take = list.filter(([cx, cz]) => undoing || srcBlocks[region.indexOf(cx, cz)]);
+      taken.push(...take);
+      if (!take.length) continue;
+      for (const kind of kinds) {
+        const src = kind === 'region' ? srcBlocks : region.parse(readPlain(path.join(srcBase, srcRoot, kind, name)));
+        const dstFile = path.join(MC, dstRoot, kind, name);
+        const before = readPlain(dstFile);
+        const cur = region.parse(before);
+        const external = [];
+        for (const [cx, cz] of take) {
+          const i = region.indexOf(cx, cz);
+          const ext = region.externalName(cx, cz);
+          if (cur[i]?.external) external.push({ name: ext, remove: true });
+          cur[i] = src[i];
+          if (src[i]?.external) {
+            const data = readPlain(path.join(srcBase, srcRoot, kind, ext));
+            if (!data) fail(`The backup is missing ${ext}`);
+            external.push({ name: ext, data });
+          }
+        }
+        plan.push({ kind, name, dstFile, before, after: cur.some(Boolean) ? region.serialize(cur) : null, external });
+      }
+    }
+    const skipped = chunks.length - taken.length;
+    if (!plan.length) return { world, dimension, restored: 0, skipped, kept: null };
+
+    // Keep what is replaced: whole region files and the oversized chunks.
+    realDir(path.join(BK, '.area-restores'));
+    realDir(keepBase);
+    const at = new Date();
+    let kept = names.timestamp(at);
+    while (exists(path.join(keepBase, kept))) {
+      at.setSeconds(at.getSeconds() + 1);
+      kept = names.timestamp(at);
+    }
+    const keepDir = realDir(path.join(keepBase, kept));
+    for (const p of plan) {
+      const dir = realDir(path.join(keepDir, ...dstRoot.split(path.sep), p.kind));
+      if (p.before) writeExclusive(path.join(dir, p.name), p.before);
+      for (const e of p.external) {
+        const cur = fs.existsSync(path.join(path.dirname(p.dstFile), e.name)) ? fs.readFileSync(path.join(path.dirname(p.dstFile), e.name)) : null;
+        if (cur) writeExclusive(path.join(dir, e.name), cur);
+      }
+    }
+    writeExclusive(path.join(keepDir, 'meta.json'), JSON.stringify({ dimension, chunks: taken, kinds, root: dstRoot, from: undoing ? `restore of ${undo}` : file, at: at.toISOString() }));
+    const old = fs.readdirSync(keepBase).filter((d) => names.STAMP_RE.test(d)).sort().reverse().slice(KEEP_AREA_RESTORES);
+    for (const d of old) fs.rmSync(path.join(keepBase, d), { recursive: true, force: true });
+
+    for (const p of plan) {
+      const dir = path.dirname(p.dstFile);
+      for (const e of p.external) {
+        if (e.remove) fs.rmSync(path.join(dir, e.name), { force: true });
+      }
+      for (const e of p.external) if (e.data) replaceFile(path.join(dir, e.name), e.data);
+      if (p.after) replaceFile(p.dstFile, p.after);
+      else fs.rmSync(p.dstFile, { force: true });
+    }
+    return { world, dimension, restored: taken.length, skipped, kept, from: undoing ? `restore of ${undo}` : file };
+  } finally {
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 // --- worlds -----------------------------------------------------------------
@@ -889,6 +1073,7 @@ const TASKS = {
   'config-write': configWrite,
   'file-op': fileOp,
   'player-restore': playerRestore,
+  'area-restore': areaRestore,
   ...servers.TASKS,
 };
 
