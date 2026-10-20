@@ -571,6 +571,21 @@
         </section>
 
 
+        <section class="panel self-panel" id="self-panel" hidden>
+          <header class="panel-head">
+            <div class="head-text"><h2 id="self-title">What's new in rconsole</h2><p class="note" id="self-note" hidden>Updating restarts rconsole; you stay signed in and this page follows along. If the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p></div>
+            <button class="btn" id="self-dismiss" hidden>Dismiss</button>
+            <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update rconsole</button>
+          </header>
+          <div class="panel-body stack">
+            <ol class="self-steps" id="self-steps" hidden></ol>
+            <div class="job" id="self-status" hidden></div>
+            <h3 class="self-sub" id="self-changes-title" hidden>Changes</h3>
+            <ol class="changelog" id="self-changes" hidden></ol>
+            <p class="note" id="self-info"></p>
+          </div>
+        </section>
+
         <section class="panel" id="upd-server">
           <header class="panel-head">
             <div class="head-text"><h2>Server software</h2><p class="note">Updates warn players, then disconnect everyone and stop the server. The world is backed up while nobody plays, the new jar goes in, and the server starts again.</p></div>
@@ -819,18 +834,6 @@
             <div class="head-text"><h2>rconsole</h2><p class="note" id="about-note"></p></div>
           </header>
           <dl class="set-facts" id="about-facts"></dl>
-        </section>
-        <section class="panel self-panel" id="self-panel" hidden>
-          <header class="panel-head">
-            <div class="head-text"><h2>What's new in rconsole</h2><p class="note" id="self-note" hidden>Updating restarts rconsole and signs everyone out; if the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p></div>
-            <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update rconsole</button>
-          </header>
-          <div class="panel-body stack">
-            <div class="version" hidden><span id="self-current">–</span><span class="pill" id="self-pill" hidden></span></div>
-            <div class="job" id="self-status" hidden></div>
-            <ol class="changelog" id="self-changes" hidden></ol>
-            <p class="note" id="self-info"></p>
-          </div>
         </section>
         <section class="panel" data-min-global-role="admin">
           <header class="panel-head"><div class="head-text"><h2>Web access</h2><p class="note">Where rconsole listens and how people reach it. Changes apply right away, without a restart.</p></div></header>
