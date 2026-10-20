@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
-// User management: node cli.js user <add|passwd|remove|list|role|totp|totp-off|link|unlink> [name]
+// User management: node cli.js user <add|passwd|remove|list|role|access|totp|totp-off|link|unlink> [name]
 // Settings → System from the shell: node cli.js system <show|reset> [setting]
 
 const readline = require('readline');
 const config = require('./lib/config');
-const { Users, newTotpSecret, totpUri, verifyTotp, newRecoveryCodes, ROLES } = require('./lib/auth');
+const { Users, newTotpSecret, totpUri, verifyTotp, newRecoveryCodes, ROLES, ATTACHED } = require('./lib/auth');
 
 // --role admin|moderator|viewer for `user add`
 const roleFlag = () => {
@@ -76,6 +76,7 @@ const commands = {
       const u = all[n];
       const how = u.sso ? `SSO ${u.sso.email || u.sso.name || u.sso.sub}`.slice(0, 40) : `local, 2FA ${u.totp ? 'on' : 'off'}`;
       console.log(`${n.padEnd(20)} ${users.roleOf(n).padEnd(10)} ${how.padEnd(42)} ${u.sso ? `last sign-in ${u.lastLogin || '–'}` : `created ${u.created}`}`);
+      if (u.servers) console.log(`${''.padEnd(20)} ${Object.entries(u.servers).map(([k, r]) => `${k === ATTACHED ? 'attached' : k}: ${r === 'none' ? 'no access' : r}`).join(', ')}`);
     }
     if (names.some((n) => all[n].sso)) console.log('\nSSO accounts get their role from the provider\'s groups at each sign-in; removing one only lasts until their next sign-in.');
   },
@@ -104,6 +105,23 @@ const commands = {
     users.setRole(name, role);
     console.log(`${name} is now ${role}. Their sessions were signed out.`);
     if (users.get(name)?.sso) console.log('Note: this is an SSO account; its next sign-in sets the role from the provider\'s groups again.');
+  },
+  // Role on one server, or no access to it: user access <name> <server> <role|none|default>.
+  // <server> is a server id (Servers page), or "attached" for the server in MC_DIR.
+  async access(name) {
+    name = need(name);
+    if (!users.get(name)) throw new Error(`No such user: ${name}`);
+    const [server, role] = process.argv.slice(5);
+    const key = server === 'attached' ? ATTACHED : server;
+    if (!server) {
+      const map = users.get(name).servers || {};
+      console.log(`${name}: ${users.roleOf(name)} on every server${Object.keys(map).length ? ', except:' : '.'}`);
+      for (const [k, r] of Object.entries(map)) console.log(`  ${(k === ATTACHED ? 'attached' : k).padEnd(20)} ${r === 'none' ? 'no access' : r}`);
+      return console.log(`Change with: user access ${name} <server|attached> <${ROLES.join('|')}|none|default>`);
+    }
+    if (!role) throw new Error(`Usage: user access ${name} ${server} <${ROLES.join('|')}|none|default>`);
+    users.setServerRole(name, key, role === 'default' ? null : role);
+    console.log(role === 'default' ? `${name} has their account's role (${users.roleOf(name)}) on ${server} again.` : `${name} is now ${role === 'none' ? 'without access to' : `${role} on`} ${server}.`);
   },
   // Ties a local account to the provider user of an SSO account and removes
   // that SSO account: for when someone signed in with the provider before

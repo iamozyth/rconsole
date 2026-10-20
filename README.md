@@ -65,7 +65,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 **Players and security**
 - **One player list**: everyone the server knows, with whitelist, operator and ban status, filters and a profile panel per player.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
-- **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers.
+- **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers, globally or per server (a friend can be admin on their own server and see nothing of the others).
 - **Single sign-on** with authentik, Keycloak, Auth0 or any OpenID Connect provider; roles from its groups, local accounts as a fallback.
 - **Player history** from your logs: sessions, playtime, last IP, daily activity.
 - **Player profiles**: position, health, food, level and game mode, equipment, hotbar and inventory live (or as last saved when offline); statistics (play time, deaths, kills, distance, most mined and used) and advancements from the world files; teleport, game mode, heal, kick and clear inventory in one place.
@@ -178,6 +178,23 @@ The first server becomes the one rconsole shows (Dashboard, Console, Players, Wo
 - **Pre-generate** (World, with the Chunky plugin) generates the chunks around spawn ahead of time, so exploring players don't make the server lag.
 - **Delete** stops the server and moves its folder into the backup folder as `server-<name>-<time>.tar.gz` (or removes it, if you say so).
 - Installing, starting, stopping and deleting servers is for admins and recorded in the audit log.
+
+## Per-server access
+
+Each account has a global role, and can have a different role on single servers: `none` hides a server completely, or `viewer`, `moderator` and `admin` replace the global role there. Set it under **Settings → Users & sign-in → Access** or on the server:
+
+```sh
+sudo -u rconsole node cli.js user access nina                 # show
+sudo -u rconsole node cli.js user access nina creative admin  # admin on "creative" only
+sudo -u rconsole node cli.js user access nina lobby none      # hide "lobby"
+sudo -u rconsole node cli.js user access nina attached none   # hide the server rconsole is attached to (MC_DIR)
+sudo -u rconsole node cli.js user access nina creative default
+```
+
+- The per-server role applies to everything about that server: console, players, world, backups, automation and its row on the Servers page. **Show** needs admin on the target server.
+- Settings for rconsole itself (users, sign-in, notifications, offsite backups, updates, the audit log, adding servers) always follow the global role.
+- Someone with no access to the shown server gets a page listing the servers they can use.
+- Per-server changes apply on that person's next click; changing the global role signs them out. SSO accounts keep their global role from the provider's groups, but per-server roles can be set for them here.
 
 ## What the installer does
 
@@ -292,7 +309,7 @@ sudo -u rconsole node cli.js user add yourname
 sudo -u rconsole node cli.js user totp yourname   # optional 2FA, highly recommended
 ```
 
-Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user role <name> <admin|moderator|viewer>`, `user totp-off <name>`, `user link <local> <sso-account>` and `user unlink <name>` (see Single sign-on). Add team members with a role: `user add <name> --role moderator`. Changes apply immediately, no restart needed.
+Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user role <name> <admin|moderator|viewer>`, `user totp-off <name>`, `user link <local> <sso-account>` and `user unlink <name>` (see Single sign-on), and `user access <name> <server|attached> <role|none|default>` (see Per-server access). Add team members with a role: `user add <name> --role moderator`. Changes apply immediately, no restart needed.
 
 ## Configuration
 
@@ -626,7 +643,7 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 
 - **Accounts** live in `/var/lib/rconsole/users.json` with scrypt password hashes. They're managed with `cli.js` on the server only; there is no web signup.
 - **Single sign-on** (optional): OpenID Connect authorization code flow with PKCE, a `nonce`, and a single-use `state` kept in a short-lived cookie signed by rconsole, so a sign-in only completes in the browser that started it (no login CSRF) and nothing server-side can be flooded. ID tokens are verified locally against the provider's published keys (RS256, PS256 or ES256 only; unsigned and HMAC tokens are refused) along with issuer, audience and expiry. The provider must use HTTPS. Roles come from groups at every sign-in; SSO accounts have no password and are matched by the provider's subject ID, never by name.
-- **Roles**: `admin` (everything; accounts from before roles existed are admins), `moderator` (sees everything an admin sees except the audit log and notification and offsite settings; runs only moderation commands: say, tell, kick, ban and pardon, whitelist add and remove, tp, gamemode, spectate and common mute or warn plugin commands) and `viewer` (read-only: console, charts, settings, no player addresses). The server enforces the role on every request; the interface hides what a role can't do. `node cli.js user add <name> --role moderator`, `node cli.js user role <name> viewer`; changing a role signs that user out.
+- **Roles**: `admin` (everything; accounts from before roles existed are admins), `moderator` (sees everything an admin sees except the audit log and notification and offsite settings; runs only moderation commands: say, tell, kick, ban and pardon, whitelist add and remove, tp, gamemode, spectate and common mute or warn plugin commands) and `viewer` (read-only: console, charts, settings, no player addresses). The server enforces the role on every request; the interface hides what a role can't do. `node cli.js user add <name> --role moderator`, `node cli.js user role <name> viewer`, per server with `node cli.js user access <name> <server> <role|none>`; changing a role signs that user out.
 - **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days (SSO sessions after `OIDC_SESSION_HOURS`), and are revoked when the password or role changes or the user is removed. Only the SHA-256 of each token is stored (`STATE_DIR/sessions.json`, mode 600), so restarting rconsole keeps everyone signed in.
 - **2FA**: optional TOTP per user, with replay protection and ten one-time recovery codes. **Settings → System → Security** (or `REQUIRE_2FA=admin`/`all`) makes it mandatory; rconsole refuses to require it while your own account has none, and warns about accounts that would be locked out.
 - **HSTS** is sent when the reverse proxy reports HTTPS.
