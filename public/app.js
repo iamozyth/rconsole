@@ -3468,6 +3468,7 @@ async function startSelfUpdate() {
 }
 
 $('self-update').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
   const o = selfLast || {};
   const c = o.check || {};
   const nodeOnly = c.status !== 'ahead';
@@ -3478,7 +3479,7 @@ $('self-update').addEventListener('click', async (e) => {
   }))) return;
   // The run started from an old Node.js needs a second one (see renderSelf).
   selfRun.set({ version: c.version || null, commits: c.commits || null, auto: true });
-  await busy(e.currentTarget, startSelfUpdate);
+  await busy(btn, startSelfUpdate);
 });
 
 $('self-dismiss').addEventListener('click', () => {
