@@ -556,6 +556,7 @@ select.field { padding-right: 6px; }
 }
 .pill.own { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
 .pill.bad { border-color: color-mix(in srgb, var(--c-danger) 30%, transparent); background: color-mix(in srgb, var(--c-danger) 10%, transparent); color: var(--c-danger); }
+.pill.warn { border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn); }
 .pill.ok { border-color: color-mix(in srgb, var(--ok) 30%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); }
 .pill svg { width: 11px; height: 11px; }
 .pill.compat { margin-left: 8px; vertical-align: 1px; border-color: color-mix(in srgb, var(--warn) 30%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn); }
@@ -2058,12 +2059,24 @@ a.dash-li:hover, button.dash-li:hover { background: var(--hover); cursor: pointe
 .people li .meta { margin-left: auto; }
 
 /* Players: one table, filters with counts. */
-.people-head { flex-wrap: wrap; gap: 10px; }
-.people-head .search { flex: 0 1 220px; margin-left: auto; }
-.people-head .switch { margin-left: 0; }
+#tab-players .panel-head > .head-text { margin-right: auto; }
+#tab-players .panel-head > .head-text + .btn { margin-left: 0; }
+.people-tools { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.people-tools .search { flex: 0 1 260px; margin-left: auto; }
+.people-tools .search input { height: 36px; }
+.access-line .pill { margin-right: 6px; vertical-align: 1px; }
+.access-line a { margin-left: 6px; }
+.access-line a { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+.access-line a:hover { color: var(--text); }
 .segmented [data-count]::after { content: attr(data-count); margin-left: 6px; color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.people-add { padding: 12px 20px; border-bottom: 1px solid var(--line); }
-.people-add .field { max-width: 280px; }
+.pp-add-modes { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.pp-add-modes .radio-row .note, .access-modes .radio-row .note { margin-top: 2px; }
+.pp-add-modes .radio-row:has(input[value='ban']:checked) { border-color: color-mix(in srgb, var(--c-danger) 45%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-danger) 18%, transparent); }
+.pp-add-hint { margin-top: -10px; }
+.access-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.access-modes .radio-row:has(input[value='off']:checked) { border-color: color-mix(in srgb, var(--warn) 45%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
+.access-modes:has(input:disabled) .radio-row { cursor: default; }
+.access-modes .radio-row:has(input:disabled:not(:checked)) { opacity: 0.6; }
 .badges { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.new { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
@@ -2163,10 +2176,13 @@ a.dash-li:hover, button.dash-li:hover { background: var(--hover); cursor: pointe
   .dash-server > .ds-stat { display: none; }
   .dash-perf-head .segmented { margin-left: 0; }
   .dash-li, .activity li { padding-left: 16px; padding-right: 16px; }
-  .people-head .search { flex: 1 1 100%; margin-left: 0; }
+  #tab-players .panel-head > .head-text { flex-basis: 100%; }
+  #tab-players .panel-head > .btn { flex: 1 1 0; justify-content: center; }
+  #tab-players .panel-head > .btn + .btn { margin-left: 0; }
+  .people-tools { flex-wrap: wrap; padding: 12px 16px; }
+  .people-tools .search { flex: 1 1 100%; margin-left: 0; max-width: none; order: -1; }
   #pp-filter { width: 100%; overflow-x: auto; }
-  .people-add { flex-wrap: wrap; padding: 12px 16px; }
-  .people-add .field { max-width: none; flex: 1 1 100%; }
+  .access-modes { grid-template-columns: minmax(0, 1fr); }
   .console .chat-send { grid-template-columns: minmax(0, 1fr) auto; }
   .console .chat-send select { grid-column: 1 / -1; }
   /* Sub-tabs scroll sideways instead of cutting the last one off. */

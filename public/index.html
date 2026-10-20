@@ -302,7 +302,12 @@
           <ul class="people" id="join-list"></ul>
         </section>
         <section class="panel">
-          <header class="panel-head people-head">
+          <header class="panel-head">
+            <div class="head-text"><h2>People</h2><p class="note access-line" id="wl-line"></p></div>
+            <button class="btn btn-quiet" id="invite-toggle" type="button" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-door"/></svg>Invite</button>
+            <button class="btn btn-primary" id="pp-add-open" type="button" aria-haspopup="dialog" data-min-role="moderator"><svg><use href="#pg-add"/></svg>Add player</button>
+          </header>
+          <div class="people-tools">
             <div class="segmented" role="radiogroup" aria-label="Show" id="pp-filter">
               <button role="radio" aria-checked="true" data-f="all">All</button>
               <button role="radio" aria-checked="false" data-f="online">Online</button>
@@ -311,15 +316,7 @@
               <button role="radio" aria-checked="false" data-f="banned">Banned</button>
             </div>
             <label class="search"><svg><use href="#pg-search"/></svg><input id="ph-filter" type="search" placeholder="Find a player" aria-label="Find a player" maxlength="16" autocomplete="off"></label>
-            <label class="switch" data-min-role="admin"><input type="checkbox" role="switch" id="wl-toggle"><span id="wl-state">Whitelist off</span></label>
-            <button class="btn btn-quiet" id="invite-toggle" type="button" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-door"/></svg>Invite</button>
-          </header>
-          <form class="add people-add" id="pp-add" data-min-role="moderator" autocomplete="off">
-            <input class="field" name="name" placeholder="Player name" aria-label="Player name" maxlength="16" required>
-            <button class="btn btn-primary" name="act" value="whitelist"><svg><use href="#pg-add"/></svg>Whitelist</button>
-            <button class="btn" name="act" value="op" data-min-role="admin"><svg><use href="#pg-op"/></svg>Make op</button>
-            <button class="btn btn-quiet danger" name="act" value="ban"><svg><use href="#pg-ban"/></svg>Ban…</button>
-          </form>
+          </div>
           <table class="table people-table">
             <thead><tr><th>Player</th><th>Access</th><th>Last seen</th><th class="num">Playtime</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
             <tbody id="pp-list"></tbody>
@@ -449,6 +446,18 @@
             <a class="btn" href="#server/properties" data-min-role="admin"><svg><use href="#pg-settings"/></svg>Edit properties</a>
           </header>
           <dl class="set-facts" id="srv-facts"></dl>
+        </section>
+        <section class="panel access-panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Who can join</h2><p class="note" id="wl-info"></p></div>
+            <a class="btn btn-quiet" href="#players/people"><svg><use href="#pg-players"/></svg>Manage players</a>
+          </header>
+          <div class="panel-body">
+            <div class="access-modes" role="radiogroup" aria-label="Who can join" id="wl-modes">
+              <label class="radio-row"><input type="radio" name="wl-mode" value="on"><span><b>Whitelisted players only</b><span class="note" id="wl-on-note">Everyone else is turned away at sign-in. Operators can always join.</span></span></label>
+              <label class="radio-row"><input type="radio" name="wl-mode" value="off"><span><b>Anyone with the address</b><span class="note">No list. Strangers and internet scanners can join and play.</span></span></label>
+            </div>
+          </div>
         </section>
         <div class="grid-2">
           <section class="panel">
@@ -983,6 +992,29 @@
         <p class="note" id="invite-note">Without the box ticked, each name lands under Want to join for you to allow.</p>
         <button class="btn btn-quiet" type="button" data-close>Close</button>
         <button class="btn btn-primary"><svg><use href="#pg-add"/></svg>Create link</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+<dialog class="drawer" id="drawer-add-player" aria-labelledby="drawer-add-player-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-add-player-title">Add players</h2><p class="note">Works whether or not they have joined before.</p></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+    <form class="drawer-form" id="pp-add" autocomplete="off" novalidate>
+      <label class="fld wide"><span>Minecraft names</span><input class="field" name="names" placeholder="e.g. Lena_mc, Kai" aria-describedby="pp-add-hint" spellcheck="false" autocapitalize="off"></label>
+      <p class="note wide pp-add-hint" id="pp-add-hint">Separate several names with spaces or commas.</p>
+      <fieldset class="fld wide pp-add-modes">
+        <legend>What they get</legend>
+        <label class="radio-row"><input type="radio" name="act" value="whitelist" checked><span><b>Whitelist</b><span class="note">Can join the server.</span></span></label>
+        <label class="radio-row" data-min-role="admin"><input type="radio" name="act" value="op"><span><b>Operator</b><span class="note">Can join and run every command, including stopping the server.</span></span></label>
+        <label class="radio-row"><input type="radio" name="act" value="ban"><span><b>Ban</b><span class="note">Kicked if online and kept out until unbanned.</span></span></label>
+      </fieldset>
+      <label class="fld wide" id="pp-add-reason" hidden><span>Reason <span class="sub">(optional, shown to them)</span></span><input class="field" name="reason" maxlength="120"></label>
+      <div class="form-actions">
+        <button class="btn btn-quiet" type="button" data-close>Cancel</button>
+        <button class="btn btn-primary" id="pp-add-go"><svg><use href="#pg-add"/></svg><span>Whitelist</span></button>
       </div>
     </form>
   </div>

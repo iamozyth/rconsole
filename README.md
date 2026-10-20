@@ -58,12 +58,13 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 **Console and control**
 - **Live console**: the server log as it happens, filterable, with a chat-and-joins view and a command prompt with history and **autocomplete** for commands, subcommands, players, game modes and game rules, including plugin commands.
 - **Command palette** (Ctrl/⌘ K): jump anywhere, run any action, or type a Minecraft command.
+- **Who can join**: whitelist on or off under Server → Overview, with a confirmation before the server is opened to anyone.
 - **Server power**: start, stop and restart with in-game countdowns; **maintenance mode** that lets only operators in and restores the whitelist afterwards.
 - **Dashboard**: the shown server with start, restart, stop, backup and save buttons; TPS, players, CPU and memory as cards with the shape of the last hours (a click puts that metric on the big chart, 1 hour to 7 days); last backup, problems, updates and disk; every installed server with its players (from a server list ping, so servers rconsole doesn't show count too), CPU and memory; the next scheduled tasks, recent problems, backup history, who's online and what changed recently.
 - **Server switcher** at the top of the sidebar for every server rconsole runs.
 
 **Players and security**
-- **One player list**: everyone the server knows, with whitelist, operator and ban status, filters and a profile panel per player.
+- **One player list**: everyone the server knows, with whitelist, operator and ban status, filters and a profile panel per player. **Add player** whitelists, ops or bans several names at once.
 - **Knock to join**: a friend who isn't whitelisted tries to join, you get "Lena tried to join" with an **Allow** button, one tap and they're in. **Invite links** let friends put themselves on the list.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Modpacks** from Modrinth in one step: loader, mods and settings, every file checked.
