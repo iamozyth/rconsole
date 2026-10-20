@@ -123,3 +123,23 @@ test('uploads: placed as a file or unpacked into a new folder, never over someth
   assert.ok(!fs.existsSync(path.join(MC, 'evil')));
   assert.deepStrictEqual(fs.readdirSync(MC).filter((n) => n.startsWith('.rconsole-upload')), []);
 });
+
+test('owner-only files: rconsole says it can\'t read them, the helper reads them', async () => {
+  const open = fs.openSync;
+  const readdir = fs.readdirSync;
+  const deny = () => {
+    throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+  };
+  fs.openSync = (f, ...rest) => (String(f).endsWith('config.yml') ? deny() : open(f, ...rest));
+  fs.readdirSync = (d, ...rest) => (String(d).endsWith('Essentials') ? deny() : readdir(d, ...rest));
+  try {
+    assert.throws(() => files.read('plugins/Essentials/config.yml'), (e) => e.code === 'EACCES' && e.status === 403 && /can't read plugins\/Essentials\/config\.yml/.test(e.message));
+    assert.throws(() => files.list('plugins/Essentials'), (e) => e.code === 'EACCES');
+  } finally {
+    fs.openSync = open;
+    fs.readdirSync = readdir;
+  }
+  const r = await op({ op: 'read', path: 'plugins/Essentials/config.yml' });
+  assert.strictEqual(r.file.content, read('plugins/Essentials/config.yml'));
+  assert.deepStrictEqual((await op({ op: 'list', path: 'plugins' })).listing.entries.map((e) => e.name), ['Essentials', 'Thing.jar']);
+});

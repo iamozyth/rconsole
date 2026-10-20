@@ -759,7 +759,11 @@ async function filePlace({ upload, dir, name, unpack = false }) {
   }
 }
 
-const FILE_OPS = { write: fileWrite, revert: fileRevert, mkdir: fileMkdir, move: fileMove, delete: fileDelete, place: filePlace };
+// Reading as the server's user, for files rconsole itself can't read.
+const fileRead = ({ path: rel }) => ({ file: new files.Files({ mcDir: MC }).read(rel) });
+const fileList = ({ path: rel }) => ({ listing: new files.Files({ mcDir: MC }).list(rel) });
+
+const FILE_OPS = { read: fileRead, list: fileList, write: fileWrite, revert: fileRevert, mkdir: fileMkdir, move: fileMove, delete: fileDelete, place: filePlace };
 async function fileOp({ op, ...args }) {
   if (!Object.hasOwn(FILE_OPS, String(op))) fail(`Unknown file operation ${op}`);
   return { op, ...(await FILE_OPS[op](args)) };
