@@ -1166,7 +1166,7 @@ td.nowrap { white-space: nowrap; }
 .self-steps li[data-state='failed'] .step-mark { border-color: transparent; background: color-mix(in srgb, var(--c-danger) 15%, var(--surface)); }
 .self-steps li[data-state='failed'] .step-detail { white-space: normal; }
 .self-steps li[data-state='skipped'] { text-decoration: line-through; opacity: .6; }
-@media (max-width: 640px) { .self-steps li { grid-template-columns: 24px minmax(0, 1fr); } .self-steps .step-detail { grid-column: 2; text-align: left; max-width: none; } }
+@media (max-width: 640px) { .self-steps li:is([data-state='active'], [data-state='failed']) .step-detail { grid-column: 2 / -1; text-align: left; max-width: none; white-space: normal; } }
 .self-panel .panel-head .btn + .btn { margin-left: 8px; }
 .panel.flash { animation: flash 1.4s ease-out; }
 @keyframes flash { 0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); } }
