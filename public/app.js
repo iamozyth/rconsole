@@ -1463,7 +1463,10 @@ async function loadServerSummary() {
     $('srv-note').textContent = e.message;
   }
 }
-viewLoaders['server/overview'] = loadServerSummary;
+viewLoaders['server/overview'] = () => {
+  loadServerSummary();
+  loadAccessMode();
+};
 
 // --- Server → Servers: servers rconsole installs and runs itself ---
 const VERIFY_NOTE = { sha256: 'SHA-256 from the publisher', sha1: 'SHA-1 from Mojang', md5: 'MD5 only (all Purpur publishes)', 'sha256-maven': 'SHA-256 from its Maven' };
@@ -2122,7 +2125,7 @@ function renderPeople() {
         el('td', { class: 'act' }, personActions(p))))
     : [emptyRow(5, rows.length
       ? (q ? `Nobody called “${q}” here.` : 'Nobody in this list.')
-      : accessCache.whitelistEnabled ? 'Nobody is whitelisted, so nobody can join. Add players above.' : 'Nobody has played yet. Add players to the whitelist above, then switch it on.')]));
+      : accessCache.whitelistEnabled ? 'Nobody is whitelisted, so nobody can join. Use Add player to let your friends in.' : 'Nobody has played yet. Use Add player to whitelist your friends, then turn the whitelist on under Server → Overview.')]));
 }
 
 async function loadAccess() {
@@ -2133,8 +2136,7 @@ async function loadAccess() {
     accessCache = a;
     if (h) historyData = h;
     $('access-error').hidden = true;
-    $('wl-toggle').checked = a.whitelistEnabled;
-    $('wl-state').textContent = a.whitelistEnabled ? 'Whitelist on' : 'Whitelist off';
+    renderAccessMode(a);
     $('n-ipbans').textContent = a.ipBans.length || '';
     $('list-ipbans').replaceChildren(...(a.ipBans.length
       ? a.ipBans.map((b) => el('li', {},
@@ -2298,7 +2300,50 @@ async function mutate(command) {
   await loadAccess();
 }
 
-$('wl-toggle').addEventListener('change', (e) => mutate(`whitelist ${e.target.checked ? 'on' : 'off'}`));
+// Who can join: a server setting, so it lives under Server → Overview with a
+// confirmation before the server is opened up. Players only shows the state.
+function renderAccessMode(a) {
+  const maint = Boolean(lastStatus?.maintenance?.enabled);
+  const wl = a.whitelistEnabled;
+  const n = a.whitelist.length;
+  const change = atLeast('admin') ? el('a', { href: '#server/overview' }, wl ? 'Change' : 'Turn on the whitelist') : null;
+  $('wl-line').replaceChildren(...(maint
+    ? [el('span', { class: 'pill warn' }, 'Maintenance'), 'Only operators can join right now.']
+    : wl
+      ? [el('span', { class: 'pill ok' }, 'Whitelist on'), 'Only whitelisted players and operators can join.', change]
+      : [el('span', { class: 'pill warn' }, 'Whitelist off'), 'Anyone with the address can join.', change]));
+  for (const r of document.querySelectorAll('input[name="wl-mode"]')) {
+    r.checked = r.value === (wl ? 'on' : 'off');
+    r.disabled = maint || !atLeast('admin');
+  }
+  $('wl-on-note').textContent = `Everyone else is turned away at sign-in. ${n ? `${n} player${n === 1 ? ' is' : 's are'} on the whitelist` : 'Nobody is on the whitelist yet'}; operators can always join.`;
+  $('wl-info').textContent = maint
+    ? 'Maintenance mode is on, so only operators can join. Switch it off below before changing this.'
+    : 'Applies right away, no restart needed.';
+}
+
+async function loadAccessMode() {
+  try {
+    const a = await api('GET', '/api/access');
+    accessCache = a;
+    renderAccessMode(a);
+  } catch (e) {
+    $('wl-info').textContent = `Can't read the whitelist: ${e.message}`;
+  }
+}
+
+$('wl-modes').addEventListener('change', async (e) => {
+  const on = e.target.value === 'on';
+  if (accessCache) renderAccessMode(accessCache); // reflect the server's answer, not the click
+  if (!on && !(await confirmAction({
+    title: 'Let anyone join?',
+    body: 'Turns the whitelist off. Anyone who finds the server, including bots that scan the internet for open servers, can join and play until you turn it back on.',
+    confirm: 'Turn whitelist off', tone: 'danger', icon: 'alert',
+  }))) return;
+  await mutate(`whitelist ${on ? 'on' : 'off'}`);
+  await loadAccessMode();
+  loadServerSummary();
+});
 
 const CONFIRM_ADD = {
   op: (v) => ({ title: `Make ${v} an operator?`, body: 'Operators can run every command in game, including stopping the server.', confirm: 'Make op', tone: 'primary', icon: 'op' }),
@@ -2949,6 +2994,7 @@ function renderPower(s) {
   const m = s.maintenance || {};
   $('maint-toggle').checked = Boolean(m.enabled);
   $('maint-state').textContent = m.enabled ? 'On' : 'Off';
+  if (accessCache) renderAccessMode(accessCache);
   $('maint-info').textContent = m.enabled
     ? `On since ${fmt.date(m.since)}. Only operators can join. Switching it off restores the whitelist.`
     : 'Only operators can stay or join. Whitelisted players are taken off the whitelist and kicked, and put back when you switch it off.';
@@ -3089,11 +3135,11 @@ settingsForm.addEventListener('submit', async (e) => {
     el('b', {}, spec.label),
     el('span', { class: 'diff-values' }, el('del', {}, show(from)), ' → ', el('ins', {}, show(to))),
     el('span', { class: 'note' }, spec.live && running ? 'Applies now' : 'Applies on next start'))));
-  const risky = changes.some((c) => c.spec.warning && c.to === 'false');
+  const risky = changes.filter((c) => c.spec.warning && c.to === 'false');
   if (!(await confirmAction({
     title: `Apply ${changes.length} change${changes.length === 1 ? '' : 's'}?`,
-    body: risky ? changes.find((c) => c.spec.warning).spec.warning : '',
-    confirm: 'Apply', tone: risky ? 'danger' : 'primary', icon: 'settings', content: diff,
+    body: risky.map((c) => c.spec.warning).join(' '),
+    confirm: 'Apply', tone: risky.length ? 'danger' : 'primary', icon: 'settings', content: diff,
   }))) return;
   await busy(settingsForm.querySelector('[type=submit]'), async () => {
     try {
@@ -5499,27 +5545,49 @@ $('pp-filter').addEventListener('click', (e) => {
   for (const x of $('pp-filter').children) x.setAttribute('aria-checked', String(x === b));
   renderPeople();
 });
-// One field, three outcomes: whitelist, make operator, ban (with a reason).
+// Add players: several names at once, and one of whitelist, operator or ban.
+const ADD_ACT = {
+  whitelist: { label: 'Whitelist', icon: 'add', tone: 'btn-primary', cmd: (n) => `whitelist add ${n}` },
+  op: { label: 'Make operator', icon: 'op', tone: 'btn-primary', cmd: (n) => `op ${n}` },
+  ban: { label: 'Ban', icon: 'ban', tone: 'btn-danger', cmd: (n, reason) => `ban ${n}${reason ? ` ${reason}` : ''}` },
+};
+function syncAddForm() {
+  const f = $('pp-add');
+  const act = ADD_ACT[f.elements.act.value] || ADD_ACT.whitelist;
+  const go = $('pp-add-go');
+  go.className = `btn ${act.tone}`;
+  go.replaceChildren(icon(act.icon), el('span', {}, act.label));
+  $('pp-add-reason').hidden = f.elements.act.value !== 'ban';
+}
+function openAddPlayer(name = '') {
+  const f = $('pp-add');
+  f.reset();
+  f.elements.names.value = name;
+  f.elements.names.removeAttribute('aria-invalid');
+  syncAddForm();
+  openDrawer('drawer-add-player', f.elements.names);
+}
+$('pp-add-open').addEventListener('click', () => openAddPlayer());
+$('pp-add').addEventListener('change', (e) => e.target.name === 'act' && syncAddForm()); // not on the name field: rebuilding the button under a click swallows it
 $('pp-add').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const input = $('pp-add').elements.name;
-  const name = input.value.trim();
-  const act = e.submitter?.value || 'whitelist';
-  if (!PLAYER_RE.test(name)) {
+  const f = $('pp-add');
+  const input = f.elements.names;
+  const names = [...new Set(input.value.split(/[\s,;]+/).filter(Boolean))];
+  const bad = names.filter((n) => !PLAYER_RE.test(n));
+  if (!names.length || bad.length) {
     input.setAttribute('aria-invalid', 'true');
     input.focus();
-    return toast('Player names are 1–16 letters, digits or underscores.', 'bad');
+    return toast(bad.length ? `Not a Minecraft name: ${bad.join(', ')}. Names are 1–16 letters, digits or underscores.` : 'Type a Minecraft name.', 'bad');
   }
-  let command = act === 'op' ? `op ${name}` : act === 'ban' ? `ban ${name}` : `whitelist add ${name}`;
-  if (act === 'ban') {
-    const reason = el('input', { class: 'field', maxlength: 120, placeholder: 'Optional', 'aria-label': 'Reason' });
-    if (!(await confirmAction({ ...CONFIRM_ADD.ban(name), content: fld('Reason', reason) }))) return;
-    if (reason.value.trim()) command += ` ${reason.value.trim()}`;
-  } else if (act === 'op' && !(await confirmAction(CONFIRM_ADD.op(name)))) return;
-  input.value = '';
-  busy(e.submitter || $('pp-add').querySelector('.btn-primary'), () => mutate(command));
+  const act = ADD_ACT[f.elements.act.value] || ADD_ACT.whitelist;
+  const reason = f.elements.reason.value.trim();
+  await busy($('pp-add-go'), async () => {
+    for (const n of names) await mutate(act.cmd(n, reason));
+  });
+  closeDrawer('drawer-add-player');
 });
-$('pp-add').elements.name.addEventListener('input', (e) => e.target.removeAttribute('aria-invalid'));
+$('pp-add').elements.names.addEventListener('input', (e) => e.target.removeAttribute('aria-invalid'));
 
 // ---------------------------------------------------------------------------
 
@@ -5558,7 +5626,7 @@ function paletteActions() {
   act('Back up the active world', 'backups', 'backup save snapshot', () => { showTab('backups'); $('backup-now').click(); });
   act('Create a new world…', 'worlds', 'new world create generate', () => { showTab('world/worlds'); toggleWorldForm(true); });
   act('Install a new server…', 'server', 'new server install paper fabric velocity create', () => { showTab('servers'); toggleServerForm(true); });
-  act('Whitelist a player…', 'add', 'whitelist add player allow', () => { showTab('players/people'); $('pp-add').elements.name.focus(); });
+  act('Whitelist a player…', 'add', 'whitelist add player allow', () => { showTab('players/people'); openAddPlayer(); });
   act('Check for updates', 'updates', 'update upgrade version paper rconsole plugins mods self', () => { showTab('server/updates'); checkAll(true); });
   act('Edit a plugin config…', 'settings', 'config yml yaml edit plugin mod settings file', () => showTab('server/files'));
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
