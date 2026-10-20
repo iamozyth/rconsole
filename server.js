@@ -176,7 +176,7 @@ function readLimitsStatus() {
 }
 const problems = new Problems({
   mcDir: config.mcDir, stateDir: config.stateDir, log, onProblem: (g) => notify.onProblem(g),
-  checks: () => [...hostcheck.check({ rcon: rconPorts(), firewall: readLimitsStatus() }), ...proxyCheck()],
+  checks: () => [...hostcheck.check({ rcon: rconPorts(), firewall: readLimitsStatus() }), ...proxyCheck(), ...nodeCheck()],
 });
 // One-tap actions from notifications (opt-in, see lib/notify.js).
 notify.handlers = {
@@ -334,6 +334,15 @@ function noteProxy(req) {
   if (!req.headers['x-forwarded-for'] || fromTrustedProxy(req)) return;
   untrustedProxy = { address: String(req.socket.remoteAddress).replace(/^::ffff:/, ''), at: Date.now() };
 }
+// Older than engines.node: the update that brought this version ran with
+// the previous self-update script, which doesn't install Node.js. The next
+// run of bin/self-update.sh does, even when there's nothing new.
+function nodeCheck() {
+  const { need, ok } = selfUpdate.node();
+  if (ok) return [];
+  return [{ kind: 'host', severity: 'warning', title: `Node.js ${process.version} is too old`, message: `rconsole ${require('./package.json').version} needs Node.js ${need} or newer.`, hint: `Server → Updates → rconsole → Update installs Node.js ${need} from NodeSource and restarts rconsole (or run: sudo systemctl start rconsole-selfupdate.service).` }];
+}
+
 function proxyCheck() {
   if (!untrustedProxy || Date.now() - untrustedProxy.at > 24 * 3600 * 1000) return [];
   const a = untrustedProxy.address;
@@ -1726,6 +1735,7 @@ scheduler.load().then(() => {
   listener.start(config.webHost, config.webPort, { host: envListen.webHost.value, port: envListen.webPort.value }).then(({ host, port }) => {
     [config.webHost, config.webPort] = [host, port];
     if (listener.fellBack) problems.record({ kind: 'host', severity: 'warning', title: 'Saved web address not available', message: `${listener.fellBack.error}. rconsole listens on ${host}:${port} from /etc/rconsole.env instead. Check Settings → System → Web access.` });
+    if (!selfUpdate.node().ok) log(`WARNING: rconsole needs Node.js ${selfUpdate.node().need} or newer, this is ${process.version}. Update rconsole once more (Server → Updates) to install it.`);
     log(`rconsole listening on http://${host}:${port}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
     if (config.trustProxy.length) log(`trusting X-Forwarded-* from ${config.trustProxy.join(', ')}`);

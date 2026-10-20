@@ -9,7 +9,7 @@
 # the first server in the browser under Server -> Servers.
 #
 # Otherwise it finds the server (systemd unit, folder, user, jar, server software),
-# installs what is missing (Node.js, git, polkit), turns on RCON if needed,
+# installs what is missing (Node.js 24 from NodeSource, git, polkit), turns on RCON if needed,
 # sets up users, permissions, the backup folder, the systemd units and the
 # polkit rule, writes /etc/rconsole.env, starts rconsole and creates the
 # first account. Safe to run again: it only changes what isn't set up yet.
@@ -165,9 +165,7 @@ main() {
 
   # --- dependencies ----------------------------------------------------------
   step "Checking dependencies"
-  local pkgs=() node_major=0
-  if command -v node >/dev/null; then node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"; fi
-  [ "$node_major" -ge 18 ] || pkgs+=(nodejs)
+  local pkgs=()
   command -v git >/dev/null || pkgs+=(git)
   command -v tar >/dev/null || pkgs+=(tar)
   # zstd: faster backups (shorter autosave pause); nftables: the RCON firewall.
@@ -177,18 +175,13 @@ main() {
     pkgs+=("$(apt-cache show polkitd >/dev/null 2>&1 && echo polkitd || echo policykit-1)")
   fi
   if [ "${#pkgs[@]}" -gt 0 ]; then
-    command -v apt-get >/dev/null || die "please install: ${pkgs[*]} (Node.js 18 or newer)"
+    command -v apt-get >/dev/null || die "please install: ${pkgs[*]}"
     run apt-get update -qq
     run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}"
     changed "installed ${pkgs[*]}"
-    if [ "$DRY" = 0 ]; then
-      node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-      [ "$node_major" -ge 18 ] || die "this system's Node.js is too old ($(node -v 2>/dev/null)). Install Node.js 18+ (e.g. from nodesource.com) and run the installer again."
-    fi
   else
-    info "Node.js $(node -v), git, tar, zstd, nftables and polkit are present."
+    info "git, tar, zstd, nftables and polkit are present."
   fi
-  local NODE_BIN; NODE_BIN="$(command -v node || echo /usr/bin/node)"
 
   # --- code --------------------------------------------------------------------
   step "Getting rconsole"
@@ -213,6 +206,26 @@ main() {
   fi
   # shellcheck source=bin/units.sh
   source "$SRC/bin/units.sh"
+
+  # --- Node.js -------------------------------------------------------------------
+  # Debian's and Ubuntu's own nodejs is too old (Debian 12: 18, Debian 13:
+  # 20), so it comes from NodeSource's repository unless a new enough node
+  # is already installed.
+  step "Node.js"
+  # shellcheck source=bin/node.sh
+  source "$SRC/bin/node.sh"
+  local NODE_BIN node_need node_have
+  node_need="$(node_required "$SRC")"
+  NODE_BIN="$(command -v node || echo /usr/bin/node)"
+  node_have="$(node_major "$NODE_BIN")"
+  if [ "$node_have" -ge "$node_need" ]; then
+    info "Node.js $("$NODE_BIN" -v) ($NODE_BIN)"
+  else
+    command -v apt-get >/dev/null || die "rconsole needs Node.js $node_need or newer$([ "$node_have" = 0 ] || echo ", this system has v$node_have"). Install it and run the installer again."
+    run install_nodesource "$node_need" || die "couldn't install Node.js $node_need from NodeSource (see above). Install Node.js $node_need or newer by hand and run the installer again."
+    NODE_BIN="$NODESOURCE_BIN"
+    changed "installed Node.js $([ "$DRY" = 1 ] && echo "$node_need" || "$NODE_BIN" -v) from NodeSource$([ "$node_have" = 0 ] || echo " (was v$node_have)")"
+  fi
 
   # --- users and permissions ---------------------------------------------------
   step "Users and permissions"

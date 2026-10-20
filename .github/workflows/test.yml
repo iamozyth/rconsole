@@ -13,12 +13,40 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # 18: what Debian 12 ships (security fixes come from Debian), up to the current LTS
-        node: [18, 20, 22, 24]
+        # engines.node (24, the LTS install.sh installs) and the newest LTS
+        node: [24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
       - run: npm test
-      - run: bash -n install.sh bin/self-update.sh bin/units.sh
+      - run: bash -n install.sh bin/self-update.sh bin/units.sh bin/node.sh
+
+  # bin/node.sh on the distributions install.sh supports, starting from
+  # their own (too old) nodejs: what install.sh and self-update.sh do on
+  # Debian 12 (18) and Debian 13 (20, like a 4.6 install being updated).
+  nodesource:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: ['debian:bookworm', 'debian:trixie', 'ubuntu:24.04']
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Distribution nodejs
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs >/dev/null
+          node -v
+      - name: Install from NodeSource
+        run: |
+          . bin/node.sh
+          need="$(node_required .)"
+          [ "$(node_major /usr/bin/node)" -lt "$need" ]
+          install_nodesource "$need"
+          /usr/bin/node -v
+          [ "$(node_major /usr/bin/node)" -ge "$need" ]
+          # A second run (install.sh again, another update) changes nothing.
+          install_nodesource "$need"
+      - run: node -e "require('./lib/selfupdate'); console.log(new (require('./lib/selfupdate').SelfUpdate)({ dir: '.', stateDir: '/tmp' }).node())"
