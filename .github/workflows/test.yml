@@ -49,4 +49,6 @@ jobs:
           [ "$(node_major /usr/bin/node)" -ge "$need" ]
           # A second run (install.sh again, another update) changes nothing.
           install_nodesource "$need"
-      - run: node -e "require('./lib/selfupdate'); console.log(new (require('./lib/selfupdate').SelfUpdate)({ dir: '.', stateDir: '/tmp' }).node())"
+      - name: rconsole loads on it
+        run: |
+          node -e "require('./lib/selfupdate'); console.log(new (require('./lib/selfupdate').SelfUpdate)({ dir: '.', stateDir: '/tmp' }).node())"
