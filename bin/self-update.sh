@@ -33,15 +33,25 @@ main() {
   local service="${RCONSOLE_SERVICE:-rconsole.service}"
   local unit_dir="${SYSTEMD_DIR:-/etc/systemd/system}" polkit_dir="${POLKIT_DIR:-/etc/polkit-1/rules.d}"
   local git=(git -C "$dir" -c safe.directory="$dir")
-  local before after manual=() installed=() note="" node_error="" node_changed=0
+  local before after manual=() installed=() note="" node_error="" node_changed=0 node_need=""
 
-  report() { # state message
-    local manual_json="" installed_json="" m tmp
+  # For the UI's progress: the step running now, when each one started
+  # and the ones still to come (plan), as keys it has labels for.
+  local step="" steps_json="" started="" plan="fetch check files restart"
+  report() { # state message [step]
+    local manual_json="" installed_json="" plan_json="" m tmp now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    started="${started:-$now}"
+    if [ -n "${3:-}" ] && [ "$3" != "$step" ]; then
+      step="$3"
+      steps_json+="${steps_json:+,}{\"step\":\"$step\",\"at\":\"$now\"}"
+    fi
     for m in "${manual[@]+"${manual[@]}"}"; do manual_json+="${manual_json:+,}\"$m\""; done
     for m in "${installed[@]+"${installed[@]}"}"; do installed_json+="${installed_json:+,}\"$m\""; done
+    for m in $plan; do plan_json+="${plan_json:+,}\"$m\""; done
     tmp="$(mktemp "$status_dir/.status.XXXXXX")" # O_EXCL, random name
-    printf '{"state":"%s","message":"%s","from":"%s","to":"%s","at":"%s","manual":[%s],"installed":[%s]}\n' \
-      "$1" "${2//\"/\'}" "${before:-}" "${after:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$manual_json" "$installed_json" > "$tmp"
+    printf '{"state":"%s","message":"%s","from":"%s","to":"%s","at":"%s","started":"%s","step":"%s","steps":[%s],"plan":[%s],"node":"%s","manual":[%s],"installed":[%s]}\n' \
+      "$1" "${2//\"/\'}" "${before:-}" "${after:-}" "$now" "$started" "$step" "$steps_json" "$plan_json" "${node_need:-}" "$manual_json" "$installed_json" > "$tmp"
     chmod 0644 "$tmp" # no secrets; rconsole only reads it
     mv -fT "$tmp" "$status"
     echo "self-update: $1: $2"
@@ -64,7 +74,9 @@ main() {
       node_error="rconsole needs Node.js $need but $bin is v$have; install a newer one there (NODE_BIN in /etc/rconsole.env)"
       return 1
     fi
-    report running "Installing Node.js $need (this system has v$have)"
+    node_need="$need"
+    [[ " $plan " == *" node "* ]] || plan="${plan/fetch/fetch node}"
+    report running "Installing Node.js $need (this system has v$have)" node
     if ! out="$(install_nodesource "$need" 2>&1)"; then
       node_error="rconsole needs Node.js $need; installing it from NodeSource failed: $(tail -n 1 <<<"$out")"
       return 1
@@ -86,7 +98,7 @@ main() {
   local signers="${SELF_UPDATE_SIGNERS:-}" target=FETCH_HEAD what="origin/$branch"
 
   before="$("${git[@]}" rev-parse HEAD)"
-  report running "Fetching $branch"
+  report running "Fetching $branch" fetch
   if ! "${git[@]}" fetch --quiet origin "$branch"; then
     report failed "git fetch failed (network?)"
     exit 1
@@ -134,6 +146,7 @@ main() {
   # Up to date: only the Node.js it needs may be missing (the update to
   # 4.7 ran with the old script, which didn't install it).
   if [ "$before" = "$after" ]; then
+    plan="fetch restart"
     if ! ensure_node; then
       report failed "$node_error"
       exit 1
@@ -142,14 +155,14 @@ main() {
       report done "Already up to date$note"
       exit 0
     fi
-    report running "Restarting rconsole"
+    report running "Restarting rconsole" restart
     systemctl restart "$service" || true
     sleep 6
     if ! systemctl is-active --quiet "$service"; then
       report failed "rconsole didn't start on Node.js $("$NODESOURCE_BIN" -v) (see journalctl -u $service)"
       exit 1
     fi
-    report done "Installed Node.js $("$NODESOURCE_BIN" -v); rconsole is up to date$note"
+    report done "Installed Node.js $("$NODESOURCE_BIN" -v); rconsole is up to date$note" done
     exit 0
   fi
 
@@ -159,7 +172,7 @@ main() {
     exit 1
   fi
 
-  report running "Checking the new version"
+  report running "Checking the new version" check
   local f
   for f in "$dir"/server.js "$dir"/cli.js "$dir"/lib/*.js "$dir"/bin/*.js; do
     if ! node --check "$f" 2>/dev/null; then
@@ -175,6 +188,7 @@ main() {
   # it wasn't customized), even if that change came in an earlier update
   # that ran by hand. Customized copies are left alone and reported when
   # they change.
+  report running "Updating system files" files
   # shellcheck source=units.sh
   source "$dir/bin/units.sh"
   load_rconsole_env "${RCONSOLE_ENV:-/etc/rconsole.env}"
@@ -214,7 +228,7 @@ main() {
   fi
   systemctl start rconsole-limits.service || manual+=("rconsole-limits.service failed: journalctl -u rconsole-limits")
 
-  report running "Restarting rconsole"
+  report running "Restarting rconsole" restart
   systemctl restart "$service" || true
   sleep 6
   if ! systemctl is-active --quiet "$service"; then
@@ -223,7 +237,7 @@ main() {
     report failed "The new version didn't start (see journalctl -u $service); rolled back"
     exit 1
   fi
-  report done "Updated $(printf %.7s "$before") → $(printf %.7s "$after")"
+  report done "Updated $(printf %.7s "$before") → $(printf %.7s "$after")" done
 }
 
 main "$@"

@@ -3258,68 +3258,106 @@ viewLoaders['server/updates'] = () => checkAll(false);
 
 let selfWasRunning = false;
 let selfVersion = null;
+let selfLast = null; // last /api/self-update
+let selfWatching = false;
+let selfReloading = false;
+
+// Steps bin/self-update.sh reports (step, plan, steps in its status file),
+// plus "online": rconsole answering again. Older scripts report only a
+// message; their steps are read from it.
+const SELF_STEPS = {
+  fetch: 'Download the update',
+  node: (n) => `Install Node.js ${n || ''}`.trim(),
+  check: 'Check the new version',
+  files: 'Update system files',
+  restart: 'Restart rconsole',
+  online: 'Back online',
+};
+const selfStepFromMessage = (m = '') => (/^Fetching/.test(m) ? 'fetch' : /^Installing Node/.test(m) ? 'node' : /^Checking/.test(m) ? 'check' : /^(Updating system|Installing unit)/.test(m) ? 'files' : /^Restarting/.test(m) ? 'restart' : null);
+const selfNeed = (u) => u?.node || u?.message?.match(/Installing Node\.js (\d+)/)?.[1] || '';
+
+// This browser's update run, so the page can pick up where it was after
+// rconsole restarts and the page reloads: what it was updating to, and
+// whether a second run for Node.js should follow on its own.
+const selfRun = {
+  get() { try { return JSON.parse(sessionStorage.getItem('rconsole-self-run')) || null; } catch { return null; } },
+  set(v) { try { v ? sessionStorage.setItem('rconsole-self-run', JSON.stringify(v)) : sessionStorage.removeItem('rconsole-self-run'); } catch {} },
+};
+const selfDismissed = (u) => { try { return localStorage.getItem('rconsole-self-dismissed') === u?.at; } catch { return false; } };
 
 function renderSelfSummary(self) {
   if (!self) return;
-  if (selfVersion && self.current && self.current !== selfVersion && !self.running) {
-    // A new version is serving; reload to get its frontend.
-    toast(`rconsole updated to ${self.current}. Reloading…`);
-    setTimeout(() => location.reload(), 1200);
-  }
+  if (selfVersion && self.current && self.current !== selfVersion && !self.running) selfReload(self.current);
   selfVersion = self.current || selfVersion;
   $('rail-ver').textContent = self.current ? self.current : '';
   $('rail-update').hidden = !self.available && !self.running;
   document.querySelector('.nav [data-tab=server]').classList.toggle('has-update', Boolean(self.available));
-  $('rail-update-text').textContent = self.running ? 'Updating rconsole…' : `${self.available} update${self.available === 1 ? '' : 's'} for rconsole`;
-  // The update's state shows in Server → Updates and Settings → System.
-  if (selfWasRunning && !self.running && ['server', 'settings'].includes(document.body.dataset.area)) loadSelfUpdate();
+  if (!selfWatching) $('rail-update-text').textContent = self.running ? 'Updating rconsole…' : `${self.available} update${self.available === 1 ? '' : 's'} for rconsole`;
+  if (self.running && !selfWatching) watchSelfUpdate();
+  // The update's state shows in Server → Updates.
+  if (selfWasRunning && !self.running && document.body.dataset.area === 'server') loadSelfUpdate();
   selfWasRunning = self.running;
+}
+
+// A new version is serving; reload to get its frontend. The update card
+// shows the result again after the reload.
+function selfReload(sha) {
+  if (selfReloading) return;
+  selfReloading = true;
+  toast(`rconsole updated to ${sha}. Reloading…`);
+  setTimeout(() => location.reload(), 1200);
+}
+
+// The progress list: done steps with how long they took, the running one
+// with the updater's message, then what is still to come.
+function renderSelfSteps(u, { offline = false, next = null } = {}) {
+  const seen = u.steps?.length ? u.steps : [];
+  const current = offline ? 'restart' : u.state === 'done' ? 'online' : u.step && u.step !== 'done' ? u.step : selfStepFromMessage(u.message) || 'fetch';
+  let plan = u.plan?.length ? [...u.plan] : ['fetch', 'check', 'files', 'restart'];
+  if ((selfNeed(u) || seen.some((s) => s.step === 'node') || current === 'node') && !plan.includes('node')) plan.splice(1, 0, 'node');
+  if (!plan.includes(current) && current !== 'online') plan.push(current);
+  plan = [...plan, 'online'];
+  const at = Object.fromEntries(seen.map((s, i) => [s.step, { at: s.at, end: seen[i + 1]?.at || (u.state !== 'running' ? u.at : null) }]));
+  const idx = plan.indexOf(current);
+  const secs = (a, b) => Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 1000));
+  const took = (s) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`);
+  const items = plan.map((key, i) => {
+    const label = key === 'node' ? SELF_STEPS.node(selfNeed(u)) : SELF_STEPS[key];
+    let state = i < idx || u.state === 'done' ? 'done' : i === idx ? 'active' : 'todo';
+    if (u.state === 'failed' && i === idx) state = 'failed';
+    if (u.state === 'failed' && i > idx) state = 'skipped';
+    let detail = '';
+    if (state === 'active') detail = offline ? 'Waiting for rconsole to come back…' : key === 'online' ? '' : `${u.message}…`;
+    else if (state === 'failed') detail = u.message;
+    else if (state === 'done' && at[key]?.end) detail = took(secs(at[key].at, at[key].end));
+    if (state === 'active' && at[key]?.at) detail += ` ${took(secs(at[key].at, new Date().toISOString()))}`;
+    const mark = state === 'done' ? icon('check') : state === 'failed' ? icon('alert') : el('span', {}, String(i + 1));
+    return el('li', { 'data-state': state }, el('span', { class: 'step-mark' }, mark), el('span', { class: 'step-label' }, label), el('span', { class: 'step-detail' }, detail.trim()));
+  });
+  if (next) items.push(el('li', { 'data-state': next.auto ? 'active' : 'todo' }, el('span', { class: 'step-mark' }, el('span', {}, String(items.length + 1))),
+    el('span', { class: 'step-label' }, SELF_STEPS.node(next.need)), el('span', { class: 'step-detail' }, next.auto ? 'Starting…' : 'This version needs it. Update once more to install it.')));
+  $('self-steps').replaceChildren(...items);
+  $('self-steps').hidden = false;
+}
+
+function renderChangelog(commits, repo) {
+  $('self-changes').replaceChildren(...(commits || []).map((x) => {
+    const title = el('span', { class: 'cl-title' }, x.message,
+      x.version ? el('a', { class: 'pill own cl-ver', href: `https://github.com/${repo}/releases/tag/v${x.version}`, target: '_blank', rel: 'noopener', title: 'Release notes' }, x.version) : null);
+    return el('li', {},
+      el('a', { class: 'mono', href: `https://github.com/${repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener' }, x.sha),
+      x.body ? el('details', {}, el('summary', {}, title), el('p', { class: 'cl-body' }, x.body)) : title,
+      x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : el('span'));
+  }));
+  $('self-changes').hidden = !commits?.length;
 }
 
 async function loadSelfUpdate(refresh) {
   try {
     const o = await api('GET', `/api/self-update${refresh ? '?refresh' : ''}`);
+    renderSelf(o);
     const c = o.check || {};
-    $('self-current').textContent = o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Unknown version';
-    const behind = c.status === 'ahead' ? c.behind : 0;
-    // Too old a Node.js: Update installs the right one even with no new commits.
-    const nodeOld = o.node && !o.node.ok ? o.node : null;
-    $('self-pill').hidden = !o.current || Boolean(c.error && !c.status);
-    $('self-pill').className = `pill ${behind ? 'own' : 'ok'}`;
-    $('self-pill').replaceChildren(icon(behind ? 'updates' : 'check'), behind ? `${behind} new commit${behind === 1 ? '' : 's'}` : c.status === 'diverged' ? 'Diverged from GitHub' : 'Up to date');
-    $('self-info').textContent = [
-      c.error ? `Can't check github.com/${o.repo}: ${c.error}` : '',
-      nodeOld ? `rconsole needs Node.js ${nodeOld.need} or newer and runs on ${nodeOld.version}. Server → Updates → Update installs Node.js ${nodeOld.need} from NodeSource and restarts rconsole.` : '',
-    ].filter(Boolean).join(' ');
-    // Only a status about the installed version is news: a finished update
-    // must have ended on it, a failed one must have started from it.
-    const cur = o.current?.sha || '';
-    const u = o.update && cur && (o.update.state === 'running' || String(o.update.state === 'done' ? o.update.to : o.update.from).startsWith(cur)) ? o.update : null;
-    if (u?.state === 'running') setJob($('self-status'), 'running', 'updates', `${u.message}…`);
-    else if (u?.state === 'failed' && Date.now() - Date.parse(u.at) < 7 * 86400000) setJob($('self-status'), 'failed', 'alert', `Last update failed: ${u.message}`);
-    else if (u?.state === 'done' && (u.manual?.length) && Date.now() - Date.parse(u.at) < 86400000) {
-      // Only a finished update that left something to do by hand needs a box.
-      setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}. Manual step: ${u.manual.join('; ')}`);
-    } else setJob($('self-status'), null);
-    const updatedAgo = u?.state === 'done' && u.from !== u.to && Date.now() - Date.parse(u.at) < 86400000 ? ` · updated ${fmt.relative(u.at)}` : '';
-    $('self-changes').hidden = !behind;
-    $('self-changes').replaceChildren(...(c.commits || []).map((x) => el('li', {},
-      el('a', { class: 'mono', href: `https://github.com/${o.repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener' }, x.sha),
-      el('span', {}, x.message),
-      x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : null)));
-    $('self-note').hidden = !behind && !nodeOld;
-    // The overview row says "up to date"; the panel only appears when there is more to show.
-    $('self-panel').hidden = !behind && !nodeOld && $('self-status').hidden && !(c.error && !c.status);
-    $('self-update').disabled = !o.canUpdate || u?.state === 'running';
-    $('self-update').title = o.canUpdate ? '' : 'Needs the systemd install (see README)';
-    summaryRow('self', {
-      version: o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}${updatedAgo}` : 'Unknown version',
-      state: u?.state === 'running' ? ['own', 'updates', 'Updating…'] : nodeOld ? ['own', 'updates', `Needs Node.js ${nodeOld.need}`] : c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
-      action: (behind || nodeOld) && o.canUpdate
-        ? el('button', { class: 'btn btn-sm btn-primary', disabled: u?.state === 'running' || undefined, onclick: () => $('self-update').click() }, icon('updates'), 'Update')
-        : el('a', { class: 'btn btn-sm', href: `https://github.com/${o.repo}/commits/${o.branch}`, target: '_blank', rel: 'noopener' }, 'Changes'),
-    });
-    return { updates: behind, error: c.error && !c.status ? c.error : null };
+    return { updates: c.status === 'ahead' ? c.behind : 0, error: c.error && !c.status ? c.error : null };
   } catch (e) {
     $('self-info').textContent = e.message;
     $('self-panel').hidden = false;
@@ -3328,24 +3366,163 @@ async function loadSelfUpdate(refresh) {
   }
 }
 
-$('self-update').addEventListener('click', async (e) => {
-  const btn = e.currentTarget;
-  if (!(await confirmAction({
-    title: 'Update rconsole?',
-    body: 'rconsole restarts and everyone is signed out. This page reloads by itself when the new version is up. Minecraft is not affected.',
-    confirm: 'Update rconsole', icon: 'updates',
-  }))) return;
-  await busy(btn, async () => {
-    try {
-      await api('POST', '/api/self-update');
-      setJob($('self-status'), 'running', 'updates', 'Updating rconsole. This page reloads when it is back…');
-      btn.disabled = true;
-      waitForComeback();
-    } catch (err) {
-      toast(err.message, 'bad');
-    }
+function renderSelf(o, { offline = false } = {}) {
+  selfLast = o;
+  const c = o.check || {};
+  const run = selfRun.get();
+  const behind = c.status === 'ahead' ? c.behind : 0;
+  // Too old a Node.js: Update installs the right one even with no new commits.
+  const nodeOld = o.node && !o.node.ok ? o.node : null;
+  // Only a status about the installed version is news: a finished update
+  // must have ended on it, a failed one must have started from it.
+  const cur = o.current?.sha || '';
+  const u = o.update && cur && (o.update.state === 'running' || String(o.update.state === 'done' ? o.update.to : o.update.from).startsWith(cur)) ? o.update : null;
+  const running = u?.state === 'running' || offline;
+  const recent = (ms) => u && Date.now() - Date.parse(u.at) < ms;
+  // A finished update stays on the page for an hour (or until dismissed):
+  // its steps and what it brought in, so the result doesn't vanish with
+  // the reload.
+  const justDone = u?.state === 'done' && (u.from !== u.to || u.installed?.length) && recent(3600000) && !selfDismissed(u);
+  const failed = u?.state === 'failed' && recent(7 * 86400000);
+  const repo = o.repo;
+  const version = o.current?.version;
+
+  $('self-info').textContent = [
+    c.error ? `Can't check github.com/${repo}: ${c.error}` : '',
+    nodeOld && !running && !justDone ? `rconsole needs Node.js ${nodeOld.need} or newer and runs on ${nodeOld.version}. Update installs Node.js ${nodeOld.need} from NodeSource and restarts rconsole.` : '',
+  ].filter(Boolean).join(' ');
+
+  // Second run for Node.js: the update to 4.7 ran with the old updater,
+  // which doesn't install it. Started on its own if this browser started
+  // the first run.
+  const next = justDone && nodeOld ? { need: nodeOld.need, auto: Boolean(run?.auto && o.canUpdate) } : null;
+
+  if (running) {
+    const target = run?.version && run.version !== version ? ` to ${run.version}` : '';
+    $('self-title').textContent = `Updating rconsole${target}`;
+    renderSelfSteps(u || { state: 'running', message: 'Restarting rconsole', step: 'restart' }, { offline });
+  } else if (justDone) {
+    $('self-title').textContent = u.from === u.to ? `Installed Node.js for rconsole` : `Updated rconsole${version ? ` to ${version}` : ''}`;
+    renderSelfSteps(u, { next });
+  } else if (failed) {
+    $('self-title').textContent = 'The rconsole update failed';
+    renderSelfSteps(u);
+  } else {
+    $('self-title').textContent = behind ? (c.version && c.version !== version ? `rconsole ${c.version} is available` : `${behind} new commit${behind === 1 ? '' : 's'} for rconsole`) : nodeOld ? `rconsole needs Node.js ${nodeOld.need}` : "What's new in rconsole";
+    $('self-steps').hidden = true;
+  }
+
+  if (failed && !running) setJob($('self-status'), 'failed', 'alert', `Last update failed ${fmt.relative(u.at)}: ${u.message}`);
+  else if (justDone && u.manual?.length) setJob($('self-status'), 'done', 'check', `Manual step: ${u.manual.join('; ')}`);
+  else if (justDone && u.installed?.length) setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}. Also installed: ${u.installed.join(', ')}.`);
+  else if (justDone) setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}.`);
+  else setJob($('self-status'), null);
+
+  // What the update brings in: from GitHub before, kept for the run while
+  // rconsole restarts, and what the finished update brought in after.
+  const commits = running ? (run?.commits || c.commits) : justDone ? (u.commits || run?.commits) : behind ? c.commits : null;
+  renderChangelog(commits, repo);
+  const more = behind > (c.commits?.length || 0) && !running && !justDone ? behind - c.commits.length : 0;
+  $('self-changes-title').textContent = running ? 'What this update brings' : justDone ? 'What changed' : `Changes${more ? ` (newest 30 of ${behind})` : ''}`;
+  $('self-changes-title').hidden = $('self-changes').hidden;
+
+  $('self-note').hidden = !(behind || nodeOld) || running || justDone;
+  $('self-update').hidden = !(behind || nodeOld) || running || !o.canUpdate || Boolean(next?.auto);
+  $('self-update').disabled = !o.canUpdate || running;
+  $('self-update').replaceChildren(icon('updates'), next ? `Install Node.js ${next.need}` : behind ? 'Update rconsole' : `Install Node.js ${nodeOld?.need || ''}`);
+  $('self-dismiss').hidden = !justDone || running;
+  $('self-panel').hidden = !behind && !nodeOld && !running && !justDone && !failed && !(c.error && !c.status);
+
+  const updatedAgo = u?.state === 'done' && u.from !== u.to && recent(86400000) ? ` · updated ${fmt.relative(u.at)}` : '';
+  summaryRow('self', {
+    version: o.current ? `${version ? `${version} · ` : ''}${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}${updatedAgo}` : 'Unknown version',
+    state: running ? ['own', 'updates', 'Updating…'] : nodeOld ? ['own', 'updates', `Needs Node.js ${nodeOld.need}`] : c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : justDone ? ['ok', 'check', 'Updated'] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
+    action: (behind || nodeOld) && o.canUpdate && !running
+      ? el('button', { class: 'btn btn-sm btn-primary', onclick: () => $('self-update').click() }, icon('updates'), 'Update')
+      : el('a', { class: 'btn btn-sm', href: running || justDone ? '#server/updates' : `https://github.com/${repo}/commits/${o.branch}`, target: running || justDone ? undefined : '_blank', rel: 'noopener', onclick: running || justDone ? (e) => { e.preventDefault(); $('self-panel').scrollIntoView({ behavior: 'smooth', block: 'start' }); } : undefined }, running || justDone ? 'Details' : 'Changes'),
   });
+
+  if (next?.auto && !running) {
+    selfRun.set({ ...run, auto: false });
+    toast(`Step 2: installing Node.js ${next.need}`);
+    startSelfUpdate();
+  }
+  if (running && !selfWatching) watchSelfUpdate();
+  if (!running && run && !next?.auto) selfRun.set(null);
+}
+
+async function startSelfUpdate() {
+  try {
+    await api('POST', '/api/self-update');
+  } catch (err) {
+    toast(err.message, 'bad');
+    loadSelfUpdate();
+    return;
+  }
+  const o = selfLast;
+  if (o) {
+    o.update = { state: 'running', message: 'Starting the updater', step: 'fetch', plan: o.check?.status === 'ahead' ? null : ['fetch', 'node', 'restart'], node: o.node?.ok ? '' : String(o.node?.need || ''), from: '', at: new Date().toISOString() };
+    renderSelf(o);
+  }
+  watchSelfUpdate();
+}
+
+$('self-update').addEventListener('click', async (e) => {
+  const o = selfLast || {};
+  const c = o.check || {};
+  const nodeOnly = c.status !== 'ahead';
+  if (!(await confirmAction({
+    title: nodeOnly ? `Install Node.js ${o.node?.need || ''}?` : `Update rconsole${c.version && c.version !== o.current?.version ? ` to ${c.version}` : ''}?`,
+    body: `rconsole restarts${nodeOnly ? ' on the new Node.js' : ''}; you stay signed in and this page shows each step. If it doesn't come back, it rolls back on its own. Minecraft is not affected.`,
+    confirm: nodeOnly ? 'Install' : 'Update rconsole', icon: 'updates',
+  }))) return;
+  // The run started from an old Node.js needs a second one (see renderSelf).
+  selfRun.set({ version: c.version || null, commits: c.commits || null, auto: true });
+  await busy(e.currentTarget, startSelfUpdate);
 });
+
+$('self-dismiss').addEventListener('click', () => {
+  try { localStorage.setItem('rconsole-self-dismissed', selfLast?.update?.at || ''); } catch {}
+  selfRun.set(null);
+  if (selfLast) renderSelf(selfLast);
+});
+
+// While an update runs: its status every 1.5 s. While rconsole restarts the
+// requests fail, which is the "restart" step; once it answers on a new
+// commit, reload for the new frontend.
+function watchSelfUpdate() {
+  if (selfWatching) return;
+  selfWatching = true;
+  const startSha = selfLast?.current?.sha || selfVersion;
+  const started = Date.now();
+  const tick = async () => {
+    let o = null;
+    try {
+      const res = await fetch('/api/self-update', { cache: 'no-store' });
+      if (res.status === 401) return location.replace('/login');
+      if (res.ok) o = await res.json();
+    } catch {}
+    const offline = !o;
+    if (o) renderSelf(o);
+    else if (selfLast) renderSelf(selfLast, { offline: true });
+    const u = o?.update;
+    const step = offline ? 'Restarting rconsole' : u?.state === 'running' ? u.message : null;
+    if (step) $('rail-update-text').textContent = `Updating: ${step.replace(/\s*\(.*\)$/, '')}…`;
+    $('rail-update').hidden = false;
+    const moved = o?.current?.sha && startSha && o.current.sha !== startSha;
+    if (o && u?.state !== 'running' && moved) {
+      selfWatching = false;
+      return selfReload(o.current.sha);
+    }
+    if ((o && u?.state !== 'running') || Date.now() - started > 20 * 60 * 1000) {
+      selfWatching = false;
+      $('rail-update').hidden = !(o?.check?.status === 'ahead');
+      return;
+    }
+    setTimeout(tick, 1500);
+  };
+  setTimeout(tick, 1000);
+}
 
 // While rconsole restarts, requests fail; poll /healthz, then sign back in.
 function waitForComeback() {
@@ -5318,6 +5495,7 @@ async function loadAbout() {
       row('Version', `${a.version}${a.commit ? ` · ${a.commit}` : ''}`),
       row('Documentation', el('a', { href: 'https://github.com/iamozyth/rconsole#readme', target: '_blank', rel: 'noopener' }, 'README')),
       row('Release notes', el('a', { href: `https://github.com/iamozyth/rconsole/releases/tag/v${a.version}`, target: '_blank', rel: 'noopener' }, `rconsole ${a.version}`)),
+      row('Updates', el('a', { href: '#server/updates' }, 'Server → Updates')),
       row('License', el('a', { href: 'https://github.com/iamozyth/rconsole/blob/main/LICENSE', target: '_blank', rel: 'noopener' }, 'PolyForm Strict 1.0.0')));
     sysPublicUrl = a.publicUrl || '';
     const url = sysForms.web.elements.publicUrl;
@@ -5334,7 +5512,7 @@ async function loadAbout() {
 
 viewLoaders['settings/account'] = renderAccount;
 viewLoaders['settings/signin'] = () => { loadSso(); loadUsers(); };
-viewLoaders['settings/system'] = () => { loadAbout(); loadSystem(); loadSelfUpdate(); };
+viewLoaders['settings/system'] = () => { loadAbout(); loadSystem(); };
 
 // Settings → System: rconsole's own settings (lib/system.js). A value saved
 // here wins over /etc/rconsole.env; each field says where its value comes

@@ -86,6 +86,11 @@ test('self-update: up to date but Node.js too old installs it and restarts', () 
   assert.match(r.status.message, /Installed Node\.js v24\.0\.0; rconsole is up to date/);
   assert.deepStrictEqual(r.status.installed, ['Node.js v24.0.0 from NodeSource']);
   assert.match(r.calls, /^restart rconsole\.service$/m);
+  // Progress for the UI: each step with when it started, and the plan.
+  assert.deepStrictEqual(r.status.steps.map((x) => x.step), ['fetch', 'node', 'restart', 'done']);
+  assert.deepStrictEqual(r.status.plan, ['fetch', 'node', 'restart']);
+  assert.strictEqual(r.status.node, '24');
+  assert.ok(r.status.started <= r.status.at);
   // Once it's there, nothing to do.
   fs.writeFileSync(path.join(s.fake, 'systemctl.log'), '');
   const again = s.run();
@@ -113,4 +118,20 @@ test('self-update: a too old NODE_BIN that isn\'t NodeSource\'s is reported, not
   assert.strictEqual(r.code, 1, r.out);
   assert.match(r.status.message, /needs Node\.js 24 but .*-not-there is v0; install a newer one there/);
   assert.strictEqual(fs.readFileSync(path.join(s.fake, 'version'), 'utf8'), '20');
+});
+
+test('self-update: a new version reports each step it runs', () => {
+  const s = setup({ have: 24 });
+  // What "Checking the new version" parses.
+  fs.mkdirSync(path.join(s.origin, 'lib'));
+  for (const f of ['server.js', 'cli.js', 'lib/a.js', 'bin/b.js']) fs.writeFileSync(path.join(s.origin, f), '// two\n');
+  s.git(s.origin, 'add', '.');
+  s.git(s.origin, 'commit', '-qm', 'two');
+  const r = s.run();
+  assert.strictEqual(r.code, 0, r.out);
+  assert.strictEqual(r.status.state, 'done');
+  assert.deepStrictEqual(r.status.steps.map((x) => x.step), ['fetch', 'check', 'files', 'restart', 'done']);
+  assert.deepStrictEqual(r.status.plan, ['fetch', 'check', 'files', 'restart']);
+  assert.strictEqual(r.status.node, '');
+  assert.strictEqual(r.status.to, s.head());
 });
