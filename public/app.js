@@ -927,8 +927,11 @@ try {
 } catch {}
 
 // Short relative time for narrow columns: "4m", "3h", "2d" ("in 3h" ahead).
-function shortAgo(iso) {
-  const diff = Date.parse(iso) - Date.now();
+// past: the event has happened; a time ahead of this browser's clock (a
+// server clock that ran fast, a slightly different clock) reads "now".
+function shortAgo(iso, { past = false } = {}) {
+  let diff = Date.parse(iso) - Date.now();
+  if (past) diff = Math.min(diff, 0);
   const abs = Math.abs(diff) / 1000;
   const v = abs < 60 ? 'now' : abs < 3600 ? `${Math.round(abs / 60)}m` : abs < 86400 ? `${Math.round(abs / 3600)}h` : `${Math.round(abs / 86400)}d`;
   return v === 'now' ? v : diff > 0 ? `in ${v}` : v;
@@ -982,10 +985,10 @@ function renderDashHero(s) {
   const label = p.available ? POWER_LABEL[p.active] || p.active : running ? 'Running' : 'Offline';
   const facts = [
     el('b', {}, s.maintenance?.enabled ? `${label} · maintenance` : label),
-    running && p.since ? `for ${fmt.relative(p.since).replace(/ ago$/, '')}` : p.active === 'failed' && p.result ? p.result : null,
+    running && p.since && Date.parse(p.since) < Date.now() ? `for ${fmt.relative(p.since).replace(/ ago$/, '')}` : p.active === 'failed' && p.result ? p.result : null,
     [s.platform?.name, s.platform?.mcVersion, s.platform?.build ? `#${s.platform.build}` : null].filter(Boolean).join(' ') || null,
     shown ? `port ${shown.port}` : null,
-    s.game?.daytime != null && running ? `day ${s.game.day ?? '?'}, ${fmt.gameTime(s.game.daytime)}` : null,
+    s.game?.daytime != null && running ? `${s.game.day != null ? `day ${s.game.day}, ` : 'in-game '}${fmt.gameTime(s.game.daytime)}` : null,
   ].filter(Boolean);
   $('dh-facts').replaceChildren(...facts.flatMap((f, i) => (i ? [el('span', { class: 'dh-dotsep', 'aria-hidden': 'true' }, '·'), f] : [f])));
   const busyNow = Boolean(p.pending) || s.op?.running || s.restart?.remaining != null;
@@ -1253,7 +1256,7 @@ async function loadDashProblems() {
     const top = groups.slice(0, 4);
     $('dash-problems-count').textContent = groups.length ? String(groups.length) : '';
     $('dash-problems').replaceChildren(...(top.length
-      ? top.map((x) => dashItem({ time: shortAgo(new Date(x.last).toISOString()), title: fmt.date(new Date(x.last).toISOString()), onclick: openProblems,
+      ? top.map((x) => dashItem({ time: shortAgo(new Date(x.last).toISOString(), { past: true }), title: fmt.date(new Date(x.last).toISOString()), onclick: openProblems,
           tone: x.severity === 'critical' || x.severity === 'error' ? 'bad' : 'warn',
           main: problemTitle(x), sub: [x.count > 1 ? `${x.count}×` : null, x.plugin, x.unseen ? 'new' : null].filter(Boolean).join(' · ') || null }))
       : [emptyItem('No errors or warnings in the last 7 days.')]));
@@ -1279,12 +1282,12 @@ function renderDashBackups() {
   }));
   $('dash-backup-bars').hidden = recent.length < 3;
   $('dash-backups').replaceChildren(...(files.length
-    ? files.slice(0, 4).map((f) => dashItem({ time: shortAgo(f.created), title: fmt.date(f.created), href: '#backups', main: f.world, sub: `${fmt.bytes(f.size)} · ${fmt.date(f.created)}` }))
+    ? files.slice(0, 4).map((f) => dashItem({ time: shortAgo(f.created, { past: true }), title: fmt.date(f.created), href: '#backups', main: f.world, sub: `${fmt.bytes(f.size)} · ${fmt.date(f.created)}` }))
     : [emptyItem('No backups yet. Press Back up now, or schedule one under Automation.')]));
 }
 
 function activityItem(when, who, what, detail, bad) {
-  return el('li', { class: bad ? 'bad' : '' }, el('time', { title: fmt.date(when) }, shortAgo(when)), el('span', {}, el('b', {}, who), ` ${what}`, detail ? el('span', { class: 'sub' }, ` ${detail}`) : null));
+  return el('li', { class: bad ? 'bad' : '' }, el('time', { title: fmt.date(when) }, shortAgo(when, { past: true })), el('span', {}, el('b', {}, who), ` ${what}`, detail ? el('span', { class: 'sub' }, ` ${detail}`) : null));
 }
 
 // Below admin there is no audit log to show: joins and leaves from the log.
@@ -3996,7 +3999,7 @@ function lineChart(box, o) {
       };
       o.t.forEach((t, i) => {
         const v = s.values[i];
-        if (v == null) return flush();
+        if (v == null || t < o.from || t > o.to) return flush(); // outside the range: never draw past the axes
         const pt = [x(t).toFixed(1), y(v).toFixed(1)];
         const prevT = o.t[i - 1];
         const broken = !seg.length || t - prevT > gap || s.values[i - 1] == null;
