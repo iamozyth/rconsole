@@ -228,7 +228,8 @@ const ALIASES = {
   'server/configs': 'server/files',
   'server/servers': 'servers',
   account: 'settings/account',
-  'settings/about': 'settings/system',
+  'settings/about': 'settings/updates',
+  'settings/rconsole': 'settings/updates',
   'settings/backups': 'backups',
   'players/access': 'players/people',
   'players/history': 'players/people',
@@ -1088,7 +1089,7 @@ function renderDashHealth() {
     healthItem({ label: 'Problems', icon: 'alert', onclick: openProblems,
       value: prob.unseen ? `${prob.unseen} new` : 'All clear', tone: prob.critical ? 'bad' : prob.unseen ? 'warn' : 'good',
       sub: prob.critical ? `${prob.critical} critical` : prob.unseen ? 'Errors in the last 24 hours' : 'Nothing new in 24 hours' }),
-    healthItem({ label: 'Updates', icon: 'updates', href: '#server/updates',
+    healthItem({ label: 'Updates', icon: 'updates', href: !dashUpdates?.server && selfNew && globalAtLeast('admin') ? '#settings/updates' : '#server/updates',
       value: dashUpdates?.server ? 'Available' : selfNew ? 'rconsole' : 'Up to date', tone: dashUpdates?.server || selfNew ? 'info' : 'good',
       sub: [dashUpdates?.server ? `${s.platform?.name || 'Server'} ${dashUpdates.server}` : null, selfNew ? `rconsole: ${selfNew} new change${selfNew === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') || `${s.platform?.name || ''} ${s.platform?.mcVersion || ''}${s.platform?.build ? ` #${s.platform.build}` : ''}`.trim() }),
     healthItem({ label: 'Disk', icon: 'save', value: disk ? `${fmt.bytes(disk.available)} free` : '–', meter: used,
@@ -3566,7 +3567,7 @@ taskForm.addEventListener('submit', async (e) => {
 // Updates
 // ---------------------------------------------------------------------------
 
-const updRollback = document.getElementById('upd-rollback'); // moves between the options and the last update's note
+const updRollback = $('upd-rollback');
 let updateWasRunning = false;
 let updateBusy = false;
 let updatesLoaded = false;
@@ -3578,10 +3579,6 @@ function renderUpdateState(st) {
   else if (st.error) setJob($('upd-status'), 'failed', 'alert', `Update to ${st.target} failed: ${st.error}`);
   else if (st.finishedAt) setJob($('upd-status'), 'done', 'check', `Updated to ${st.target} ${fmt.relative(st.finishedAt)}.`);
   else setJob($('upd-status'), null);
-  // Roll back sits next to the update it undoes.
-  const rb = updRollback;
-  if (st.finishedAt && !st.error && !st.running) $('upd-status').append(rb);
-  else if (rb.parentElement !== document.querySelector('.update-options')) document.querySelector('.update-options').append(rb);
   document.querySelectorAll('[data-update]').forEach((b) => (b.disabled = st.running));
   updRollback.disabled = st.running;
   if (updateWasRunning && !st.running) {
@@ -3618,21 +3615,16 @@ async function loadUpdates(refresh) {
     const name = o.platform?.name || 'Server';
     $('upd-builds').closest('.panel').hidden = !o.supported || !o.newerBuilds.length;
     $('upd-versions').closest('.panel').hidden = !o.supported || !o.newerVersions.length;
-    document.querySelector('.update-options').hidden = !o.supported && !o.canRollback;
-    $('upd-backup').closest('label').hidden = !o.supported;
-    $('upd-current').textContent = o.current ? `${name} ${o.current.version}${o.current.build ? ` · build ${o.current.build}` : o.platform?.loaderVersion ? ` · loader ${o.platform.loaderVersion}` : ''}` : name;
+    // Paper and Folia only: rconsole can't fetch other software.
+    document.querySelector('.update-options').hidden = !o.supported;
+    $('upd-server').hidden = !o.supported && !o.canRollback;
     if (!o.supported) {
-      $('upd-channel').hidden = true;
       $('upd-source').textContent = `rconsole updates Paper and Folia automatically. Update ${name} by hand (new server jar or loader), then restart here.`;
       updRollback.hidden = !o.canRollback;
       renderUpdateState(o.state);
       return;
     }
     $('upd-source').textContent = o.error ? `Can't reach PaperMC: ${o.error}` : o.current ? '' : 'Start the server once so its version shows in the log.';
-    const latest = o.current && !o.newerBuilds.length;
-    $('upd-channel').hidden = !o.current;
-    $('upd-channel').className = `pill ${latest ? 'ok' : 'own'}`;
-    $('upd-channel').replaceChildren(icon(latest ? 'check' : 'updates'), latest ? 'Latest build' : `${o.newerBuilds.length} update${o.newerBuilds.length === 1 ? '' : 's'} available`);
     updRollback.hidden = !o.canRollback;
     renderUpdateState(o.state);
 
@@ -3641,10 +3633,11 @@ async function loadUpdates(refresh) {
           el('td', { class: 'primary-cell', 'data-label': 'Build' }, `#${b.id}`, i === 0 ? el('span', { class: 'sub' }, 'Newest') : null),
           el('td', { 'data-label': 'Channel' }, el('span', { class: `pill ${b.channel === 'STABLE' ? 'own' : ''}` }, (b.channel || 'unknown').toLowerCase())),
           el('td', { 'data-label': 'Released' }, when(b.time)),
-          el('td', { class: 'act' }, el('button', {
-            class: `btn btn-sm ${i === 0 ? 'btn-primary' : ''}`, 'data-update': true, disabled: updateBusy || undefined,
+          // The newest one's Update is in the row above; older ones only here.
+          el('td', { class: 'act' }, i === 0 ? null : el('button', {
+            class: 'btn btn-sm', 'data-update': true, disabled: updateBusy || undefined,
             onclick: () => startUpdate({ version: o.current.version, build: b.id }, { title: `Update to build ${b.id}?`, body: `${name} ${o.current.version} #${o.current.build} → #${b.id} (${(b.channel || '').toLowerCase()}). The previous jar is kept for rollback.`, confirm: 'Update', icon: 'updates' }),
-          }, icon('updates'), 'Update'))))
+          }, 'Install'))))
       : [emptyRow(4, o.current ? [el('b', {}, 'You are on the latest build. '), `${name} ${o.current.version} #${o.current.build}.`] : 'No version information yet.')]));
 
     $('upd-versions').replaceChildren(...(o.newerVersions.length
@@ -3660,19 +3653,8 @@ async function loadUpdates(refresh) {
   }
 }
 
-// "Options": bring the server-software panel into view, mark it and put the
-// focus on its first option, so the jump is visible even when it's on screen.
-function showUpdateOptions() {
-  const panel = $('upd-server');
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  panel.classList.remove('flash');
-  void panel.offsetWidth;
-  panel.classList.add('flash');
-  const first = panel.querySelector('.update-options input:not([hidden]), .update-options select, .update-options button:not([hidden])');
-  first?.focus({ preventScroll: true });
-}
-
-// One overview row per component: what is installed, its state, one action.
+// One overview row per component: what is installed, its state, and at
+// most one action.
 function summaryRow(key, { version, state, action }) {
   if (version !== undefined) $(`sum-${key}-ver`).textContent = version;
   const [tone, ic, text] = state;
@@ -3684,17 +3666,16 @@ function renderServerSummary(o) {
   const name = o.platform?.name || 'Server software';
   $('sum-server-name').textContent = name;
   const version = o.current ? `${o.current.version}${o.current.build ? ` · build ${o.current.build}` : ''}` : 'Version not known yet';
-  const details = el('button', { class: 'btn btn-sm', onclick: showUpdateOptions }, 'Options');
-  if (!o.supported) return summaryRow('server', { version, state: ['', 'settings', 'Updated by hand'], action: details });
-  if (o.error) return summaryRow('server', { version, state: ['bad', 'alert', "Can't reach PaperMC"], action: details });
+  if (!o.supported) return summaryRow('server', { version, state: ['', 'settings', 'Updated by hand'] });
+  if (o.error) return summaryRow('server', { version, state: ['bad', 'alert', "Can't reach PaperMC"] });
   const newest = o.newerBuilds[0];
-  if (!newest) return summaryRow('server', { version, state: ['ok', 'check', 'Up to date'], action: details });
+  if (!newest) return summaryRow('server', { version, state: ['ok', 'check', 'Up to date'] });
   summaryRow('server', {
     version,
     state: ['own', 'updates', `Build ${newest.id} available`],
     action: el('button', { class: 'btn btn-sm btn-primary', 'data-update': true, disabled: updateBusy || undefined,
       onclick: () => startUpdate({ version: o.current.version, build: newest.id }, { title: `Update to build ${newest.id}?`, body: `${name} ${o.current.version} #${o.current.build} → #${newest.id}. The previous jar is kept for rollback.`, confirm: 'Update', icon: 'updates' }) },
-      icon('updates'), 'Update'),
+      icon('updates'), `Update to #${newest.id}`),
   });
 }
 
@@ -3707,7 +3688,7 @@ async function loadPluginSummary(refresh) {
     $('sum-plugins-name').textContent = label;
     const n = o.plugins.filter((p) => p.update).length;
     const version = `${o.plugins.length} installed`;
-    const review = el('button', { class: 'btn btn-sm', onclick: () => showTab('server/plugins') }, n ? 'Review' : 'Manage');
+    const review = el('button', { class: `btn btn-sm${n ? ' btn-primary' : ''}`, onclick: () => showTab('server/plugins') }, n ? 'Review' : 'Manage');
     if (o.remoteError) summaryRow('plugins', { version, state: ['bad', 'alert', "Can't reach Modrinth"], action: review });
     else summaryRow('plugins', { version, state: n ? ['own', 'updates', `${n} update${n === 1 ? '' : 's'} available`] : ['ok', 'check', 'Up to date'], action: review });
     return { updates: n, error: o.remoteError };
@@ -3717,18 +3698,20 @@ async function loadPluginSummary(refresh) {
   }
 }
 
-// The one "Check for updates": rconsole, server software and plugins at once.
+const checkedText = () => `Checked at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, and every 6 hours on its own.`;
+
+// Server → Updates: this server's software and plugins. rconsole's own
+// updates live in Settings → Updates; here they only get a pointer.
 async function checkAll(refresh) {
   const btn = $('upd-check');
   btn.setAttribute('aria-busy', 'true');
   try {
-    const [self, server, addons] = await Promise.all([loadSelfUpdate(refresh), loadUpdates(refresh), loadPluginSummary(refresh)]);
-    $('upd-checked').textContent = `Checked at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. rconsole also checks on its own every 6 hours.`;
+    const [server, addons] = await Promise.all([loadUpdates(refresh), loadPluginSummary(refresh), globalAtLeast('admin') ? loadSelfUpdate(refresh) : null]);
+    $('upd-checked').textContent = checkedText();
     if (!refresh) return;
-    const errors = [self, server, addons].filter((x) => x?.error).length;
-    const due = [['rconsole', self], [$('sum-server-name').textContent, server], [$('sum-plugins-name').textContent.toLowerCase(), addons]].filter(([, x]) => x?.updates).map(([name]) => name);
-    const list = due.length > 1 ? `${due.slice(0, -1).join(', ')} and ${due.at(-1)}` : due[0];
-    toast(errors ? `Checked, but ${errors} source${errors === 1 ? '' : 's'} could not be reached.` : due.length ? `Updates available for ${list}.` : 'Everything is up to date.', errors ? 'bad' : 'ok');
+    const errors = [server, addons].filter((x) => x?.error).length;
+    const due = [[$('sum-server-name').textContent, server], [$('sum-plugins-name').textContent.toLowerCase(), addons]].filter(([, x]) => x?.updates).map(([name]) => name);
+    toast(errors ? `Checked, but ${errors} source${errors === 1 ? '' : 's'} could not be reached.` : due.length ? `Updates available for ${due.join(' and ')}.` : 'Everything is up to date.', errors ? 'bad' : 'ok');
   } finally {
     btn.removeAttribute('aria-busy');
   }
@@ -3772,12 +3755,14 @@ function renderSelfSummary(self) {
   if (selfVersion && self.current && self.current !== selfVersion && !self.running) selfReload(self.current);
   selfVersion = self.current || selfVersion;
   $('rail-ver').textContent = self.current ? self.current : '';
-  $('rail-update').hidden = !self.available && !self.running;
-  document.querySelector('.nav [data-tab=server]').classList.toggle('has-update', Boolean(self.available));
-  if (!selfWatching) $('rail-update-text').textContent = self.running ? 'Updating rconsole…' : `${self.available} update${self.available === 1 ? '' : 's'} for rconsole`;
-  if (self.running && !selfWatching) watchSelfUpdate();
-  // The update's state shows in Server → Updates.
-  if (selfWasRunning && !self.running && document.body.dataset.area === 'server') loadSelfUpdate();
+  const admin = globalAtLeast('admin');
+  $('rail-update').hidden = !admin || (!self.available && !self.running);
+  // The dot sits on Settings and its Updates tab, where the update is.
+  document.querySelector('.nav [data-tab=settings]').classList.toggle('has-update', admin && Boolean(self.available));
+  $('settings-updates-tab').classList.toggle('has-update', Boolean(self.available));
+  if (!selfWatching) $('rail-update-text').textContent = self.running ? 'Updating rconsole…' : `rconsole ${self.available === 1 ? 'has 1 update' : `has ${self.available} updates`}`;
+  if (self.running && !selfWatching && admin) watchSelfUpdate();
+  if (selfWasRunning && !self.running && admin) loadSelfUpdate();
   selfWasRunning = self.running;
 }
 
@@ -3822,16 +3807,21 @@ function renderSelfSteps(u, { offline = false, next = null } = {}) {
   $('self-steps').hidden = false;
 }
 
+// One row per change: the release it ships as (or its commit), the title,
+// when. Rows with a description open in place.
 function renderChangelog(commits, repo) {
   $('self-changes').replaceChildren(...(commits || []).map((x) => {
-    const title = el('span', { class: 'cl-title' }, x.message,
-      x.version ? el('a', { class: 'pill own cl-ver', href: `https://github.com/${repo}/releases/tag/v${x.version}`, target: '_blank', rel: 'noopener', title: 'Release notes' }, x.version) : null);
-    return el('li', {},
-      el('a', { class: 'mono', href: `https://github.com/${repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener' }, x.sha),
-      x.body ? el('details', {}, el('summary', {}, title), el('p', { class: 'cl-body' }, x.body)) : title,
-      x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : el('span'));
+    const title = x.version ? x.message.replace(new RegExp(`^v?${x.version.replace(/\./g, '\\.')}:\\s*`), '') : x.message;
+    const tag = x.version
+      ? el('a', { class: 'pill own cl-ver', href: `https://github.com/${repo}/releases/tag/v${x.version}`, target: '_blank', rel: 'noopener', title: `Release notes for ${x.version}` }, x.version)
+      : el('a', { class: 'cl-sha mono', href: `https://github.com/${repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener', title: 'Commit on GitHub' }, x.sha);
+    const when = el('span', { class: 'cl-when' }, x.date ? fmt.relative(x.date) : '');
+    if (!x.body) return el('li', {}, el('div', { class: 'cl-row' }, tag, el('span', { class: 'cl-title' }, title), when, el('span', { class: 'cl-chev' })));
+    return el('li', {}, el('details', {},
+      el('summary', { class: 'cl-row' }, tag, el('span', { class: 'cl-title' }, title), when, el('span', { class: 'cl-chev' }, icon('chev'))),
+      el('p', { class: 'cl-body' }, x.body)));
   }));
-  $('self-changes').hidden = !commits?.length;
+  $('self-changes-panel').hidden = !commits?.length;
 }
 
 async function loadSelfUpdate(refresh) {
@@ -3842,8 +3832,8 @@ async function loadSelfUpdate(refresh) {
     return { updates: c.status === 'ahead' ? c.behind : 0, error: c.error && !c.status ? c.error : null };
   } catch (e) {
     $('self-info').textContent = e.message;
-    $('self-panel').hidden = false;
-    summaryRow('self', { state: ['bad', 'alert', "Couldn't check"] });
+    $('self-body').hidden = false;
+    $('self-state').replaceChildren(el('span', { class: 'pill bad' }, icon('alert'), "Couldn't check"));
     return { error: e.message };
   }
 }
@@ -3868,63 +3858,78 @@ function renderSelf(o, { offline = false } = {}) {
   const failed = u?.state === 'failed' && recent(7 * 86400000);
   const repo = o.repo;
   const version = o.current?.version;
-
-  $('self-info').textContent = [
-    c.error ? `Can't check github.com/${repo}: ${c.error}` : '',
-    nodeOld && !running && !justDone ? `rconsole needs Node.js ${nodeOld.need} or newer and runs on ${nodeOld.version}. Update installs Node.js ${nodeOld.need} from NodeSource and restarts rconsole.` : '',
-  ].filter(Boolean).join(' ');
+  const newVersion = c.version && c.version !== version ? c.version : null;
+  const unreachable = c.error && !c.status;
 
   // Second run for Node.js: the update to 4.7 ran with the old updater,
   // which doesn't install it. Started on its own if this browser started
   // the first run.
   const next = justDone && nodeOld ? { need: nodeOld.need, auto: Boolean(run?.auto && o.canUpdate) } : null;
 
-  if (running) {
-    const target = run?.version && run.version !== version ? ` to ${run.version}` : '';
-    $('self-title').textContent = `Updating rconsole${target}`;
-    renderSelfSteps(u || { state: 'running', message: 'Restarting rconsole', step: 'restart' }, { offline });
-  } else if (justDone) {
-    $('self-title').textContent = u.from === u.to ? `Installed Node.js for rconsole` : `Updated rconsole${version ? ` to ${version}` : ''}`;
-    renderSelfSteps(u, { next });
-  } else if (failed && recent(3600000)) {
-    $('self-title').textContent = 'The rconsole update failed';
-    renderSelfSteps(u);
-  } else {
-    $('self-title').textContent = behind ? (c.version && c.version !== version ? `rconsole ${c.version} is available` : `${behind} new commit${behind === 1 ? '' : 's'} for rconsole`) : nodeOld ? `rconsole needs Node.js ${nodeOld.need}` : "What's new in rconsole";
-    $('self-steps').hidden = true;
-  }
+  // Who it is: version, commit, Node.js, when it last asked GitHub.
+  $('self-title').textContent = `rconsole ${version || ''}`.trim();
+  const checkedAt = c.at ? new Date(c.at) : null;
+  const updatedAgo = u?.state === 'done' && u.from !== u.to && recent(86400000) ? `updated ${fmt.relative(u.at)}` : '';
+  $('self-meta').textContent = [
+    o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Not a git checkout',
+    o.node?.version ? `Node.js ${o.node.version.replace(/^v/, '')}` : '',
+    updatedAgo,
+    checkedAt && !running ? `checked ${checkedAt.toDateString() === new Date().toDateString() ? checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : fmt.relative(c.at)}` : '',
+  ].filter(Boolean).join(' · ');
+  $('self-check').hidden = running;
 
+  const [tone, ic, text] = running ? ['own', 'updates', 'Updating…']
+    : justDone ? ['ok', 'check', 'Updated']
+    : failed && recent(3600000) ? ['bad', 'alert', 'Update failed']
+    : nodeOld ? ['own', 'updates', `Needs Node.js ${nodeOld.need}`]
+    : behind ? ['own', 'updates', newVersion ? `${newVersion} available` : `${behind} new change${behind === 1 ? '' : 's'}`]
+    : unreachable ? ['bad', 'alert', "Can't reach GitHub"]
+    : c.status === 'diverged' ? ['', 'alert', 'Differs from GitHub']
+    : c.status ? ['ok', 'check', 'Up to date'] : ['', 'updates', 'Not checked yet'];
+  $('self-state').replaceChildren(el('span', { class: `pill ${tone}` }, icon(ic), text));
+
+  // The one action: update (or install Node.js), or put a finished run away.
+  const canAct = (behind || nodeOld) && o.canUpdate && !running && !next?.auto && !justDone;
+  $('self-update').hidden = !canAct && !(next && !next.auto && o.canUpdate);
+  $('self-update').disabled = running;
+  $('self-update').replaceChildren(icon('updates'), next ? `Install Node.js ${next.need}` : behind ? (newVersion ? `Update to ${newVersion}` : 'Update') : `Install Node.js ${nodeOld?.need || ''}`);
+  $('self-dismiss').hidden = !justDone || running || !$('self-update').hidden;
+
+  // Below: what happens, how it's going, or what went wrong.
+  if (running || justDone || (failed && recent(3600000))) renderSelfSteps(u || { state: 'running', message: 'Restarting rconsole', step: 'restart' }, { offline, next });
+  else $('self-steps').hidden = true;
   // A Node.js-only run already says what it installed.
   const also = (u?.installed || []).filter((x) => !(u.from === u.to && /^Node\.js/.test(x)));
   if (failed && !running) setJob($('self-status'), 'failed', 'alert', `Last update failed ${fmt.relative(u.at)}: ${u.message}`);
   else if (justDone && u.manual?.length) setJob($('self-status'), 'done', 'check', `Manual step: ${u.manual.join('; ')}`);
   else if (justDone && also.length) setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}. Also installed: ${also.join(', ')}.`);
-  else if (justDone) setJob($('self-status'), 'done', 'check', `${u.message} ${fmt.relative(u.at)}.`);
   else setJob($('self-status'), null);
+  $('self-note').hidden = !canAct;
+  $('self-info').textContent = [
+    unreachable ? `Can't check github.com/${repo}: ${c.error}` : '',
+    c.status === 'diverged' ? `This copy has commits GitHub doesn't, so it can't be updated with one click.` : '',
+    nodeOld && !running && !justDone ? `This version needs Node.js ${nodeOld.need} or newer and runs on ${nodeOld.version}. Updating installs Node.js ${nodeOld.need} from NodeSource and restarts rconsole.` : '',
+    (behind || nodeOld) && !o.canUpdate ? 'One-click updates need the systemd setup from the README (this copy runs with JOB_RUNNER=direct).' : '',
+  ].filter(Boolean).join(' ');
+  $('self-body').hidden = $('self-note').hidden && $('self-steps').hidden && $('self-status').hidden && !$('self-info').textContent;
 
   // What the update brings in: from GitHub before, kept for the run while
   // rconsole restarts, and what the finished update brought in after.
   const commits = running ? (run?.commits || c.commits) : justDone ? (u.commits || run?.commits) : behind ? c.commits : null;
   renderChangelog(commits, repo);
-  const more = behind > (c.commits?.length || 0) && !running && !justDone ? behind - c.commits.length : 0;
-  $('self-changes-title').textContent = running ? 'What this update brings' : justDone ? 'What changed' : `Changes${more ? ` (newest 30 of ${behind})` : ''}`;
-  $('self-changes-title').hidden = $('self-changes').hidden;
+  const n = commits?.length || 0;
+  $('self-changes-title').textContent = running ? 'What this update brings' : justDone ? 'What changed' : newVersion ? `What's new in ${newVersion}` : "What's new";
+  $('self-changes-note').textContent = running || justDone
+    ? `${n} change${n === 1 ? '' : 's'}`
+    : `${behind} change${behind === 1 ? '' : 's'} since ${version || o.current?.sha || 'this version'}${behind > n ? `, newest ${n} shown` : ''}`;
+  const range = justDone && u?.from && u?.to ? `${u.from.slice(0, 7)}...${u.to.slice(0, 7)}` : o.current ? `${o.current.sha}...${o.branch}` : null;
+  $('self-compare').hidden = !range;
+  if (range) $('self-compare').href = `https://github.com/${repo}/compare/${range}`;
 
-  $('self-note').hidden = !(behind || nodeOld) || running || justDone;
-  $('self-update').hidden = !(behind || nodeOld) || running || !o.canUpdate || Boolean(next?.auto);
-  $('self-update').disabled = !o.canUpdate || running;
-  $('self-update').replaceChildren(icon('updates'), next ? `Install Node.js ${next.need}` : behind ? 'Update rconsole' : `Install Node.js ${nodeOld?.need || ''}`);
-  $('self-dismiss').hidden = !justDone || running;
-  $('self-panel').hidden = !behind && !nodeOld && !running && !justDone && !failed && !(c.error && !c.status);
-
-  const updatedAgo = u?.state === 'done' && u.from !== u.to && recent(86400000) ? ` · updated ${fmt.relative(u.at)}` : '';
-  summaryRow('self', {
-    version: o.current ? `${version ? `${version} · ` : ''}${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}${updatedAgo}` : 'Unknown version',
-    state: running ? ['own', 'updates', 'Updating…'] : nodeOld ? ['own', 'updates', `Needs Node.js ${nodeOld.need}`] : c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : justDone ? ['ok', 'check', 'Updated'] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
-    action: (behind || nodeOld) && o.canUpdate && !running
-      ? el('button', { class: 'btn btn-sm btn-primary', onclick: () => $('self-update').click() }, icon('updates'), 'Update')
-      : el('a', { class: 'btn btn-sm', href: running || justDone ? '#server/updates' : `https://github.com/${repo}/commits/${o.branch}`, target: running || justDone ? undefined : '_blank', rel: 'noopener', onclick: running || justDone ? (e) => { e.preventDefault(); $('self-panel').scrollIntoView({ behavior: 'smooth', block: 'start' }); } : undefined }, running || justDone ? 'Details' : 'Changes'),
-  });
+  // Server → Updates points here while there is something to do.
+  const pending = running ? 'rconsole is updating' : behind || nodeOld ? (newVersion ? `rconsole ${newVersion} is available` : nodeOld && !behind ? `rconsole needs Node.js ${nodeOld.need}` : `rconsole has ${behind} new change${behind === 1 ? '' : 's'}`) : '';
+  $('upd-self-link').hidden = !pending;
+  $('upd-self-text').textContent = pending;
 
   if (next?.auto && !running) {
     selfRun.set({ ...run, auto: false });
@@ -3958,8 +3963,8 @@ $('self-update').addEventListener('click', async (e) => {
   const nodeOnly = c.status !== 'ahead';
   if (!(await confirmAction({
     title: nodeOnly ? `Install Node.js ${o.node?.need || ''}?` : `Update rconsole${c.version && c.version !== o.current?.version ? ` to ${c.version}` : ''}?`,
-    body: `rconsole restarts${nodeOnly ? ' on the new Node.js' : ''}; you stay signed in and this page shows each step. If it doesn't come back, it rolls back on its own. Minecraft is not affected.`,
-    confirm: nodeOnly ? 'Install' : 'Update rconsole', icon: 'updates',
+    body: `rconsole restarts${nodeOnly ? ' on the new Node.js' : ''}; you stay signed in and this page shows each step. If it doesn't come back, it goes back to this version on its own. Minecraft is not affected.`,
+    confirm: nodeOnly ? 'Install' : 'Update', icon: 'updates',
   }))) return;
   // The run started from an old Node.js needs a second one (see renderSelf).
   selfRun.set({ version: c.version || null, commits: c.commits || null, auto: true });
@@ -3970,6 +3975,11 @@ $('self-dismiss').addEventListener('click', () => {
   try { localStorage.setItem('rconsole-self-dismissed', selfLast?.update?.at || ''); } catch {}
   selfRun.set(null);
   if (selfLast) renderSelf(selfLast);
+});
+
+$('self-check').addEventListener('click', async (e) => {
+  const r = await busy(e.currentTarget, () => loadSelfUpdate(true));
+  if (r) toast(r.error ? `Can't reach GitHub: ${r.error}` : r.updates ? 'An update is available.' : 'rconsole is up to date.', r.error ? 'bad' : 'ok');
 });
 
 // While an update runs: its status every 1.5 s. While rconsole restarts the
@@ -5559,7 +5569,8 @@ function paletteActions() {
   act('Create a new world…', 'worlds', 'new world create generate', () => { showTab('world/worlds'); toggleWorldForm(true); });
   act('Install a new server…', 'server', 'new server install paper fabric velocity create', () => { showTab('servers'); toggleServerForm(true); });
   act('Whitelist a player…', 'add', 'whitelist add player allow', () => { showTab('players/people'); $('pp-add').elements.name.focus(); });
-  act('Check for updates', 'updates', 'update upgrade version paper rconsole plugins mods self', () => { showTab('server/updates'); checkAll(true); });
+  act('Check for server updates', 'updates', 'update upgrade version paper plugins mods build', () => { showTab('server/updates'); checkAll(true); });
+  act('Update rconsole', 'updates', 'rconsole self update upgrade version changelog what\'s new', () => { showTab('settings/updates'); loadSelfUpdate(true); }, () => globalAtLeast('admin'));
   act('Edit a plugin config…', 'settings', 'config yml yaml edit plugin mod settings file', () => showTab('server/files'));
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
@@ -5971,18 +5982,17 @@ $('access-form').addEventListener('submit', async (e) => {
 const warnFact = (text) => el('span', { class: 'fact-warn' }, icon('alert'), text);
 async function loadAbout() {
   if (!globalAtLeast('admin')) return;
-  const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
-  const mono = (v) => el('span', { class: 'mono' }, v);
-  const off = (v) => el('span', { class: 'sub' }, v);
+  const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, ...[].concat(v)));
+  const link = (href, text) => el('a', { href, target: '_blank', rel: 'noopener' }, text);
   try {
     const a = await api('GET', '/api/about');
-    $('about-note').textContent = `Version ${a.version}${a.commit ? ` (${a.commit})` : ''}, running on Node.js ${a.node}.`;
+    const repo = selfLast?.repo || 'iamozyth/rconsole';
     $('about-facts').replaceChildren(
-      row('Version', `${a.version}${a.commit ? ` · ${a.commit}` : ''}`),
-      row('Documentation', el('a', { href: 'https://github.com/iamozyth/rconsole#readme', target: '_blank', rel: 'noopener' }, 'README')),
-      row('Release notes', el('a', { href: `https://github.com/iamozyth/rconsole/releases/tag/v${a.version}`, target: '_blank', rel: 'noopener' }, `rconsole ${a.version}`)),
-      row('Updates', el('a', { href: '#server/updates' }, 'Server → Updates')),
-      row('License', el('a', { href: 'https://github.com/iamozyth/rconsole/blob/main/LICENSE', target: '_blank', rel: 'noopener' }, 'PolyForm Strict 1.0.0')));
+      row('Source', link(`https://github.com/${repo}/tree/${selfLast?.branch || 'main'}`, `${repo} · ${selfLast?.branch || 'main'}`)),
+      row('Installs', selfLast?.signedReleases ? 'Signed releases only' : ['Every new commit', el('span', { class: 'fact-note' }, 'SELF_UPDATE_SIGNERS limits it to signed releases')]),
+      row('Release notes', link(`https://github.com/${repo}/releases/tag/v${a.version}`, `rconsole ${a.version}`)),
+      row('Documentation', link(`https://github.com/${repo}#readme`, 'README')),
+      row('License', link(`https://github.com/${repo}/blob/main/LICENSE`, 'PolyForm Strict 1.0.0')));
     sysPublicUrl = a.publicUrl || '';
     const url = sysForms.web.elements.publicUrl;
     if (!sysDirty.has('web')) url.value = sysPublicUrl;
@@ -5992,19 +6002,20 @@ async function loadAbout() {
       ? 'Set with PUBLIC_URL in /etc/rconsole.env.'
       : 'The address people open rconsole at. Single sign-on sends people back to it, and notifications link to it.';
   } catch (e) {
-    $('about-note').textContent = e.message;
+    $('about-facts').replaceChildren(el('p', { class: 'note' }, e.message));
   }
 }
 
 viewLoaders['settings/account'] = renderAccount;
 viewLoaders['settings/signin'] = () => { loadSso(); loadUsers(); };
 viewLoaders['settings/system'] = () => { loadAbout(); loadSystem(); };
+viewLoaders['settings/updates'] = async () => { await loadSelfUpdate(); loadAbout(); loadSystem(); };
 
 // Settings → System: rconsole's own settings (lib/system.js). A value saved
 // here wins over /etc/rconsole.env; each field says where its value comes
 // from and can go back to the env file's.
-const sysForms = { web: $('sys-web'), security: $('sys-security'), backups: $('sys-backups') };
-const SYS_FIELDS = { web: ['webHost', 'webPort', 'trustProxy'], security: ['require2fa'], backups: ['backupKeep', 'backupCompression', 'updateCheck'] };
+const sysForms = { web: $('sys-web'), security: $('sys-security'), backups: $('sys-backups'), updates: $('sys-updates') };
+const SYS_FIELDS = { web: ['webHost', 'webPort', 'trustProxy'], security: ['require2fa'], backups: ['backupKeep', 'backupCompression'], updates: ['updateCheck'] };
 const sysDirty = new Set();
 let sys = null; // the last GET /api/system
 let sysPublicUrl = '';
@@ -6203,6 +6214,15 @@ for (const [name, form] of Object.entries(sysForms)) {
     await saveSystem({ set }, button);
   });
 }
+
+// Settings → Updates: the check switch applies as soon as it flips.
+sysForms.updates.addEventListener('change', (e) => {
+  if (!sys) return;
+  // Back to what the env file (or the default) says: drop the saved value.
+  const v = sys.settings.updateCheck;
+  const same = e.target.checked === (v.envValue ?? v.default);
+  saveSystem(same && v.source === 'saved' ? { reset: ['updateCheck'] } : { set: { updateCheck: e.target.checked } }, e.target, e.target.checked ? 'rconsole checks for updates every 6 hours.' : 'Automatic update checks are off.');
+});
 
 $('url-here').addEventListener('click', () => {
   sysForms.web.elements.publicUrl.value = location.origin;

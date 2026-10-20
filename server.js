@@ -436,7 +436,7 @@ function noteProxy(req) {
 function nodeCheck() {
   const { need, ok } = selfUpdate.node();
   if (ok) return [];
-  return [{ kind: 'host', severity: 'warning', title: `Node.js ${process.version} is too old`, message: `rconsole ${require('./package.json').version} needs Node.js ${need} or newer.`, hint: `Server → Updates → rconsole → Update installs Node.js ${need} from NodeSource and restarts rconsole (or run: sudo systemctl start rconsole-selfupdate.service).` }];
+  return [{ kind: 'host', severity: 'warning', title: `Node.js ${process.version} is too old`, message: `rconsole ${require('./package.json').version} needs Node.js ${need} or newer.`, hint: `Settings → Updates → Install Node.js ${need} installs Node.js ${need} from NodeSource and restarts rconsole (or run: sudo systemctl start rconsole-selfupdate.service).` }];
 }
 
 function proxyCheck() {
@@ -2178,7 +2178,7 @@ scheduler.load().then(() => {
   listener.start(config.webHost, config.webPort, { host: envListen.webHost.value, port: envListen.webPort.value }).then(({ host, port }) => {
     [config.webHost, config.webPort] = [host, port];
     if (listener.fellBack) problems.record({ kind: 'host', severity: 'warning', title: 'Saved web address not available', message: `${listener.fellBack.error}. rconsole listens on ${host}:${port} from /etc/rconsole.env instead. Check Settings → System → Web access.` });
-    if (!selfUpdate.node().ok) log(`WARNING: rconsole needs Node.js ${selfUpdate.node().need} or newer, this is ${process.version}. Update rconsole once more (Server → Updates) to install it.`);
+    if (!selfUpdate.node().ok) log(`WARNING: rconsole needs Node.js ${selfUpdate.node().need} or newer, this is ${process.version}. Update rconsole once more (Settings → Updates) to install it.`);
     log(`rconsole listening on http://${host}:${port}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
     if (config.trustProxy.length) log(`trusting X-Forwarded-* from ${config.trustProxy.join(', ')}`);

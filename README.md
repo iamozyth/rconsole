@@ -421,7 +421,7 @@ World uploads need no extra settings (see [Importing a world](#importing-a-world
 
 ## Updating
 
-rconsole checks GitHub every 6 hours for new commits on `main` (Server → Updates lists them with their descriptions and links each release's notes, the rail shows a notice) and can update itself with one click. Server → Updates then shows each step below as it runs, waits for rconsole to come back, and afterwards keeps the result and what changed for an hour. The update runs in `rconsole-selfupdate.service` as root, a fixed script (`bin/self-update.sh`) that takes no input from rconsole:
+rconsole checks GitHub every 6 hours for new commits on `main` (Settings → Updates lists them with their descriptions and links each release's notes; the sidebar, Settings and Server → Updates show a notice) and can update itself with one click. Settings → Updates then shows each step below as it runs, waits for rconsole to come back, and afterwards keeps the result and what changed for an hour. The update runs in `rconsole-selfupdate.service` as root, a fixed script (`bin/self-update.sh`) that takes no input from rconsole:
 
 1. fetches and fast-forwards `/opt/rconsole` (refuses if the checkout has local changes or has diverged),
 2. installs the Node.js the new version needs from NodeSource when the system's is older (also when there are no new commits), otherwise stays on the old version,

@@ -100,13 +100,13 @@
   </nav>
   <button class="palette-btn" id="palette-open" aria-keyshortcuts="Control+K Meta+K"><svg><use href="#pg-search"/></svg><span>Search &amp; run</span><kbd id="palette-key">Ctrl K</kbd></button>
   <div class="rail-foot">
-    <a class="update-note" id="rail-update" href="#server/updates" hidden><svg><use href="#pg-updates"/></svg><span id="rail-update-text">Update available</span></a>
+    <a class="update-note" id="rail-update" href="#settings/updates" hidden><svg><use href="#pg-updates"/></svg><span id="rail-update-text">Update available</span></a>
     <span class="platform-chip" id="platform-chip" hidden></span>
     <div class="rail-user">
       <span class="avatar-initial" id="me-initial" aria-hidden="true"></span>
       <div class="rail-user-text">
         <a class="who" href="#settings/account"><span id="me"></span><svg class="via-sso" id="me-via" role="img" aria-label="Signed in with single sign-on" hidden><use href="#pg-key"/></svg> <span class="role-tag" id="me-role"></span></a>
-        <span class="rail-meta"><span class="ver" id="rail-ver"></span> · <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Preview</a></span>
+        <span class="rail-meta"><a class="ver" id="rail-ver" href="#settings/updates" title="rconsole version and updates"></a> · <a class="preview" href="https://github.com/iamozyth/rconsole#readme" target="_blank" rel="noopener" title="Vibe-coded with an AI assistant. Keep your own backups.">Preview</a></span>
       </div>
       <button class="btn btn-quiet btn-icon btn-sm" id="logout" aria-label="Sign out" title="Sign out"><svg><use href="#pg-signout"/></svg></button>
     </div>
@@ -568,56 +568,41 @@
       <div class="view" data-view="updates" hidden>
         <section class="panel">
           <header class="panel-head">
-            <div class="head-text"><h2>Updates</h2><p class="note" id="upd-checked">rconsole also checks on its own every 6 hours.</p></div>
-            <button class="btn" id="upd-check"><svg><use href="#pg-refresh"/></svg>Check for updates</button>
+            <div class="head-text"><h2>Updates</h2><p class="note" id="upd-checked">Checked every 6 hours.</p></div>
+            <button class="btn" id="upd-check"><svg><use href="#pg-refresh"/></svg>Check now</button>
           </header>
           <ul class="upd-summary">
-            <li><span class="sum-what"><b>rconsole</b><span class="sub" id="sum-self-ver">–</span></span><span class="sum-state" id="sum-self-state"></span><span class="sum-act" id="sum-self-act"></span></li>
             <li id="sum-server"><span class="sum-what"><b id="sum-server-name">Server software</b><span class="sub" id="sum-server-ver">–</span></span><span class="sum-state" id="sum-server-state"></span><span class="sum-act" id="sum-server-act"></span></li>
             <li id="sum-plugins"><span class="sum-what"><b id="sum-plugins-name">Plugins</b><span class="sub" id="sum-plugins-ver">–</span></span><span class="sum-state" id="sum-plugins-state"></span><span class="sum-act" id="sum-plugins-act"></span></li>
           </ul>
-        </section>
-
-
-        <section class="panel self-panel" id="self-panel" hidden>
-          <header class="panel-head">
-            <div class="head-text"><h2 id="self-title">What's new in rconsole</h2><p class="note" id="self-note" hidden>Updating restarts rconsole; you stay signed in and this page follows along. If the new version doesn't start, it rolls back on its own. Minecraft keeps running.</p></div>
-            <button class="btn" id="self-dismiss" hidden>Dismiss</button>
-            <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update rconsole</button>
-          </header>
-          <div class="panel-body stack">
-            <ol class="self-steps" id="self-steps" hidden></ol>
-            <div class="job" id="self-status" hidden></div>
-            <h3 class="self-sub" id="self-changes-title" hidden>Changes</h3>
-            <ol class="changelog" id="self-changes" hidden></ol>
-            <p class="note" id="self-info"></p>
-          </div>
+          <a class="upd-elsewhere" id="upd-self-link" href="#settings/updates" hidden><svg><use href="#pg-updates"/></svg><span id="upd-self-text">rconsole has an update</span><span class="go">Settings → Updates<svg><use href="#pg-chev"/></svg></span></a>
         </section>
 
         <section class="panel" id="upd-server">
           <header class="panel-head">
-            <div class="head-text"><h2>Server software</h2><p class="note">Updates warn players, then disconnect everyone and stop the server. The world is backed up while nobody plays, the new jar goes in, and the server starts again.</p></div>
+            <div class="head-text"><h2>How updates install</h2><p class="note">Players are warned, then disconnected and the server stops. The new jar goes in and the server starts again.</p></div>
+            <button class="btn" id="upd-rollback" hidden><svg><use href="#pg-rollback"/></svg>Roll back</button>
           </header>
-          <div class="panel-body installed">
-            <div class="version" hidden><span id="upd-current">–</span><span class="pill" id="upd-channel" hidden></span></div>
-            <div class="job" id="upd-status" hidden></div>
-            <p class="note" id="upd-source"></p>
-            <div class="update-options">
-              <label class="check"><input type="checkbox" id="upd-backup" checked><span>Back up the world first</span></label>
-              <label class="inline-fld"><span>Warn players</span>
-                <select class="field" id="upd-delay">
-                  <option value="10">10 seconds ahead</option>
-                  <option value="60" selected>1 minute ahead</option>
-                  <option value="300">5 minutes ahead</option>
-                </select>
-              </label>
-              <button class="btn btn-quiet" id="upd-rollback" hidden><svg><use href="#pg-rollback"/></svg>Roll back to previous jar</button>
-            </div>
-          </div>
+          <div class="job upd-job" id="upd-status" hidden></div>
+          <p class="note upd-source" id="upd-source"></p>
+          <ul class="opt-rows update-options">
+            <li id="upd-backup-row">
+              <span class="opt-text"><b>Back up the world first</b><span class="note">Taken while nobody is online, before the new jar goes in.</span></span>
+              <label class="switch"><input type="checkbox" role="switch" id="upd-backup" checked><span class="sr">Back up the world first</span></label>
+            </li>
+            <li>
+              <span class="opt-text"><b>Warn players</b><span class="note">A countdown in chat before everyone is disconnected.</span></span>
+              <select class="field" id="upd-delay" aria-label="Warn players">
+                <option value="10">10 seconds ahead</option>
+                <option value="60" selected>1 minute ahead</option>
+                <option value="300">5 minutes ahead</option>
+              </select>
+            </li>
+          </ul>
         </section>
 
         <section class="panel">
-          <header class="panel-head"><h2>New builds for this version</h2></header>
+          <header class="panel-head"><div class="head-text"><h2>Newer builds</h2><p class="note">Same Minecraft version. The previous jar is kept, so Roll back undoes an update.</p></div></header>
           <table class="table">
             <thead><tr><th>Build</th><th>Channel</th><th>Released</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
             <tbody id="upd-builds"></tbody>
@@ -729,6 +714,7 @@
         <button role="tab" data-view="signin" aria-selected="false" data-min-global-role="admin">Users &amp; sign-in</button>
         <button role="tab" data-view="notifications" aria-selected="false" data-min-global-role="admin">Notifications</button>
         <button role="tab" data-view="system" aria-selected="false" data-min-global-role="admin">System</button>
+        <button role="tab" data-view="updates" aria-selected="false" data-min-global-role="admin" id="settings-updates-tab">Updates</button>
       </div>
 
       <div class="view" data-view="account">
@@ -837,12 +823,6 @@
       </div>
 
       <div class="view" data-view="system" hidden>
-        <section class="panel">
-          <header class="panel-head">
-            <div class="head-text"><h2>rconsole</h2><p class="note" id="about-note"></p></div>
-          </header>
-          <dl class="set-facts" id="about-facts"></dl>
-        </section>
         <section class="panel" data-min-global-role="admin">
           <header class="panel-head"><div class="head-text"><h2>Web access</h2><p class="note">Where rconsole listens and how people reach it. Changes apply right away, without a restart.</p></div></header>
           <form class="panel-body sys-form" id="sys-web" autocomplete="off" novalidate>
@@ -891,23 +871,57 @@
           </form>
         </section>
         <section class="panel" data-min-global-role="admin">
-          <header class="panel-head"><div class="head-text"><h2>Backups and updates</h2></div></header>
+          <header class="panel-head"><div class="head-text"><h2>Backups</h2></div></header>
           <form class="panel-body sys-form" id="sys-backups" autocomplete="off" novalidate>
             <label class="fld"><span>Backups to keep</span><input class="field num" name="backupKeep" type="number" min="0" max="1000"><p class="note">Older ones are deleted after each backup; 0 keeps all. <span class="src" data-src="backupKeep"></span></p></label>
             <label class="fld"><span>Compression</span>
               <select class="field" name="backupCompression"><option value="auto">zstd when installed (faster)</option><option value="gzip">gzip (.tar.gz)</option></select>
               <p class="note"><span class="src" data-src="backupCompression"></span></p>
             </label>
-            <div class="fld wide">
-              <label class="switch"><input type="checkbox" role="switch" name="updateCheck"><span>Check GitHub for new rconsole versions every day</span></label>
-              <p class="note"><span class="src" data-src="updateCheck"></span></p>
-            </div>
             <div class="form-actions"><p class="note" id="sys-backups-note"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
           </form>
         </section>
         <section class="panel">
           <header class="panel-head"><div class="head-text"><h2>Set on the server</h2><p class="note">Folders the sandbox is built around, and safeguards that root-owned services read. They're changed in <code>/etc/rconsole.env</code> only, so a stolen admin session can't move or switch them off. Restart rconsole after editing (<code>sudo systemctl restart rconsole</code>).</p></div></header>
           <dl class="set-facts" id="env-facts"></dl>
+        </section>
+      </div>
+
+      <!-- rconsole's own updates (bin/self-update.sh); the Minecraft server's are under Server → Updates -->
+      <div class="view" data-view="updates" hidden>
+        <section class="panel self-panel" id="self-panel">
+          <div class="self-hero">
+            <svg class="self-mark" aria-hidden="true"><use href="#pg-mark"/></svg>
+            <div class="self-id">
+              <h2 id="self-title">rconsole</h2>
+              <p class="self-meta"><span id="self-meta">–</span><button type="button" class="link-btn" id="self-check">Check now</button></p>
+            </div>
+            <span class="self-state" id="self-state"></span>
+            <button class="btn" id="self-dismiss" hidden>Dismiss</button>
+            <button class="btn btn-primary" id="self-update" hidden><svg><use href="#pg-updates"/></svg>Update</button>
+          </div>
+          <div class="self-body" id="self-body" hidden>
+            <p class="note" id="self-note" hidden>rconsole restarts; you stay signed in and this page shows each step. If the new version doesn't start, it goes back to this one on its own. Minecraft keeps running.</p>
+            <ol class="self-steps" id="self-steps" hidden></ol>
+            <div class="job" id="self-status" hidden></div>
+            <p class="note" id="self-info"></p>
+          </div>
+        </section>
+
+        <section class="panel" id="self-changes-panel" hidden>
+          <header class="panel-head">
+            <div class="head-text"><h2 id="self-changes-title">What's new</h2><p class="note" id="self-changes-note"></p></div>
+            <a class="btn btn-quiet btn-sm" id="self-compare" target="_blank" rel="noopener">On GitHub</a>
+          </header>
+          <ol class="changelog" id="self-changes"></ol>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Check for updates</h2><p class="note">Asks GitHub every 6 hours and shows a notice in the sidebar. Nothing installs until you click Update. <span class="src" data-src="updateCheck"></span></p></div>
+            <form id="sys-updates" class="head-form"><label class="switch"><input type="checkbox" role="switch" name="updateCheck"><span class="sr">Check for updates automatically</span></label></form>
+          </header>
+          <dl class="set-facts" id="about-facts"></dl>
         </section>
       </div>
     </section>
