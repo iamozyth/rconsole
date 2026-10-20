@@ -39,6 +39,7 @@
   <symbol id="pg-op" viewBox="0 0 24 24"><path d="M3 7l4.6 3.4L12 3.5l4.4 6.9L21 7l-1.6 11H4.6zM4.6 19.3h14.8v2.2H4.6z"/></symbol>
   <symbol id="pg-check" viewBox="0 0 24 24"><path d="M9.4 15.6 19.2 5.8l1.8 1.8L9.4 19.2 3 12.8l1.8-1.8z"/></symbol>
   <symbol id="pg-download" viewBox="0 0 24 24"><path d="M10.8 3h2.4v9.4l3.4-3.4 1.7 1.7-6.3 6.3-6.3-6.3L7.4 9l3.4 3.4zM4 18.5h16V21H4z"/></symbol>
+  <symbol id="pg-upload" viewBox="0 0 24 24"><path d="M10.8 16.4h2.4V7l3.4 3.4 1.7-1.7L12 2.4 5.7 8.7l1.7 1.7L10.8 7zM4 18.5h16V21H4z"/></symbol>
   <symbol id="pg-delete" viewBox="0 0 24 24"><path d="M9 2.5h6v2h5.5v2.4h-17V4.5H9zM5 8.5h14L17.8 21.5H6.2zm4 2.5v8h2v-8zm4 0v8h2v-8z" fill-rule="evenodd"/></symbol>
   <symbol id="pg-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
   <symbol id="pg-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></symbol>
@@ -297,6 +298,7 @@
       <section class="panel">
         <header class="panel-head">
           <div class="head-text"><h2>Worlds</h2><p class="note" id="worlds-info"></p></div>
+          <button class="btn btn-quiet" id="world-import-toggle" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-upload"/></svg>Import world</button>
           <button class="btn btn-primary" id="world-new-toggle" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-add"/></svg>New world</button>
         </header>
         <table class="table">
@@ -853,6 +855,33 @@
               <p class="note">The server restarts into the new world and generates it on first start.</p>
               <button class="btn btn-quiet" type="button" id="world-new-cancel">Cancel</button>
               <button class="btn btn-primary"><svg><use href="#pg-worlds"/></svg>Create and switch</button>
+            </div>
+          </form>
+  </div>
+</dialog>
+<dialog class="drawer" id="drawer-import" aria-labelledby="drawer-import-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-import-title">Import world</h2></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+          <form class="drawer-form world-import" id="world-import" autocomplete="off" novalidate>
+            <label class="dropzone" id="import-drop">
+              <input type="file" id="import-file" accept=".zip,.tar,.gz,.tgz,.zst,.tzst,.xz,.txz,.bz2,application/zip,application/gzip,application/x-tar">
+              <svg aria-hidden="true"><use href="#pg-upload"/></svg>
+              <b id="import-file-name">Choose a world archive</b>
+              <span class="note" id="import-file-note">or drop it here. A .zip of the world folder (as Finder or Windows make it), .tar.gz, .tar.zst or .tar.xz; a zip of a whole server folder works too. Nether and End come along.</span>
+            </label>
+            <label class="fld wide"><span>World name on this server</span><input class="field" name="name" maxlength="32" placeholder="e.g. survival-2024" required pattern="[A-Za-z0-9_\-]{1,32}"></label>
+            <div class="stack wide" id="import-options"></div>
+            <div class="upload-progress wide" id="import-progress" hidden>
+              <span class="meter"><span class="meter-fill" id="import-meter"></span></span>
+              <span class="note" id="import-status" role="status" aria-live="polite"></span>
+            </div>
+            <div class="form-actions">
+              <p class="note" id="import-note">Nothing on the server changes until the upload is complete and checked.</p>
+              <button class="btn btn-quiet" type="button" id="world-import-cancel">Cancel</button>
+              <button class="btn btn-primary" id="world-import-go"><svg><use href="#pg-upload"/></svg>Upload and import</button>
             </div>
           </form>
   </div>
