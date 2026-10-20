@@ -47,6 +47,8 @@ const zlib = require('zlib');
 const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast } = require('./lib/auth');
 const { Oidc, roleFor } = require('./lib/oidc');
 const { SsoSettings } = require('./lib/sso');
+const { SystemSettings, LISTEN: LISTEN_KEYS, fromEnv: systemFromEnv } = require('./lib/system');
+const { Listener } = require('./lib/listener');
 const { maskIps, maskDeep } = require('./lib/redact');
 const properties = require('./lib/properties');
 
@@ -72,7 +74,7 @@ const logTail = new LogTail(path.join(config.mcDir, 'logs', 'latest.log'));
 const stats = new Stats({ rcon, mcDir: config.mcDir, heapMax: activeInstance ? activeInstance.memoryMb * 1024 * 1024 : null });
 const jobs = new Jobs({ backupDir: config.backupDir, runner: config.jobRunner, log, instance: config.activeServer });
 const activeWorld = async () => (await readProperties(config.mcDir))['level-name'] || 'world';
-const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: config.backupKeep, log, activeWorld });
+const backups = new Backups({ rcon, jobs, backupDir: config.backupDir, keep: config.backupKeep, compression: config.backupCompression, log, activeWorld });
 const power = new Power({ unit: config.mcService, log });
 const countdown = new Countdown({ rcon, log, power });
 const ops = new Ops({ log });
@@ -267,6 +269,8 @@ function serveStatic(req, res, f) {
 const PUBLIC_FILES = {
   '/login': load('login.html'),
   '/login.js': load('login.js'),
+  '/confirm-address': load('confirm.html'),
+  '/confirm.js': load('confirm.js'),
   '/style.css': load('style.css'),
   '/favicon.svg': load('favicon.svg', IMMUTABLE),
   '/notify-icon.png': load('notify-icon.png', IMMUTABLE), // ntfy shows it next to notifications
@@ -330,7 +334,7 @@ function noteProxy(req) {
 function proxyCheck() {
   if (!untrustedProxy || Date.now() - untrustedProxy.at > 24 * 3600 * 1000) return [];
   const a = untrustedProxy.address;
-  return [{ kind: 'host', severity: 'warning', title: 'Reverse proxy not trusted', message: `Requests come through ${a}, which sends X-Forwarded-For, but TRUST_PROXY doesn't list it. rconsole sees every visitor as ${a}: five wrong passwords from anyone lock out all password sign-ins, and HSTS and secure cookies stay off.`, hint: `Add TRUST_PROXY=${a} to /etc/rconsole.env and restart rconsole.` }];
+  return [{ kind: 'host', severity: 'warning', title: 'Reverse proxy not trusted', message: `Requests come through ${a}, which sends X-Forwarded-For, but TRUST_PROXY doesn't list it. rconsole sees every visitor as ${a}: five wrong passwords from anyone lock out all password sign-ins, and HSTS and secure cookies stay off.`, hint: `Add ${a} under Settings → System → Web access → Trusted proxies.` }];
 }
 
 const isHttps = (req) => fromTrustedProxy(req) && req.headers['x-forwarded-proto'] === 'https';
@@ -662,6 +666,8 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/me\/password$/, () => ['password change', '']],
   ['POST', /^\/api\/problems\/mute$/, (p, b) => [b.all ? 'problems unmuted' : b.muted === false ? 'problem unmuted' : 'problem muted', String(b.key || '').slice(0, 120)]],
   ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
+  ['PUT', /^\/api\/system$/, (p, b) => ['system settings', [...Object.keys(b.set || {}).map((k) => (k === 'metricsToken' ? (b.set[k] ? 'metrics on' : 'metrics off') : `${k}=${JSON.stringify(b.set[k])}`)), ...(b.reset || []).map((k) => `${k} reset`)].join(', ').slice(0, 300)]],
+  ['DELETE', /^\/api\/system\/trial$/, () => ['web address change cancelled', '']],
   ['PUT', /^\/api\/map$/, (p, b) => ['map', String(b.url || 'off').slice(0, 100)]],
   ['PUT', /^\/api\/configs\/file$/, (p, b) => ['config edit', b.path]],
   ['POST', /^\/api\/configs\/revert$/, (p, b) => ['config revert', b.path]],
@@ -698,6 +704,7 @@ const ROLE_RULES = [
   ['GET', /^\/api\/configs/, 'admin'], // configs often hold passwords
   ['GET', /^\/api\/offsite/, 'admin'],
   ['GET', /^\/api\/users$/, 'admin'], // who has access, and how
+  ['GET', /^\/api\/system$/, 'admin'], // addresses, proxies, paths
   ['GET', /^\/api\/about$/, 'admin'], // paths and settings of this install
   ['GET', /^\/api\/sso$/, 'admin'],
   ['GET', /^\/api\/backups\/[^/]+$/, 'admin'], // downloads whole worlds
@@ -899,6 +906,108 @@ route('GET', /^\/api\/about$/, () => ({
   trustProxy: config.trustProxy,
   jobRunner: config.jobRunner,
 }));
+
+// Settings → System: the settings that used to live only in
+// /etc/rconsole.env (lib/system.js). Everything applies without a restart;
+// a new web address runs as a trial (lib/listener.js) and is saved only
+// once a request reaches rconsole through it.
+const systemSettings = new SystemSettings({ stateDir: config.stateDir });
+let pendingListen = null; // { set, reset } for webHost/webPort, saved on confirm
+
+function applySystem(v) {
+  config.trustProxy = v.trustProxy;
+  config.require2faMode = v.require2fa;
+  config.require2fa = config.require2faRoles(v.require2fa);
+  config.metricsToken = v.metricsToken;
+  config.backupKeep = backups.keep = v.backupKeep;
+  config.backupCompression = backups.compression = v.backupCompression;
+  config.updateCheck = v.updateCheck;
+}
+
+function systemView(req) {
+  const direct = String(req.socket.remoteAddress).replace(/^::ffff:/, '');
+  return {
+    settings: systemSettings.view(),
+    listening: { host: listener.host, port: listener.port },
+    fellBack: listener.fellBack,
+    trial: listener.status(),
+    // How this browser reaches rconsole, for the proxy field's hints.
+    via: { address: direct, forwarded: Boolean(req.headers['x-forwarded-for']), trusted: fromTrustedProxy(req) },
+    untrustedProxy: proxyCheck().length ? untrustedProxy.address : null,
+    // Set in /etc/rconsole.env only: paths the sandbox is built around, and
+    // safeguards that root-owned units read.
+    fixed: {
+      mcDir: config.mcDir,
+      serversDir: config.serversDir,
+      backupDir: config.backupDir,
+      stateDir: config.stateDir,
+      mcService: config.mcService,
+      jobRunner: config.jobRunner,
+      rconFirewall: !/^(off|false|0|no)$/i.test(process.env.RCON_FIREWALL || ''),
+      signedUpdates: Boolean(process.env.SELF_UPDATE_SIGNERS),
+    },
+  };
+}
+
+route('GET', /^\/api\/system$/, (req) => systemView(req));
+
+route('PUT', /^\/api\/system$/, async (req) => {
+  const body = await readJson(req);
+  const { set = {}, reset = [] } = body;
+  const next = systemSettings.next({ set, reset });
+  const v = next.values;
+
+  // Don't let the change lock out the admin making it.
+  const me = users.get(req.user);
+  const roles = config.require2faRoles(v.require2fa);
+  if (next.changed.includes('require2fa')) {
+    if (me?.hash && !me.totp && roles.includes(req.role)) throw httpError(400, `Set up two-factor sign-in for your own account first (on the server: node cli.js user totp ${req.user}); otherwise this locks you out at your next sign-in.`);
+    const without = Object.entries(users.load()).filter(([n, u]) => u.hash && !u.totp && roles.includes(users.roleOf(n))).map(([n]) => n);
+    if (without.length && !body.confirm) throw httpError(409, `${without.join(', ')} ${without.length === 1 ? "doesn't" : "don't"} have two-factor sign-in yet and won't be able to sign in until ${without.length === 1 ? 'it is' : 'they are'} set up on the server (node cli.js user totp <name>).`, { confirm: '2fa' });
+  }
+  if (next.changed.includes('trustProxy') && !body.confirm) {
+    const direct = String(req.socket.remoteAddress).replace(/^::ffff:/, '');
+    if (req.headers['x-forwarded-for'] && !v.trustProxy.includes(direct)) throw httpError(409, `You're connected through ${direct}, which won't be trusted any more: everyone will share one sign-in lockout, and secure cookies and HSTS go off.`, { confirm: 'proxy' });
+  }
+
+  // A new address starts its trial first, so a port that can't be opened
+  // fails the whole change before anything is saved.
+  const listenSet = Object.fromEntries(Object.entries(set).filter(([k]) => LISTEN_KEYS.has(k)));
+  const listenReset = reset.filter((k) => LISTEN_KEYS.has(k));
+  let trial = null;
+  if ((Object.keys(listenSet).length || listenReset.length) && (v.webHost !== listener.host || v.webPort !== listener.port)) {
+    trial = await listener.trial(v.webHost, v.webPort);
+    pendingListen = { set: listenSet, reset: listenReset, user: req.user };
+  }
+
+  // Everything else: saved and applied now. The address keys are saved
+  // here only when the address stays the same (env file ↔ saved).
+  const keep = (k) => !LISTEN_KEYS.has(k) || !trial;
+  const rest = systemSettings.next({ set: Object.fromEntries(Object.entries(set).filter(([k]) => keep(k))), reset: reset.filter(keep) });
+  if (JSON.stringify(rest.saved) !== JSON.stringify(systemSettings.saved)) {
+    systemSettings.save(rest.saved);
+    applySystem(rest.values);
+    if (rest.changed.length) log(`${req.user}: system settings ${rest.changed.join(', ')}`);
+  }
+  return { ok: true, changed: next.changed, ...systemView(req), trial: trial || listener.status() };
+});
+
+route('DELETE', /^\/api\/system\/trial$/, async () => {
+  await listener.cancel(`cancelled by an admin`);
+  pendingListen = null;
+  return { ok: true };
+});
+
+async function confirmListen(req) {
+  const { token } = await readJson(req);
+  const { host, port } = listener.confirm(token, req.socket.server);
+  const p = pendingListen || { set: { webHost: host, webPort: port }, reset: [] };
+  pendingListen = null;
+  systemSettings.save(systemSettings.next(p).saved);
+  [config.webHost, config.webPort] = [host, port];
+  audit.record({ user: p.user || 'unknown', ip: clientIp(req), action: 'web address', target: `${host}:${port} confirmed` });
+  return { ok: true, host, port };
+}
 
 // Settings → Account: a local account changes its own password. The current
 // password proves it's the owner (not someone at an unlocked screen); wrong
@@ -1294,7 +1403,7 @@ function tokenMatches(given, expected) {
 }
 
 async function serveMetrics(req, res) {
-  if (!config.metricsToken) return send(res, 404, { error: 'Set METRICS_TOKEN to enable /metrics' });
+  if (!config.metricsToken) return send(res, 404, { error: 'Turn on Prometheus metrics under Settings → System to enable /metrics' });
   const auth = String(req.headers.authorization || '');
   if (!auth.startsWith('Bearer ') || !tokenMatches(auth.slice(7), config.metricsToken)) {
     return send(res, 401, { error: 'Bearer token required' }, undefined, { 'WWW-Authenticate': 'Bearer' });
@@ -1488,14 +1597,15 @@ async function handle(req, res, handler, params = [], onDone) {
   }
 }
 
-const server = http.createServer((req, res) => {
+const onRequest = (req, res) => {
   // Anything a handler throws ends this request, never the process.
   dispatch(req, res).catch((err) => {
     log(`http: ${req.method} ${String(req.url).slice(0, 200)}: ${err.stack || err.message}`);
     if (!res.headersSent) send(res, err instanceof URIError ? 400 : 500, { error: err instanceof URIError ? 'Bad request' : 'Internal error' });
     else res.destroy();
   });
-});
+};
+const listener = new Listener({ handler: onRequest, log });
 
 async function dispatch(req, res) {
   // Only over HTTPS (the proxy says so): browsers ignore it on plain HTTP,
@@ -1520,6 +1630,9 @@ async function dispatch(req, res) {
   if (req.method === 'GET' && pathname === '/auth/oidc/start') return ssoStart(req, res);
   if (req.method === 'GET' && pathname === '/auth/oidc/callback') return ssoCallback(req, res);
   if (req.method === 'GET' && pathname === '/healthz') return send(res, 200, { ok: true });
+  // The single-use token of an address trial is the credential: the new
+  // address may not carry the session cookie (other port, plain HTTP).
+  if (req.method === 'POST' && pathname === '/api/system/confirm') return handle(req, res, confirmListen);
   if (req.method === 'GET' && pathname === '/metrics') return serveMetrics(req, res);
   if (pathname.startsWith('/map/')) return proxyMap(req, res, pathname);
 
@@ -1575,20 +1688,26 @@ scheduler.load().then(() => {
   const updateCheck = () => notify.checkUpdates({ updates, plugins, selfUpdate }).catch((err) => log(`notify: ${err.message}`));
   setTimeout(updateCheck, 5 * 60 * 1000).unref();
   setInterval(updateCheck, 24 * 3600 * 1000).unref();
-  selfUpdate.startTimer();
+  selfUpdate.startTimer(() => config.updateCheck);
   playerHistory.history().then((h) => scanners.seed(h)).catch((err) => log(`players: ${err.message}`)); // backfill from old logs
   logTail.on('line', (line) => scanners.onLogLine(line));
   logTail.on('line', (line) => {
     if (/ (joined|left) the game$| lost connection: /.test(line)) stats.invalidate('players');
   });
   servers.autostart().catch((err) => log(`servers: autostart: ${err.message}`));
-  server.listen(config.webPort, config.webHost, () => {
-    log(`rconsole listening on http://${config.webHost}:${config.webPort}`);
+  const envListen = systemFromEnv(process.env);
+  listener.start(config.webHost, config.webPort, { host: envListen.webHost.value, port: envListen.webPort.value }).then(({ host, port }) => {
+    [config.webHost, config.webPort] = [host, port];
+    if (listener.fellBack) problems.record({ kind: 'host', severity: 'warning', title: 'Saved web address not available', message: `${listener.fellBack.error}. rconsole listens on ${host}:${port} from /etc/rconsole.env instead. Check Settings → System → Web access.` });
+    log(`rconsole listening on http://${host}:${port}`);
     log(`RCON ${config.rconHost}:${config.rconPort}, server dir ${config.mcDir}, backups ${config.backupDir}, state ${config.stateDir}`);
     if (config.trustProxy.length) log(`trusting X-Forwarded-* from ${config.trustProxy.join(', ')}`);
     if (!users.count && !oidc) log('WARNING: no users yet. Create one with: node cli.js user add <name>');
     if (!sso.localLogin && !oidc) log('WARNING: LOCAL_LOGIN=off but single sign-on is not working: nobody can sign in. Fix the single sign-on settings or set LOCAL_LOGIN=on.');
     if (process.env.WEB_PASSWORD) log('NOTE: WEB_USER/WEB_PASSWORD are no longer used; manage users with cli.js');
+  }).catch((err) => {
+    log(`FATAL: ${err.message}`);
+    process.exit(1);
   });
 });
 
@@ -1598,7 +1717,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     metrics.stop();
     rcon.close();
     sessions.flush();
-    server.close(() => process.exit(0));
+    listener.close().then(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref(); // open log streams keep the server alive
   });
 }

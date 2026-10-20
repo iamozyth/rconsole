@@ -290,19 +290,25 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user r
 
 ## Configuration
 
-`/etc/rconsole.env`:
+Most settings are made in the browser: **Settings → System** (web address and port, trusted proxies, required 2FA, Prometheus, backups, update check), **Settings → Users & sign-in** (single sign-on) and **Settings → Notifications**. They apply without a restart and are kept in rconsole's data folder; a value saved there wins over `/etc/rconsole.env`, and each field shows where its value comes from, with a link back to the env file's.
+
+Changing the address or port is tried first: rconsole listens on the new one next to the old one and keeps it once you reach it there, either through the link it shows or because your reverse proxy now points at the new port (the settings page confirms on its own). Otherwise it goes back after 3 minutes. Locked out anyway? `sudo -u rconsole node cli.js system reset` drops everything saved there (`system reset webPort` just one; `system show` lists them), then `sudo systemctl restart rconsole`. If a saved address can't be opened at start, rconsole falls back to the env file's and shows it under Problems.
+
+Paths, RCON and the safeguards that root-owned services read (`RCON_FIREWALL`, `SELF_UPDATE_SIGNERS`) stay in the env file only, so a stolen admin session can't move the sandbox or switch them off.
+
+`/etc/rconsole.env` (variables marked ⚙ can be overridden under Settings → System):
 
 | Variable        | Default                  | Description                                          |
 |-----------------|--------------------------|------------------------------------------------------|
 | `RCON_PASSWORD` | (none)                   | Matches `rcon.password` of a server rconsole didn't install |
 | `RCON_HOST`     | `127.0.0.1`              | Minecraft server host                                |
 | `RCON_PORT`     | `25575`                  | RCON port                                            |
-| `WEB_HOST`      | `127.0.0.1`              | Address to bind (`0.0.0.0` for a proxy on another host) |
-| `WEB_PORT`      | `8080`                   | Port to listen on                                    |
-| `TRUST_PROXY`   | (none)                   | Comma-separated proxy IPs allowed to set `X-Forwarded-*` |
+| `WEB_HOST` ⚙    | `127.0.0.1`              | Address to bind (`0.0.0.0` for a proxy on another host) |
+| `WEB_PORT` ⚙    | `8080`                   | Port to listen on                                    |
+| `TRUST_PROXY` ⚙ | (none)                   | Comma-separated proxy IPs allowed to set `X-Forwarded-*` |
 | `MC_DIR`        | `/srv/minecraft`         | Server directory (logs, lists, worlds)               |
 | `BACKUP_DIR`    | `/srv/minecraft-backups` | Where backups are written (outside `MC_DIR`)         |
-| `BACKUP_KEEP`   | `10`                     | Newest backups to keep, `0` keeps all                |
+| `BACKUP_KEEP` ⚙ | `10`                     | Newest backups to keep, `0` keeps all                |
 | `MC_JAR`        | `paper.jar`              | Server jar in `MC_DIR` that updates replace          |
 | `MC_SERVICE`    | `minecraft.service`      | systemd unit rconsole starts, stops and restarts     |
 | `SERVERS_DIR`   | `/srv/minecraft-servers` | Servers rconsole installs, one folder each; the one it shows replaces `MC_DIR`, `MC_SERVICE` and the RCON settings |
@@ -315,11 +321,13 @@ Other commands: `user list`, `user passwd <name>`, `user remove <name>`, `user r
 | `OIDC_SCOPES`   | `openid profile email`   | Scopes to ask for                                    |
 | `OIDC_SESSION_HOURS` | `12`                | SSO sessions end after this long; losing access at the provider takes effect by then |
 | `LOCAL_LOGIN`   | `on`                     | `off` hides the username/password form (SSO only)    |
-| `METRICS_TOKEN` | (none)                   | Enables `/metrics` for Prometheus with this bearer token |
+| `METRICS_TOKEN` ⚙ | (none)                   | Enables `/metrics` for Prometheus with this bearer token |
 | `MAP_URL`       | (none)                   | squaremap/BlueMap web server, e.g. `http://127.0.0.1:8100` |
-| `SELF_UPDATE_CHECK` | `1`                  | `0` turns off the background check for rconsole updates |
+| `SELF_UPDATE_CHECK` ⚙ | `1`                  | `0` turns off the background check for rconsole updates |
 | `SELF_UPDATE_SIGNERS` | (none)             | Allowed-signers file (root's): self-update installs only release tags signed by these SSH keys, see [Signed updates](#signed-updates-only) |
-| `REQUIRE_2FA`   | `off`                    | `admin` or `all`: local accounts of those roles must have 2FA to sign in |
+| `REQUIRE_2FA` ⚙ | `off`                    | `admin` or `all`: local accounts of those roles must have 2FA to sign in |
+| `BACKUP_COMPRESSION` ⚙ | (zstd when installed) | `gzip` keeps `.tar.gz` backups               |
+| `RCON_FIREWALL` | `on`                     | `off`: don't close RCON ports to other machines (rconsole-limits.service) |
 | `MODRINTH_API`  | `https://api.modrinth.com/v2` | Modrinth API for the plugin manager             |
 
 ## Single sign-on (authentik)
@@ -380,7 +388,7 @@ http:
           interval: 30s
 ```
 
-Set `TRUST_PROXY` to the IP Traefik connects from.
+Add the IP Traefik connects from under **Settings → System → Web access → Trusted proxies** (rconsole offers it when it sees requests coming through an untrusted proxy), or set `TRUST_PROXY`.
 
 ## Updating
 
@@ -407,7 +415,7 @@ sudo systemctl start rconsole-selfupdate.service   # same as the button
 journalctl -u rconsole-selfupdate                  # what it did
 ```
 
-Set `SELF_UPDATE_CHECK=0` in `/etc/rconsole.env` to turn off the background check.
+Turn off the background check under **Settings → System → Backups and updates**, or with `SELF_UPDATE_CHECK=0` in `/etc/rconsole.env`.
 
 ### Signed updates only
 
@@ -527,7 +535,7 @@ Mentions are switched off, so nobody in game can ping `@everyone`. Webhook URLs 
 
 ## Prometheus
 
-Set `METRICS_TOKEN` and scrape `/metrics`:
+Turn it on under **Settings → System → Security** (it shows a new token once), or set `METRICS_TOKEN`, and scrape `/metrics`:
 
 ```yaml
 scrape_configs:
@@ -584,7 +592,7 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 - **Single sign-on** (optional): OpenID Connect authorization code flow with PKCE, a `nonce`, and a single-use `state` kept in a short-lived cookie signed by rconsole, so a sign-in only completes in the browser that started it (no login CSRF) and nothing server-side can be flooded. ID tokens are verified locally against the provider's published keys (RS256, PS256 or ES256 only; unsigned and HMAC tokens are refused) along with issuer, audience and expiry. The provider must use HTTPS. Roles come from groups at every sign-in; SSO accounts have no password and are matched by the provider's subject ID, never by name.
 - **Roles**: `admin` (everything; accounts from before roles existed are admins), `moderator` (sees everything an admin sees except the audit log and notification and offsite settings; runs only moderation commands: say, tell, kick, ban and pardon, whitelist add and remove, tp, gamemode, spectate and common mute or warn plugin commands) and `viewer` (read-only: console, charts, settings, no player addresses). The server enforces the role on every request; the interface hides what a role can't do. `node cli.js user add <name> --role moderator`, `node cli.js user role <name> viewer`; changing a role signs that user out.
 - **Sessions** are random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie, `Secure` when served over HTTPS. They expire after 12 h idle or 7 days (SSO sessions after `OIDC_SESSION_HOURS`), and are revoked when the password or role changes or the user is removed. Only the SHA-256 of each token is stored (`STATE_DIR/sessions.json`, mode 600), so restarting rconsole keeps everyone signed in.
-- **2FA**: optional TOTP per user, with replay protection and ten one-time recovery codes. `REQUIRE_2FA=admin` (or `all`) makes it mandatory.
+- **2FA**: optional TOTP per user, with replay protection and ten one-time recovery codes. **Settings → System → Security** (or `REQUIRE_2FA=admin`/`all`) makes it mandatory; rconsole refuses to require it while your own account has none, and warns about accounts that would be locked out.
 - **HSTS** is sent when the reverse proxy reports HTTPS.
 - **Brute force**: 5 failed logins from one client IP within 15 minutes lock that IP for 15 minutes. Failures are not counted per username alone, so nobody can lock the real user out of their account by guessing wrong on purpose.
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.
@@ -600,7 +608,7 @@ rconsole speaks plain HTTP. Put it behind a TLS reverse proxy (see Traefik below
 ## Notes
 
 - TPS uses `tps` on Paper/Spigot and `tick query` on vanilla 1.20.3+. Older vanilla versions show `n/a`.
-- Backups archive the world folders (`level-name`, plus `_nether` and `_the_end` if present) as `.tar.zst` when `zstd` is installed (several times faster, so autosave is off for less time), else `.tar.gz`. `BACKUP_COMPRESSION=gzip` keeps gzip.
+- Backups archive the world folders (`level-name`, plus `_nether` and `_the_end` if present) as `.tar.zst` when `zstd` is installed (several times faster, so autosave is off for less time), else `.tar.gz`. Settings → System (or `BACKUP_COMPRESSION=gzip`) keeps gzip.
 - Player avatars load from mc-heads.net.
 
 ## License

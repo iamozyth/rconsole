@@ -2,6 +2,7 @@
 'use strict';
 
 // User management: node cli.js user <add|passwd|remove|list|role|totp|totp-off|link|unlink> [name]
+// Settings → System from the shell: node cli.js system <show|reset> [setting]
 
 const readline = require('readline');
 const config = require('./lib/config');
@@ -132,13 +133,37 @@ const commands = {
   },
 };
 
+// What Settings → System saved, and a way back to /etc/rconsole.env when a
+// saved value locks you out (restart rconsole afterwards).
+const system = {
+  show() {
+    const sys = new (require('./lib/system').SystemSettings)({ stateDir: config.stateDir });
+    const view = sys.view();
+    for (const [k, v] of Object.entries(view)) {
+      const value = 'set' in v ? (v.set ? 'set' : 'off') : JSON.stringify(v.value);
+      console.log(`${k.padEnd(18)} ${value.padEnd(24)} ${v.source === 'saved' ? `saved in Settings (overrides ${v.env})` : v.source === 'env' ? `from ${v.env}` : 'default'}`);
+    }
+  },
+  reset(key) {
+    const { SystemSettings, FIELDS } = require('./lib/system');
+    const sys = new SystemSettings({ stateDir: config.stateDir });
+    if (key && !FIELDS[key]) throw new Error(`No such setting: ${key} (one of ${Object.keys(FIELDS).join(', ')})`);
+    const keys = key ? [key] : Object.keys(sys.saved);
+    if (!keys.length) return console.log('Nothing saved in Settings → System; /etc/rconsole.env applies.');
+    sys.save(sys.next({ reset: keys }).saved);
+    console.log(`Reset ${keys.join(', ')}: /etc/rconsole.env applies again after: sudo systemctl restart rconsole`);
+  },
+};
+
 async function main() {
   const [group, cmd, name] = process.argv.slice(2);
+  if (group === 'system' && system[cmd]) return system[cmd](name);
   if (group !== 'user' || !commands[cmd]) {
     console.log(`Usage: node cli.js user <${Object.keys(commands).join('|')}> [name]`);
     console.log('       node cli.js user add <name> [--role admin|moderator|viewer]');
     console.log('       node cli.js user role <name> [admin|moderator|viewer]');
     console.log('       node cli.js user link <local account> <SSO account to merge into it>');
+    console.log('       node cli.js system show | system reset [setting]');
     console.log(`State directory: ${config.stateDir}`);
     process.exit(group ? 1 : 0);
   }
