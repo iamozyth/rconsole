@@ -39,6 +39,7 @@ const { Offsite } = require('./lib/offsite');
 const { Spark } = require('./lib/spark');
 const { PlayerInfo } = require('./lib/playerinfo');
 const { Configs, MAX_BYTES: CONFIG_MAX } = require('./lib/configs');
+const { Files, MAX_EDIT: FILE_MAX } = require('./lib/files');
 const { CommandCatalog } = require('./lib/commands');
 const { SelfUpdate } = require('./lib/selfupdate');
 const { Notify } = require('./lib/notify');
@@ -80,7 +81,12 @@ const power = new Power({ unit: config.mcService, log });
 const countdown = new Countdown({ rcon, log, power });
 const ops = new Ops({ log });
 const uploads = new Uploads({ backupDir: config.backupDir, log, explain: require('./lib/worldimport').explainNotWorld });
-setInterval(() => uploads.prune(), 3600 * 1000).unref();
+// Server → Files: any file, in a folder of its own the helper reads from.
+const fileUploads = new Uploads({ backupDir: config.backupDir, log, subdir: '.uploads-files', anyFile: true });
+setInterval(() => {
+  uploads.prune();
+  fileUploads.prune();
+}, 3600 * 1000).unref();
 const worlds = new Worlds({ mcDir: config.mcDir, stateDir: config.stateDir, jobs, backups, power, countdown, ops, rcon, log, uploads, gameVersion: () => gameVersion() });
 const maintenance = new Maintenance({ mcDir: config.mcDir, stateDir: config.stateDir, rcon, log });
 const pending = new Pending({ stateDir: config.stateDir, power });
@@ -94,6 +100,7 @@ const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersi
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
 const playerInfo = new PlayerInfo({ mcDir: config.mcDir, rcon, log });
 const configs = new Configs({ mcDir: config.mcDir });
+const files = new Files({ mcDir: config.mcDir });
 const commandCatalog = new CommandCatalog({ rcon, log });
 const notify = new Notify({ stateDir: config.stateDir, log, publicUrl: config.publicUrl });
 const selfUpdate = new SelfUpdate({ dir: __dirname, stateDir: config.stateDir, runner: config.jobRunner, log });
@@ -755,6 +762,13 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/system\/trial$/, () => ['web address change cancelled', '']],
   ['PUT', /^\/api\/map$/, (p, b) => ['map', String(b.url || 'off').slice(0, 100)]],
   ['PUT', /^\/api\/configs\/file$/, (p, b) => ['config edit', b.path]],
+  ['PUT', /^\/api\/files\/file$/, (p, b) => [b.expected ? 'file edit' : 'file create', b.path]],
+  ['POST', /^\/api\/files\/revert$/, (p, b) => ['file revert', b.path]],
+  ['POST', /^\/api\/files\/folder$/, (p, b) => ['folder create', b.path]],
+  ['POST', /^\/api\/files\/move$/, (p, b) => ['file move', `${b.from} → ${b.to}`]],
+  ['POST', /^\/api\/files\/delete$/, (p, b) => ['file delete', b.path]],
+  ['POST', /^\/api\/files\/uploads$/, (p, b) => ['file upload', b.name ? `${String(b.name).slice(0, 120)} (${humanBytes(Number(b.size))})` : '']],
+  ['POST', /^\/api\/files\/place$/, (p, b) => ['file place', `${b.dir ? `${b.dir}/` : ''}${b.name}${b.unpack ? ' (unpacked)' : ''}`]],
   ['POST', /^\/api\/configs\/revert$/, (p, b) => ['config revert', b.path]],
   ['POST', /^\/api\/chat$/, (p, b) => [b.to ? `whisper to ${b.to}` : 'chat', String(b.message || '').slice(0, 120)]],
   ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
@@ -787,6 +801,7 @@ const ROLE_RULES = [
   ['GET', /^\/api\/audit$/, 'admin'],
   ['GET', /^\/api\/notify$/, 'admin'],
   ['GET', /^\/api\/configs/, 'admin'], // configs often hold passwords
+  ['GET', /^\/api\/files/, 'admin'], // so does the rest of the server folder
   ['GET', /^\/api\/offsite/, 'admin'],
   ['GET', /^\/api\/users$/, 'admin'], // who has access, and how
   ['GET', /^\/api\/system$/, 'admin'], // addresses, proxies, paths
@@ -928,6 +943,84 @@ route('POST', /^\/api\/configs\/revert$/, async (req) => {
   pending.add(`config ${file}`);
   return { ...r, ...configs.read(file) };
 });
+// --- Server → Files: the shown server's folder ---------------------------------
+// Reading is rconsole's (it can read the server folder); every change is a
+// helper job that checks the path again. Admins only (see ROLE_RULES).
+const qpath = (req) => new URL(req.url, 'http://x').searchParams.get('path') || '';
+route('GET', /^\/api\/files$/, (req) => files.list(qpath(req)));
+route('GET', /^\/api\/files\/file$/, (req) => files.read(qpath(req)));
+route('GET', /^\/api\/files\/download$/, async (req, res) => {
+  const { parts, full, st } = files.resolve(qpath(req));
+  const name = (parts[parts.length - 1] || path.basename(config.mcDir)).replace(/["\\\r\n]/g, '_');
+  const done = (err) => err && err.code !== 'ERR_STREAM_PREMATURE_CLOSE' && log(`download ${parts.join('/')}: ${err.message}`);
+  if (st.isFile()) {
+    const fd = fs.openSync(full, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/octet-stream', 'Content-Length': fs.fstatSync(fd).size, 'Content-Disposition': `attachment; filename="${name}"` });
+    require('stream').pipeline(fs.createReadStream(null, { fd }), res, done);
+    return null;
+  }
+  // Folders as .tar.gz, made on the fly; tar keeps links as links.
+  log(`${req.user}: downloading ${parts.join('/') || 'the server folder'} as an archive`);
+  const tar = require('child_process').spawn('tar', ['-czf', '-', '--exclude=.rconsole*', '-C', path.dirname(full), '--', path.basename(full)], { stdio: ['ignore', 'pipe', 'ignore'] });
+  res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="${name}.tar.gz"` });
+  require('stream').pipeline(tar.stdout, res, done);
+  res.on('close', () => tar.kill());
+  return null;
+});
+// The helper's refusals (exists already, changed since opened…) are the
+// user's to fix, not server errors.
+async function fileJob(args) {
+  const { parts } = require('./lib/files');
+  for (const k of ['path', 'from', 'to']) if (args[k] !== undefined) parts(args[k], { write: true });
+  try {
+    return await jobs.run('file-op', args);
+  } catch (err) {
+    throw httpError(/not installed|Not allowed|journalctl/.test(err.message) ? 500 : 400, err.message);
+  }
+}
+route('PUT', /^\/api\/files\/file$/, async (req) => {
+  const { path: rel, content, expected } = await readJson(req, FILE_MAX * 2 + 4096);
+  const r = await fileJob({ op: 'write', path: String(rel ?? ''), content: String(content ?? ''), expected: expected ?? null });
+  pending.add(`file ${r.path}`);
+  return { ...r, ...files.read(r.path) };
+});
+route('POST', /^\/api\/files\/revert$/, async (req) => {
+  const { path: rel } = await readJson(req);
+  const r = await fileJob({ op: 'revert', path: String(rel ?? '') });
+  pending.add(`file ${r.path}`);
+  return { ...r, ...files.read(r.path) };
+});
+route('POST', /^\/api\/files\/folder$/, async (req) => fileJob({ op: 'mkdir', path: String((await readJson(req)).path ?? '') }));
+route('POST', /^\/api\/files\/move$/, async (req) => {
+  const { from, to } = await readJson(req);
+  return fileJob({ op: 'move', from: String(from ?? ''), to: String(to ?? '') });
+});
+route('POST', /^\/api\/files\/delete$/, async (req) => fileJob({ op: 'delete', path: String((await readJson(req)).path ?? '') }));
+route('POST', /^\/api\/files\/uploads$/, async (req) => {
+  const { name, size } = await readJson(req);
+  return [201, fileUploads.create({ name, size, user: req.user })];
+});
+route('GET', /^\/api\/files\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => fileUploads.status(id));
+route('PUT', /^\/api\/files\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => {
+  if (!String(req.headers['content-type']).startsWith('application/octet-stream')) throw httpError(415, 'Content-Type must be application/octet-stream');
+  return fileUploads.append(id, new URL(req.url, 'http://x').searchParams.get('offset'), req, req.user);
+}, false);
+route('DELETE', /^\/api\/files\/uploads\/([a-f0-9]{32})$/, async (req, res, [id]) => {
+  fileUploads.meta(id);
+  fileUploads.remove(id);
+  return { ok: true };
+}, false);
+route('POST', /^\/api\/files\/place$/, async (req) => {
+  const { upload, dir, name, unpack } = await readJson(req);
+  const st = fileUploads.status(String(upload || ''));
+  if (fileUploads.meta(st.id).user !== req.user) throw httpError(403, 'This upload belongs to someone else');
+  if (!st.complete) throw httpError(409, 'The upload isn\'t complete yet');
+  // Kept when placing fails (a name that exists), so it can be placed again.
+  const r = await fileJob({ op: 'place', upload: st.id, dir: String(dir ?? ''), name: String(name ?? ''), unpack: unpack === true });
+  fileUploads.remove(st.id);
+  return r;
+});
+
 route('GET', /^\/api\/spark$/, () => spark.status());
 route('POST', /^\/api\/spark$/, async (req) => {
   const { kind, seconds } = await readJson(req);

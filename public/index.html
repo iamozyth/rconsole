@@ -63,6 +63,8 @@
   <symbol id="pg-bell" viewBox="0 0 24 24"><path d="M12 2.5a1.5 1.5 0 0 1 1.5 1.5v.7A6.5 6.5 0 0 1 18.5 11v4.5L21 18v1.5H3V18l2.5-2.5V11a6.5 6.5 0 0 1 5-6.3V4A1.5 1.5 0 0 1 12 2.5zM9.5 21h5a2.5 2.5 0 0 1-5 0z"/></symbol>
   <symbol id="pg-key" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M15.5 2.5a6 6 0 1 1-1.9 11.7l-1.4 1.4H10v2.2H7.8v2.2H5.6L4 21.6H2.5V18l7.3-7.3A6 6 0 0 1 15.5 2.5zm1.6 3.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z"/></symbol>
   <symbol id="pg-copy" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M8 2.5h12.5V17H17v4.5H3.5V7H8zm2.4 2.4V7H17v7.6h1.1V4.9zM5.9 9.4v9.7h8.7V9.4z"/></symbol>
+  <symbol id="pg-folder" viewBox="0 0 24 24"><path d="M2.5 4.5h7l2 2.5h10v12.5h-19z"/></symbol>
+  <symbol id="pg-file" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M5 2.5h9.2L19 7.3v14.2H5zm2.4 2.4v14.2h9.2V8.6h-3.8V4.9z"/></symbol>
   <symbol id="pg-chev" viewBox="0 0 24 24"><path d="M6.7 8.6 12 13.9l5.3-5.3 1.7 1.7-7 7-7-7z"/></symbol>
   <symbol id="pg-dashboard" viewBox="0 0 24 24"><path d="M3 3h8v10H3zm10 0h8v6h-8zM3 15h8v6H3zm10-4h8v10h-8z"/></symbol>
   <symbol id="pg-pin" viewBox="0 0 24 24"><path d="M8 2.5h8v2h-1.2v5.2l3.4 3.4v2.4h-5v6l-1.2 1-1.2-1v-6H5.8v-2.4l3.4-3.4V4.5H8z"/></symbol>
@@ -470,14 +472,26 @@
         <section class="panel cfg-panel">
           <div class="cfg-layout">
             <aside class="cfg-tree">
-              <div class="search"><svg><use href="#pg-search"/></svg><input id="cfg-filter" type="search" placeholder="Filter files" aria-label="Filter files" autocomplete="off"></div>
-              <ul id="cfg-list" aria-label="Config files"></ul>
+              <nav class="fm-crumbs" id="fm-crumbs" aria-label="Folder"></nav>
+              <div class="fm-tools">
+                <div class="search"><svg><use href="#pg-search"/></svg><input id="cfg-filter" type="search" placeholder="Filter this folder" aria-label="Filter this folder" autocomplete="off"></div>
+                <button class="btn btn-quiet btn-icon btn-sm" id="fm-upload" type="button" aria-label="Upload files" title="Upload files (or drop them here)"><svg><use href="#pg-upload"/></svg></button>
+                <button class="btn btn-quiet btn-icon btn-sm" id="fm-new-file" type="button" aria-label="New file" title="New file"><svg><use href="#pg-add"/></svg></button>
+                <button class="btn btn-quiet btn-icon btn-sm" id="fm-new-folder" type="button" aria-label="New folder" title="New folder"><svg><use href="#pg-folder"/></svg></button>
+                <input type="file" id="fm-file" multiple hidden>
+              </div>
+              <ul id="cfg-list" aria-label="Files"></ul>
             </aside>
             <div class="cfg-editor">
               <header class="cfg-bar">
-                <div class="head-text"><h2 id="cfg-name">Choose a file</h2><p class="note" id="cfg-info">Plugin and mod settings, one file at a time. Saving keeps the previous version for Revert.</p></div>
+                <div class="head-text"><h2 id="cfg-name">Choose a file</h2><p class="note" id="cfg-info">Everything in the server folder. Text files open here.</p></div>
+                <span class="fm-file-actions" id="fm-file-actions" hidden>
+                  <button class="btn btn-quiet btn-icon btn-sm" id="fm-download" type="button" aria-label="Download" title="Download"><svg><use href="#pg-download"/></svg></button>
+                  <button class="btn btn-quiet btn-icon btn-sm" id="fm-rename" type="button" aria-label="Rename or move" title="Rename or move"><svg><use href="#pg-copy"/></svg></button>
+                  <button class="btn btn-quiet btn-icon btn-sm" id="fm-delete" type="button" aria-label="Delete" title="Delete"><svg><use href="#pg-delete"/></svg></button>
+                </span>
                 <button class="btn btn-quiet btn-sm" id="cfg-revert" hidden><svg><use href="#pg-rollback"/></svg>Revert to previous</button>
-                <button class="btn btn-primary btn-sm" id="cfg-save" disabled><svg><use href="#pg-save"/></svg>Review and save</button>
+                <button class="btn btn-primary btn-sm" id="cfg-save" disabled hidden><svg><use href="#pg-save"/></svg>Review and save</button>
               </header>
               <p class="cfg-error" id="cfg-error" role="alert" hidden></p>
               <div class="cfg-code" id="cfg-code" hidden>

@@ -1050,7 +1050,6 @@ function renderPlatform(pf) {
     pf.addons ? `loads ${pf.addons}s` : 'no plugins or mods', pf.updates ? 'updated by rconsole' : 'updated by hand'].filter(Boolean).join(' · ');
   const tab = document.querySelector('#tab-server .subnav [data-view=plugins]');
   tab.hidden = !pf.addons;
-  document.querySelector('#tab-server .subnav [data-view=files]').hidden = !pf.addons;
   tab.textContent = pf.addons === 'mod' ? 'Mods' : 'Plugins';
   const kind = pf.addons === 'mod' ? 'mod' : 'plugin';
   $('plugins-title').textContent = `Installed ${kind}s`;
@@ -1990,11 +1989,11 @@ function resetImport() {
 }
 
 // One chunk, with upload progress (fetch can't report it).
-function putChunk(id, offset, blob, onProgress) {
+function putChunk(base, id, offset, blob, onProgress, holder) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    importing.xhr = xhr;
-    xhr.open('PUT', `/api/worlds/uploads/${id}?offset=${offset}`);
+    holder.xhr = xhr;
+    xhr.open('PUT', `${base}/${id}?offset=${offset}`);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => onProgress(e.loaded);
     xhr.onload = () => {
@@ -2014,12 +2013,44 @@ function putChunk(id, offset, blob, onProgress) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function uploadArchive(file) {
-  const up = await api('POST', '/api/worlds/uploads', { name: file.name, size: file.size });
-  importing.id = up.id;
+// Sends `file` to an upload endpoint (base: /api/…/uploads) in resumable
+// chunks; resolves with the upload id. holder.cancelled stops it.
+async function chunkedUpload(base, file, holder, show, onRetry = () => {}) {
+  const up = await api('POST', base, { name: file.name, size: file.size });
+  holder.id = up.id;
   let offset = up.received;
-  const started = Date.now();
   let failures = 0;
+  show(offset);
+  // Chunks of about 20 seconds each: big on a fast line, small enough on a
+  // slow one to finish well inside proxy and server request timeouts.
+  let chunk = 4 * 1024 * 1024;
+  while (offset < file.size) {
+    if (holder.cancelled) throw Object.assign(new Error('Upload cancelled'), { cancelled: true });
+    const start = offset;
+    const end = Math.min(file.size, offset + chunk);
+    const t0 = Date.now();
+    try {
+      offset = (await putChunk(base, up.id, offset, file.slice(offset, end), (loaded) => show(start + loaded), holder)).received;
+      const perSecond = (end - start) / Math.max(0.05, (Date.now() - t0) / 1000);
+      chunk = Math.max(1024 * 1024, Math.min(up.chunkSize, Math.round(perSecond * 20)));
+      failures = 0;
+    } catch (e) {
+      // Wrong file, no space, signed out: no point retrying.
+      if (e.cancelled || (e.status && e.status < 500 && ![408, 409, 429].includes(e.status))) throw e;
+      if (++failures > 8) throw new Error(`Upload failed: ${e.message}`);
+      for (let s = Math.min(30, 2 ** failures); s > 0 && !holder.cancelled; s--) {
+        onRetry(`${e.message}. Retrying in ${s}s…`);
+        await sleep(1000);
+      }
+      offset = await api('GET', `${base}/${up.id}`).then((st) => st.received).catch(() => offset);
+    }
+    show(offset);
+  }
+  return up.id;
+}
+
+async function uploadArchive(file) {
+  const started = Date.now();
   const show = (sent) => {
     const pct = (sent / file.size) * 100;
     $('import-meter').style.width = `${pct.toFixed(1)}%`;
@@ -2029,33 +2060,7 @@ async function uploadArchive(file) {
     $('import-status').textContent = `${fmt.bytes(sent)} of ${fmt.bytes(file.size)}${rate ? ` · ${fmt.bytes(rate)}/s` : ''}${left != null && left > 0 ? ` · ${left < 60 ? `${left}s` : fmt.duration(left)} left` : ''}`;
     $('world-import-toggle').lastChild.textContent = `Uploading ${Math.floor(pct)}%`;
   };
-  show(offset);
-  // Chunks of about 20 seconds each: big on a fast line, small enough on a
-  // slow one to finish well inside proxy and server request timeouts.
-  let chunk = 4 * 1024 * 1024;
-  while (offset < file.size) {
-    if (importing.cancelled) throw Object.assign(new Error('Upload cancelled'), { cancelled: true });
-    const start = offset;
-    const end = Math.min(file.size, offset + chunk);
-    const t0 = Date.now();
-    try {
-      offset = (await putChunk(up.id, offset, file.slice(offset, end), (loaded) => show(start + loaded))).received;
-      const perSecond = (end - start) / Math.max(0.05, (Date.now() - t0) / 1000);
-      chunk = Math.max(1024 * 1024, Math.min(up.chunkSize, Math.round(perSecond * 20)));
-      failures = 0;
-    } catch (e) {
-      // Wrong file, no space, signed out: no point retrying.
-      if (e.cancelled || (e.status && e.status < 500 && ![408, 409, 429].includes(e.status))) throw e;
-      if (++failures > 8) throw new Error(`Upload failed: ${e.message}`);
-      for (let s = Math.min(30, 2 ** failures); s > 0 && !importing.cancelled; s--) {
-        $('import-status').textContent = `${e.message}. Retrying in ${s}s…`;
-        await sleep(1000);
-      }
-      offset = await api('GET', `/api/worlds/uploads/${up.id}`).then((st) => st.received).catch(() => offset);
-    }
-    show(offset);
-  }
-  return up.id;
+  return chunkedUpload('/api/worlds/uploads', file, importing, show, (msg) => ($('import-status').textContent = msg));
 }
 
 importForm.addEventListener('submit', async (e) => {
@@ -3584,11 +3589,10 @@ $('ls-form').addEventListener('submit', (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Server: plugin and mod configs
+// Server: files (the whole server folder; configs are the common case)
 // ---------------------------------------------------------------------------
 
-let cfgFiles = [];
-let cfgOpen = null; // { path, original, hasPrevious }
+let cfgOpen = null; // { path, original, hasPrevious, sha256, protected }
 
 // Line diff (LCS) as hunks with two lines of context; [type, text] pairs.
 function diffLines(a, b) {
@@ -3627,39 +3631,42 @@ function diffLines(a, b) {
   return out;
 }
 
-// Per-player data folders (Essentials userdata/, …) are many files nobody
-// edits by hand: folded into one line unless the filter looks for them.
-const BULK_DIR = /\/(userdata|playerdata|players|data)\/[^/]+$/;
-const cfgOpenBulk = new Set();
+// Browsing: one folder at a time, folders first. The editor on the right
+// opens text files; anything else gets its details and a download.
+let fmDir = '';
+let fmEntries = [];
+let fmSelected = null; // { path, type, size, modified } of a non-text entry shown on the right
+const fmJoin = (dir, name) => (dir ? `${dir}/${name}` : name);
+const fmParent = (p) => p.split('/').slice(0, -1).join('/');
+const FM_ICON = { dir: 'folder', file: 'file', link: 'copy', other: 'alert' };
+
+function renderCrumbs() {
+  const parts = fmDir ? fmDir.split('/') : [];
+  const crumb = (label, to) => el('button', { class: 'fm-crumb', type: 'button', onclick: () => openFolder(to) }, label);
+  $('fm-crumbs').replaceChildren(crumb(serverLabelShort(), ''), ...parts.flatMap((x, i) => [el('span', { class: 'fm-sep', 'aria-hidden': 'true' }, '/'), crumb(x, parts.slice(0, i + 1).join('/'))]));
+}
+const serverLabelShort = () => $('sw-name')?.textContent?.trim().replace(/^…$/, '') || 'Server folder';
+
 function renderCfgList() {
   const q = $('cfg-filter').value.trim().toLowerCase();
-  const items = [];
-  const fileItem = (f, short) => el('li', {}, el('button', { class: `cfg-file${cfgOpen?.path === f.path ? ' on' : ''}`, type: 'button', title: f.path, onclick: () => openConfig(f.path) }, short));
-  for (const g of cfgFiles) {
-    const files = g.files.filter((f) => !q || f.path.toLowerCase().includes(q));
-    if (!files.length) continue;
-    items.push(el('li', { class: 'cfg-group' }, g.name === '(root)' ? 'Top level' : g.name));
-    const bulk = new Map();
-    for (const f of files) {
-      const short = f.path.split('/').slice(g.name === '(root)' ? 1 : 2).join('/');
-      const dir = !q && BULK_DIR.test(f.path) ? f.path.replace(/\/[^/]+$/, '') : null;
-      if (dir) {
-        if (!bulk.has(dir)) bulk.set(dir, []);
-        bulk.get(dir).push([f, short]);
-      } else items.push(fileItem(f, short));
-    }
-    for (const [dir, list] of bulk) {
-      const open = cfgOpenBulk.has(dir);
-      items.push(el('li', {}, el('button', { class: 'cfg-file cfg-bulk', type: 'button', 'aria-expanded': String(open), onclick: () => { open ? cfgOpenBulk.delete(dir) : cfgOpenBulk.add(dir); renderCfgList(); } },
-        `${dir.split('/').pop()}/ `, el('span', { class: 'sub' }, `${list.length} file${list.length === 1 ? '' : 's'}`))));
-      if (open) items.push(...list.map(([f, short]) => fileItem(f, short)));
-    }
-  }
-  $('cfg-list').replaceChildren(...(items.length ? items : [el('li', { class: 'cfg-empty' }, q ? 'No file matches.' : 'No config files yet. Plugins create theirs on first start.')]));
+  const shown = fmEntries.filter((e) => !q || e.name.toLowerCase().includes(q));
+  const row = (e) => {
+    const p = fmJoin(fmDir, e.name);
+    const on = cfgOpen?.path === p || fmSelected?.path === p;
+    return el('li', { class: 'fm-row' },
+      el('button', { class: `cfg-file fm-entry${on ? ' on' : ''}${e.type === 'dir' ? ' is-dir' : ''}`, type: 'button', title: p, onclick: () => (e.type === 'dir' ? openFolder(p) : openConfig(p, e)) },
+        icon(FM_ICON[e.type] || 'settings'),
+        el('span', { class: 'fm-name' }, e.name),
+        el('span', { class: 'fm-meta' }, e.type === 'dir' ? '' : e.type === 'file' ? fmt.bytes(e.size) : e.type)),
+      e.type === 'link' || e.type === 'other' ? null : el('button', { class: 'btn btn-quiet btn-icon btn-sm fm-more', type: 'button', 'aria-label': `Actions for ${e.name}`, onclick: (ev) => fmMenu(ev.currentTarget, p, e) }, icon('more')));
+  };
+  const up = fmDir ? [el('li', { class: 'fm-row' }, el('button', { class: 'cfg-file fm-entry is-dir fm-up', type: 'button', onclick: () => openFolder(fmParent(fmDir)) }, icon('chev'), el('span', { class: 'fm-name' }, '..'), el('span', { class: 'fm-meta' }, 'up')))] : [];
+  $('cfg-list').replaceChildren(...up, ...(shown.length ? shown.map(row) : [el('li', { class: 'cfg-empty' }, q ? 'Nothing here matches.' : 'This folder is empty.')]));
   renderCfgStart();
 }
 
-// Before a file is open: each plugin's main config, one click away.
+// Before a file is open: what can be done here, and on Bukkit-family
+// servers each plugin's main config one click away.
 function renderCfgStart() {
   let box = $('cfg-start');
   if (!box) {
@@ -3668,21 +3675,66 @@ function renderCfgStart() {
   }
   box.hidden = Boolean(cfgOpen);
   if (cfgOpen) return;
-  const main = cfgFiles.map((g) => g.files.find((f) => /\/config\.ya?ml$|\/core\.conf$|\/configuration\.txt$/.test(f.path)) || null).filter(Boolean).slice(0, 8);
+  if (fmSelected) {
+    const f = fmSelected;
+    box.replaceChildren(
+      el('dl', { class: 'fm-facts' },
+        el('dt', {}, 'Size'), el('dd', {}, f.size == null ? '–' : fmt.bytes(f.size)),
+        el('dt', {}, 'Changed'), el('dd', {}, f.modified ? fmt.relative(f.modified) : '–')),
+      el('p', { class: 'note' }, f.reason === 'large' ? 'Too large to edit here (1 MB max). Download it, or edit it on the server.' : f.reason === 'binary' ? 'Not a text file, so it can\'t be edited here.' : ''),
+      el('div', { class: 'cfg-quick' },
+        el('a', { class: 'btn btn-sm', href: `/api/files/download?path=${encodeURIComponent(f.path)}`, download: '' }, icon('download'), 'Download'),
+        el('button', { class: 'btn btn-sm', type: 'button', onclick: () => fmRename(f.path) }, icon('copy'), 'Rename or move'),
+        el('button', { class: 'btn btn-sm', type: 'button', onclick: () => fmDelete(f.path, 'file') }, icon('delete'), 'Delete')));
+    return;
+  }
+  const main = fmDir === '' || fmDir === 'plugins' || fmDir === 'config'
+    ? fmEntries.filter((e) => e.type === 'file' && e.editable && /^(server\.properties|config\.ya?ml|bukkit\.yml|spigot\.yml)$/.test(e.name)).slice(0, 8)
+    : [];
   box.replaceChildren(
-    el('p', { class: 'note' }, main.length ? 'Pick a file on the left, or start with a plugin’s main settings:' : 'Pick a file on the left.'),
-    el('div', { class: 'cfg-quick' }, ...main.map((f) => el('button', { class: 'btn btn-sm', type: 'button', onclick: () => openConfig(f.path) }, icon('settings'), f.path.replace(/^plugins\//, '')))));
+    el('p', { class: 'note' }, 'Click a text file to edit it; saving shows the changes first and keeps the previous version for Revert. Deleting archives the file or folder under Backups first.'),
+    main.length ? el('div', { class: 'cfg-quick' }, ...main.map((e) => el('button', { class: 'btn btn-sm', type: 'button', onclick: () => openConfig(fmJoin(fmDir, e.name), e) }, icon('settings'), e.name))) : null);
+}
+
+async function openFolder(dir) {
+  if (cfgDirty() && !(await confirmAction({ title: 'Discard your changes?', body: `${cfgOpen.path} has unsaved changes.`, confirm: 'Discard', tone: 'danger', icon: 'delete' }))) return;
+  try {
+    const r = await api('GET', `/api/files?path=${encodeURIComponent(dir)}`);
+    fmDir = r.path;
+    fmEntries = r.entries;
+    if (cfgOpen && fmParent(cfgOpen.path) !== fmDir) closeEditor();
+    if (fmSelected && fmParent(fmSelected.path) !== fmDir) fmSelected = null;
+    $('cfg-filter').value = '';
+    renderCrumbs();
+    renderCfgList();
+    if (r.truncated) toast(`This folder has more than ${r.entries.length} entries; only the first are listed.`, 'bad');
+    try {
+      sessionStorage.setItem('rconsole.files.dir', fmDir);
+    } catch {}
+  } catch (e) {
+    if (dir) return openFolder(fmParent(dir));
+    $('cfg-list').replaceChildren(el('li', { class: 'cfg-empty' }, e.message));
+  }
 }
 
 async function loadConfigs() {
   if (!atLeast('admin')) return;
+  let dir = fmDir;
   try {
-    const r = await api('GET', '/api/configs');
-    cfgFiles = r.groups;
-    renderCfgList();
-  } catch (e) {
-    $('cfg-list').replaceChildren(el('li', { class: 'cfg-empty' }, e.message));
-  }
+    dir = fmDir || sessionStorage.getItem('rconsole.files.dir') || '';
+  } catch {}
+  await openFolder(dir);
+}
+
+function closeEditor() {
+  cfgOpen = null;
+  $('cfg-code').hidden = true;
+  $('cfg-revert').hidden = true;
+  $('cfg-save').disabled = true;
+  $('cfg-save').hidden = true;
+  $('fm-file-actions').hidden = true;
+  $('cfg-name').textContent = 'Choose a file';
+  $('cfg-info').textContent = 'Everything in the server folder. Text files open here.';
 }
 
 const cfgDirty = () => cfgOpen && $('cfg-text').value !== cfgOpen.original;
@@ -3692,7 +3744,7 @@ function cfgCheck() {
   let problem = null;
   if (/\.json$/i.test(cfgOpen.path)) {
     try {
-      JSON.parse(text);
+      if (text.trim()) JSON.parse(text);
     } catch (err) {
       problem = `Invalid JSON: ${err.message}`;
     }
@@ -3702,7 +3754,7 @@ function cfgCheck() {
   }
   $('cfg-error').textContent = problem || '';
   $('cfg-error').hidden = !problem;
-  $('cfg-save').disabled = !cfgDirty() || Boolean(problem);
+  $('cfg-save').disabled = !cfgDirty() || Boolean(problem) || Boolean(cfgOpen.protected);
   return problem;
 }
 
@@ -3715,43 +3767,182 @@ function cfgNumbers() {
   $('cfg-lines').scrollTop = $('cfg-text').scrollTop;
 }
 
-async function openConfig(path) {
+function showFile(f) {
+  cfgOpen = { path: f.path, original: f.content, hasPrevious: f.hasPrevious, sha256: f.sha256, protected: f.protected };
+  fmSelected = null;
+  $('cfg-name').textContent = f.path.split('/').pop();
+  $('cfg-info').textContent = `${f.path} · changed ${fmt.relative(f.modified)}${f.protected ? ` · read only: ${f.protected}` : ''}`;
+  $('cfg-text').value = f.content;
+  $('cfg-text').readOnly = Boolean(f.protected);
+  $('cfg-code').hidden = false;
+  $('cfg-revert').hidden = !f.hasPrevious;
+  $('cfg-save').hidden = Boolean(f.protected);
+  $('fm-file-actions').hidden = false;
+  cfgNumbers();
+  cfgCheck();
+  renderCfgList();
+}
+
+async function openConfig(path, entry = null) {
+  if (cfgOpen?.path === path) return;
   if (cfgDirty() && !(await confirmAction({ title: 'Discard your changes?', body: `${cfgOpen.path} has unsaved changes.`, confirm: 'Discard', tone: 'danger', icon: 'delete' }))) return;
   try {
-    const f = await api('GET', `/api/configs/file?path=${encodeURIComponent(path)}`);
-    cfgOpen = { path: f.path, original: f.content, hasPrevious: f.hasPrevious };
-    $('cfg-name').textContent = f.path.split('/').pop();
-    $('cfg-info').textContent = `${f.path} · changed ${fmt.relative(f.modified)}`;
-    $('cfg-text').value = f.content;
-    $('cfg-code').hidden = false;
-    $('cfg-revert').hidden = !f.hasPrevious;
-    cfgNumbers();
-    cfgCheck();
-    renderCfgList();
+    const f = await api('GET', `/api/files/file?path=${encodeURIComponent(path)}`);
+    if (f.content == null) {
+      closeEditor();
+      fmSelected = { path: f.path, size: f.size, modified: f.modified, reason: f.reason };
+      $('cfg-name').textContent = f.path.split('/').pop();
+      $('cfg-info').textContent = f.path;
+      renderCfgList();
+      return;
+    }
+    showFile(f);
   } catch (e) {
     toast(e.message, 'bad');
+    if (entry) fmSelected = null;
   }
 }
 
 async function saveConfig() {
   if (!cfgOpen || cfgCheck() || !cfgDirty()) return;
   const text = $('cfg-text').value;
-  const diff = diffLines(cfgOpen.original, text);
-  const view = el('pre', { class: 'cfg-diff' }, ...diff.map(([t, l]) => el('span', { class: { '+': 'add', '-': 'del', '…': 'gap', ' ': '' }[t] }, t === '…' ? '⋯\n' : `${t} ${l}\n`)));
-  if (!(await confirmAction({ title: `Save ${cfgOpen.path.split('/').pop()}?`, body: 'The previous version is kept for Revert. Most plugins read their config at startup: reload the plugin or restart afterwards.', confirm: 'Save', icon: 'save', content: view }))) return;
+  // Within each change, removed lines before added ones, as diffs read.
+  const diff = diffLines(cfgOpen.original, text).reduce((out, x) => {
+    if (x[0] === '-') {
+      let i = out.length;
+      while (i > 0 && out[i - 1][0] === '+') i--;
+      out.splice(i, 0, x);
+    } else out.push(x);
+    return out;
+  }, []);
+  const view = el('pre', { class: 'cfg-diff' }, ...diff.map(([t, l]) => el('span', { class: { '+': 'd-add', '-': 'd-del', '…': 'gap', ' ': '' }[t] }, t === '…' ? '⋯\n' : `${t} ${l}\n`)));
+  const props = cfgOpen.path === 'server.properties' ? ' rconsole keeps its own RCON settings in this file whatever you change there.' : '';
+  if (!(await confirmAction({ title: `Save ${cfgOpen.path.split('/').pop()}?`, body: `The previous version is kept for Revert. Most plugins and mods read their files at startup: reload or restart afterwards.${props}`, confirm: 'Save', icon: 'save', content: view }))) return;
   await busy($('cfg-save'), async () => {
     try {
-      const f = await api('PUT', '/api/configs/file', { path: cfgOpen.path, content: text });
-      cfgOpen = { path: f.path, original: f.content, hasPrevious: f.hasPrevious };
-      $('cfg-revert').hidden = !f.hasPrevious;
+      const f = await api('PUT', '/api/files/file', { path: cfgOpen.path, content: text, expected: cfgOpen.sha256 });
+      showFile(f);
       $('cfg-info').textContent = `${f.path} · saved just now`;
-      cfgCheck();
-      toast(`Saved ${f.path}. Reload the plugin or restart to apply.`);
+      toast(`Saved ${f.path}. Reload or restart to apply.`);
       refreshStatus(true);
     } catch (e) {
       toast(e.message, 'bad');
     }
   });
+}
+
+// Actions for one entry: a small menu next to it.
+function fmMenu(anchor, p, e) {
+  document.querySelector('.fm-menu')?.remove();
+  const item = (label, iconName, fn, danger) => el('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '', onclick: () => {
+    menu.remove();
+    fn();
+  } }, icon(iconName), label);
+  const menu = el('div', { class: 'fm-menu', role: 'menu' },
+    el('a', { role: 'menuitem', href: `/api/files/download?path=${encodeURIComponent(p)}`, download: '', onclick: () => menu.remove() }, icon('download'), e.type === 'dir' ? 'Download as .tar.gz' : 'Download'),
+    item('Rename or move', 'copy', () => fmRename(p)),
+    item('Delete', 'delete', () => fmDelete(p, e.type), true));
+  anchor.closest('.fm-row').append(menu);
+  menu.querySelector('a,button').focus();
+  const close = (ev) => {
+    if (!menu.contains(ev.target) && ev.target !== anchor) {
+      menu.remove();
+      document.removeEventListener('pointerdown', close);
+    }
+  };
+  setTimeout(() => document.addEventListener('pointerdown', close));
+  menu.addEventListener('keydown', (ev) => ev.key === 'Escape' && (menu.remove(), anchor.focus()));
+}
+
+// A text field in the confirm dialog; resolves with its value or null.
+async function askText({ title, body, label, value = '', confirm, iconName = 'add' }) {
+  const input = el('input', { class: 'field', value, 'aria-label': label, spellcheck: 'false', autocomplete: 'off' });
+  const field = el('label', { class: 'fld' }, el('span', {}, label), input);
+  setTimeout(() => {
+    input.focus();
+    const dot = value.lastIndexOf('.');
+    input.setSelectionRange(value.lastIndexOf('/') + 1, dot > value.lastIndexOf('/') + 1 ? dot : value.length);
+  });
+  input.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), $('dialog-confirm').click()));
+  if (!(await confirmAction({ title, body, confirm, icon: iconName, content: field }))) return null;
+  return input.value.trim().replace(/^\/+|\/+$/g, '') || null;
+}
+
+async function fmRename(p) {
+  const to = await askText({ title: `Rename ${p.split('/').pop()}`, body: 'A new name, or a path from the server folder to move it (for example plugins/old/config.yml).', label: 'New name or path', value: p, confirm: 'Rename', iconName: 'copy' });
+  if (!to || to === p) return;
+  try {
+    await api('POST', '/api/files/move', { from: p, to: to.includes('/') ? to : fmJoin(fmParent(p), to) });
+    if (cfgOpen?.path === p) closeEditor();
+    if (fmSelected?.path === p) fmSelected = null;
+    toast(`Moved ${p} to ${to}.`);
+    openFolder(fmDir);
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function fmDelete(p, type) {
+  if (!(await confirmAction({ title: `Delete ${p.split('/').pop()}?`, body: `${type === 'dir' ? 'The folder and everything in it are' : 'The file is'} archived under Backups (deleted-files) first, then removed from the server folder.`, confirm: 'Delete', tone: 'danger', icon: 'delete' }))) return;
+  try {
+    const r = await api('POST', '/api/files/delete', { path: p });
+    if (cfgOpen?.path === p) closeEditor();
+    if (fmSelected?.path === p) fmSelected = null;
+    toast(`Deleted ${p}. A copy is in ${r.archived}.`);
+    openFolder(fmDir);
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function fmNew(kind) {
+  const name = await askText({ title: kind === 'dir' ? 'New folder' : 'New file', body: `In ${fmDir || 'the server folder'}.`, label: 'Name', value: kind === 'dir' ? '' : 'new.yml', confirm: 'Create' });
+  if (!name) return;
+  const p = fmJoin(fmDir, name);
+  try {
+    if (kind === 'dir') await api('POST', '/api/files/folder', { path: p });
+    else await api('PUT', '/api/files/file', { path: p, content: '', expected: null });
+    await openFolder(fmDir);
+    if (kind === 'file') openConfig(p);
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+// Uploads: each file is sent in resumable chunks (as world uploads), then
+// placed in the open folder. Archives can be unpacked into a folder.
+const ARCHIVE_RE = /\.(zip|tar|tar\.gz|tgz|tar\.zst|tar\.xz)$/i;
+let fmUploading = null;
+async function fmUpload(list) {
+  if (fmUploading) return toast('An upload is running; wait for it to finish.', 'bad');
+  const all = [...list];
+  if (!all.length) return;
+  let unpack = false;
+  if (all.length === 1 && ARCHIVE_RE.test(all[0].name)) {
+    const box = el('label', { class: 'check' }, el('input', { type: 'checkbox' }), ` Unpack into a folder named ${all[0].name.replace(ARCHIVE_RE, '')}`);
+    if (!(await confirmAction({ title: `Upload ${all[0].name}?`, body: `Into ${fmDir || 'the server folder'}.`, confirm: 'Upload', icon: 'upload', content: box }))) return;
+    unpack = box.querySelector('input').checked;
+  }
+  const dir = fmDir;
+  fmUploading = { cancelled: false, xhr: null };
+  const btn = $('fm-upload');
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    for (const [i, file] of all.entries()) {
+      const name = unpack ? file.name.replace(ARCHIVE_RE, '') : file.name;
+      const label = all.length > 1 ? `${i + 1}/${all.length} ` : '';
+      const id = await chunkedUpload('/api/files/uploads', file, fmUploading, (sent) => ($('cfg-info').textContent = `Uploading ${label}${file.name}: ${Math.floor((sent / file.size) * 100)}%`), (msg) => ($('cfg-info').textContent = msg));
+      await api('POST', '/api/files/place', { upload: id, dir, name, unpack });
+    }
+    toast(all.length > 1 ? `Uploaded ${all.length} files.` : `Uploaded ${all[0].name}${unpack ? ' and unpacked it' : ''}.`);
+  } catch (e) {
+    toast(e.message, 'bad');
+  } finally {
+    btn.removeAttribute('aria-busy');
+    fmUploading = null;
+    if (!cfgOpen) $('cfg-info').textContent = 'Everything in the server folder. Text files open here.';
+    if (dir === fmDir) openFolder(fmDir);
+  }
 }
 
 $('cfg-text').addEventListener('input', () => {
@@ -3760,7 +3951,7 @@ $('cfg-text').addEventListener('input', () => {
 });
 $('cfg-text').addEventListener('scroll', () => ($('cfg-lines').scrollTop = $('cfg-text').scrollTop));
 $('cfg-text').addEventListener('keydown', (e) => {
-  if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+  if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.currentTarget.readOnly) {
     e.preventDefault();
     const t = e.currentTarget;
     t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end');
@@ -3773,15 +3964,35 @@ $('cfg-text').addEventListener('keydown', (e) => {
 });
 $('cfg-save').addEventListener('click', saveConfig);
 $('cfg-filter').addEventListener('input', renderCfgList);
+$('fm-upload').addEventListener('click', () => $('fm-file').click());
+$('fm-file').addEventListener('change', (e) => {
+  fmUpload(e.target.files);
+  e.target.value = '';
+});
+$('fm-new-folder').addEventListener('click', () => fmNew('dir'));
+$('fm-new-file').addEventListener('click', () => fmNew('file'));
+$('fm-download').addEventListener('click', () => cfgOpen && location.assign(`/api/files/download?path=${encodeURIComponent(cfgOpen.path)}`));
+$('fm-rename').addEventListener('click', () => cfgOpen && fmRename(cfgOpen.path));
+$('fm-delete').addEventListener('click', () => cfgOpen && fmDelete(cfgOpen.path, 'file'));
+// Files dropped on the browser go into the open folder.
+$('cfg-list').closest('.cfg-panel').addEventListener('dragover', (e) => {
+  if (![...e.dataTransfer.types].includes('Files')) return;
+  e.preventDefault();
+  e.currentTarget.classList.add('fm-drop');
+});
+$('cfg-list').closest('.cfg-panel').addEventListener('dragleave', (e) => !e.currentTarget.contains(e.relatedTarget) && e.currentTarget.classList.remove('fm-drop'));
+$('cfg-list').closest('.cfg-panel').addEventListener('drop', (e) => {
+  e.currentTarget.classList.remove('fm-drop');
+  if (!e.dataTransfer.files.length) return;
+  e.preventDefault();
+  fmUpload(e.dataTransfer.files);
+});
 $('cfg-revert').addEventListener('click', async (e) => {
   if (!cfgOpen || !(await confirmAction({ title: 'Revert to the previous version?', body: `${cfgOpen.path} goes back to how it was before the last save from rconsole.`, confirm: 'Revert', icon: 'rollback' }))) return;
   await busy(e.currentTarget, async () => {
     try {
-      const f = await api('POST', '/api/configs/revert', { path: cfgOpen.path });
-      cfgOpen = { path: f.path, original: f.content, hasPrevious: f.hasPrevious };
-      $('cfg-text').value = f.content;
-      cfgNumbers();
-      cfgCheck();
+      const f = await api('POST', '/api/files/revert', { path: cfgOpen.path });
+      showFile(f);
       toast(`Reverted ${f.path}.`);
     } catch (err) {
       toast(err.message, 'bad');
@@ -3789,7 +4000,7 @@ $('cfg-revert').addEventListener('click', async (e) => {
   });
 });
 window.addEventListener('beforeunload', (e) => {
-  if (cfgDirty()) e.preventDefault();
+  if (cfgDirty() || fmUploading) e.preventDefault();
 });
 viewLoaders['server/files'] = loadConfigs;
 
