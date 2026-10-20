@@ -949,14 +949,31 @@ route('POST', /^\/api\/configs\/revert$/, async (req) => {
 // Reading is rconsole's (it can read the server folder); every change is a
 // helper job that checks the path again. Admins only (see ROLE_RULES).
 const qpath = (req) => new URL(req.url, 'http://x').searchParams.get('path') || '';
-route('GET', /^\/api\/files$/, (req) => files.list(qpath(req)));
-route('GET', /^\/api\/files\/file$/, (req) => files.read(qpath(req)));
+// What rconsole can't read itself (owner-only files), the helper reads.
+async function readable(op, rel) {
+  try {
+    return op === 'list' ? files.list(rel) : files.read(rel);
+  } catch (err) {
+    if (err.code !== 'EACCES') throw err;
+    const r = await jobs.run('file-op', { op, path: rel }).catch((e) => {
+      throw httpError(/not installed|Not allowed|journalctl/.test(e.message) ? 500 : 400, e.message);
+    });
+    return op === 'list' ? r.listing : r.file;
+  }
+}
+route('GET', /^\/api\/files$/, (req) => readable('list', qpath(req)));
+route('GET', /^\/api\/files\/file$/, (req) => readable('read', qpath(req)));
 route('GET', /^\/api\/files\/download$/, async (req, res) => {
   const { parts, full, st } = files.resolve(qpath(req));
   const name = (parts[parts.length - 1] || path.basename(config.mcDir)).replace(/["\\\r\n]/g, '_');
   const done = (err) => err && err.code !== 'ERR_STREAM_PREMATURE_CLOSE' && log(`download ${parts.join('/')}: ${err.message}`);
   if (st.isFile()) {
-    const fd = fs.openSync(full, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    let fd;
+    try {
+      fd = fs.openSync(full, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    } catch (err) {
+      throw err.code === 'EACCES' ? httpError(403, `rconsole can't read ${parts.join('/')}: the file is readable only by the server. Open it in the editor instead`) : err;
+    }
     res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/octet-stream', 'Content-Length': fs.fstatSync(fd).size, 'Content-Disposition': `attachment; filename="${name}"` });
     require('stream').pipeline(fs.createReadStream(null, { fd }), res, done);
     return null;
@@ -984,13 +1001,13 @@ route('PUT', /^\/api\/files\/file$/, async (req) => {
   const { path: rel, content, expected } = await readJson(req, FILE_MAX * 2 + 4096);
   const r = await fileJob({ op: 'write', path: String(rel ?? ''), content: String(content ?? ''), expected: expected ?? null });
   pending.add(`file ${r.path}`);
-  return { ...r, ...files.read(r.path) };
+  return { ...r, ...(await readable('read', r.path)) };
 });
 route('POST', /^\/api\/files\/revert$/, async (req) => {
   const { path: rel } = await readJson(req);
   const r = await fileJob({ op: 'revert', path: String(rel ?? '') });
   pending.add(`file ${r.path}`);
-  return { ...r, ...files.read(r.path) };
+  return { ...r, ...(await readable('read', r.path)) };
 });
 route('POST', /^\/api\/files\/folder$/, async (req) => fileJob({ op: 'mkdir', path: String((await readJson(req)).path ?? '') }));
 route('POST', /^\/api\/files\/move$/, async (req) => {

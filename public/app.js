@@ -3786,7 +3786,7 @@ function renderCfgStart() {
     : [];
   box.replaceChildren(
     el('p', { class: 'note' }, 'Click a text file to edit it; saving shows the changes first and keeps the previous version for Revert. Deleting archives the file or folder under Backups first.'),
-    main.length ? el('div', { class: 'cfg-quick' }, ...main.map((e) => el('button', { class: 'btn btn-sm', type: 'button', onclick: () => openConfig(fmJoin(fmDir, e.name), e) }, icon('settings'), e.name))) : null);
+    ...(main.length ? [el('div', { class: 'cfg-quick' }, ...main.map((e) => el('button', { class: 'btn btn-sm', type: 'button', onclick: () => openConfig(fmJoin(fmDir, e.name), e) }, icon('settings'), e.name)))] : []));
 }
 
 async function openFolder(dir) {
