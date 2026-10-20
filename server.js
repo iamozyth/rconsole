@@ -42,6 +42,7 @@ const slp = require('./lib/slp');
 const { Offsite } = require('./lib/offsite');
 const { Spark } = require('./lib/spark');
 const { PlayerInfo } = require('./lib/playerinfo');
+const { TimeMachine } = require('./lib/timemachine');
 const { Configs, MAX_BYTES: CONFIG_MAX } = require('./lib/configs');
 const { Files, MAX_EDIT: FILE_MAX } = require('./lib/files');
 const { CommandCatalog } = require('./lib/commands');
@@ -105,6 +106,7 @@ const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform, hashesFile: path.join(config.backupDir, '.plugin-hashes', `${config.activeServer || 'attached'}.json`) });
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
 const playerInfo = new PlayerInfo({ mcDir: config.mcDir, rcon, log });
+const timeMachine = new TimeMachine({ backups, backupDir: config.backupDir, stateDir: config.stateDir, jobs, playerInfo, activeWorld, log });
 const configs = new Configs({ mcDir: config.mcDir });
 const files = new Files({ mcDir: config.mcDir });
 const commandCatalog = new CommandCatalog({ rcon, log });
@@ -811,6 +813,7 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/join\/([a-f0-9]{16})\/(allow|ignore)$/, ([id, verb]) => [`join request ${verb === 'allow' ? 'allowed' : 'ignored'}`, (() => { try { return joinRequests.get(id).name; } catch { return id; } })()]],
+  ['POST', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/timemachine\/restore$/, ([n], b) => ['player restore', `${n}: ${(b.parts || []).join(' + ')} from ${b.undo ? `before the restore of ${b.undo}` : b.backup}${b.kick ? ' (kicked)' : ''}`]],
   ['POST', /^\/api\/invites$/, (p, b) => ['invite create', `${String(b.label || '').slice(0, 60) || 'invite'}: ${b.uses || 1} use(s), ${Number(b.days) === 0 ? 'no expiry' : `${b.days ?? 7} days`}${b.auto ? ', whitelists right away' : ''}`]],
   ['DELETE', /^\/api\/invites\/([a-f0-9]{12})$/, ([id]) => ['invite revoke', id]],
   ['POST', /^\/api\/tasks$/, (p, b) => ['task create', String(b.name || (b.steps || []).map((x) => x?.type).join(' → '))]],
@@ -829,6 +832,7 @@ const ROLE_RULES = [
   ['POST', /^\/api\/chat$/, 'moderator'],
   ['GET', /^\/api\/players\/history$/, 'moderator'], // addresses of players
   ['GET', /^\/api\/join$/, 'moderator'], // their addresses too
+  ['GET', /^\/api\/players\/[A-Za-z0-9_]{1,16}\/timemachine/, 'moderator'], // looking back costs a backup's worth of reading
   ['POST', /^\/api\/join\/[a-f0-9]{16}\/(allow|ignore)$/, 'moderator'], // like whitelist add
   ['GET', /^\/api\/audit$/, 'admin'],
   ['GET', /^\/api\/notify$/, 'admin'],
@@ -959,6 +963,54 @@ route('GET', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/profile$/, (req, res, [name
   return q.get('part') === 'vitals' ? playerInfo.vitals(name) : playerInfo.profile(name, { uuid: q.get('uuid') });
 });
 route('GET', /^\/api\/players\/history$/, () => playerHistory.history());
+
+// Time machine (lib/timemachine.js): a player's inventory at each backup.
+const tmUuid = (req) => {
+  const uuid = new URL(req.url, 'http://x').searchParams.get('uuid') || '';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)) throw httpError(400, 'This player has no known id yet (they never joined)');
+  return uuid;
+};
+route('GET', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/timemachine$/, (req) => timeMachine.list(tmUuid(req)));
+route('GET', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/timemachine\/([^/]+)$/, async (req, res, [name, backup]) => {
+  const uuid = tmUuid(req);
+  backup = decodeURIComponent(backup);
+  if (!timeMachine.indexed(backup)) {
+    if (!fs.existsSync(path.join(config.backupDir, backup))) throw httpError(404, 'Backup not found');
+    timeMachine.index(backup).catch((err) => log(`timemachine: ${err.message}`));
+    return [202, { indexing: true }];
+  }
+  return timeMachine.at(uuid, backup, { name });
+});
+route('POST', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/timemachine\/restore$/, async (req, res, [name]) => {
+  const b = await readJson(req);
+  const uuid = String(b.uuid || '');
+  // The server writes an online player's file when they leave and on every
+  // autosave, over the restored one: they go offline first.
+  stats.invalidate('players');
+  const online = (await stats.get().catch(() => null))?.game?.players?.players?.some((p) => p.toLowerCase() === name.toLowerCase());
+  if (online) {
+    if (!b.kick) throw httpError(409, `${name} is online. They have to leave the game first; rconsole can kick them for you.`, { confirm: 'kick' });
+    const left = new Promise((resolve) => {
+      const onLine = (line) => {
+        if (new RegExp(`\\b${name} (left the game|lost connection)`).test(line)) done();
+      };
+      const timer = setTimeout(() => done(), 15000);
+      function done() {
+        clearTimeout(timer);
+        logTail.off('line', onLine);
+        resolve();
+      }
+      logTail.on('line', onLine);
+    });
+    await rcon.send(`kick ${name} Your inventory is being restored from a backup. Join again in a few seconds.`);
+    await left;
+    await new Promise((r) => setTimeout(r, 1500)); // the server saves the player file after the leave message
+    stats.invalidate('players');
+    if ((await stats.get().catch(() => null))?.game?.players?.players?.some((p) => p.toLowerCase() === name.toLowerCase())) throw httpError(409, `${name} is still online`);
+  }
+  const result = await timeMachine.restore(uuid, { backup: b.backup, undo: b.undo, parts: b.parts });
+  return { ...result, kicked: Boolean(online) };
+});
 
 // Knock to join and invite links (lib/joinrequests.js).
 route('GET', /^\/api\/join$/, (req) => ({ ...joinRequests.view(), oneTap: notify.config.oneTap && Boolean(notify.publicUrl), notifications: Boolean(notify.config.url || notify.config.discord.url) }));

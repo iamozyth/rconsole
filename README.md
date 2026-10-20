@@ -65,6 +65,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 **Players and security**
 - **One player list**: everyone the server knows, with whitelist, operator and ban status, filters and a profile panel per player.
 - **Knock to join**: a friend who isn't whitelisted tries to join, you get "Lena tried to join" with an **Allow** button, one tap and they're in. **Invite links** let friends put themselves on the list.
+- **Time machine for players**: "my stuff is gone" gets a two-minute answer. Pick a backup in the player's profile, see what they carried then and what is missing now, and put back the inventory or ender chest without touching the world. Every restore can be undone.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Modpacks** from Modrinth in one step: loader, mods and settings, every file checked.
 - **Team roles**: admins, moderators (players, chat and moderation commands) and read-only viewers, globally or per server (a friend can be admin on their own server and see nothing of the others).
@@ -509,6 +510,12 @@ Clicking a player under **Players**, on the dashboard or in the console's online
 - **advancements** from `<world>/players/advancements/` (or `<world>/advancements/` before 26.1);
 - **actions** by role: whitelist, operator and ban for anyone, online or not; teleport to a player or coordinates, set the game mode (moderators and admins), heal and clear the inventory (admins), kick;
 - **history** from the logs: first and last visit, sessions, playtime and last address.
+
+## Time machine for players
+
+A player's profile has a **Time machine** tab (moderators and admins can look, admins restore). Pick a backup of the world the server plays and you see the player's inventory, armor, offhand and ender chest as they were then, with what is **missing now** (and what they have gained) listed above it. **Restore** puts back the inventory, the ender chest or both from that backup; position, health, levels, advancements and everything else stay as they are now, and the world isn't touched.
+
+The first look at a backup takes the player files out of it once (only `players/data/*.dat`, or `playerdata/` before 26.1, nothing else is unpacked) into `STATE_DIR/timemachine/`; the copy is dropped when the backup is deleted. Minecraft only reads a player file when they join, so for an online player rconsole asks first, kicks them with a message, waits for the server to save them and then writes the file; they rejoin with the old inventory. Before writing, the current file is kept in `BACKUP_DIR/.player-restores/<world>/` (the ten newest per player), and **Undo** in the same tab goes back to it. The write runs as a helper job (`player-restore`) as the Minecraft user and is audited as "player restore".
 
 ## Chat
 
