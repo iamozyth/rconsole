@@ -3320,7 +3320,7 @@ function renderSelfSteps(u, { offline = false, next = null } = {}) {
   const at = Object.fromEntries(seen.map((s, i) => [s.step, { at: s.at, end: seen[i + 1]?.at || (u.state !== 'running' ? u.at : null) }]));
   const idx = plan.indexOf(current);
   const secs = (a, b) => Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 1000));
-  const took = (s) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`);
+  const took = (s) => (s < 1 ? 'under 1 s' : s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`);
   const items = plan.map((key, i) => {
     const label = key === 'node' ? SELF_STEPS.node(selfNeed(u)) : SELF_STEPS[key];
     let state = i < idx || u.state === 'done' ? 'done' : i === idx ? 'active' : 'todo';
