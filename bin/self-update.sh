@@ -7,10 +7,13 @@
 #   1. fetch and fast-forward (refuses local changes or diverged history);
 #      with SELF_UPDATE_SIGNERS in /etc/rconsole.env, only to the newest
 #      release tag signed by one of those SSH keys
-#   2. check the new code parses, otherwise roll back
-#   3. install changed unit files / polkit rule, unless the installed copy
+#   2. install the Node.js the new version needs (package.json engines)
+#      from NodeSource when the system's is older, otherwise roll back;
+#      also when the code is already up to date
+#   3. check the new code parses, otherwise roll back
+#   4. install changed unit files / polkit rule, unless the installed copy
 #      was customized (then it reports the manual step instead)
-#   4. restart rconsole; if it doesn't come up, roll back and restart again
+#   5. restart rconsole; if it doesn't come up, roll back and restart again
 #
 # Progress and the result go to /var/lib/rconsole-selfupdate/self-update.json
 # (root-owned, world-readable) for the UI.
@@ -30,7 +33,7 @@ main() {
   local service="${RCONSOLE_SERVICE:-rconsole.service}"
   local unit_dir="${SYSTEMD_DIR:-/etc/systemd/system}" polkit_dir="${POLKIT_DIR:-/etc/polkit-1/rules.d}"
   local git=(git -C "$dir" -c safe.directory="$dir")
-  local before after manual=() installed=()
+  local before after manual=() installed=() note="" node_error="" node_changed=0
 
   report() { # state message
     local manual_json="" installed_json="" m tmp
@@ -42,6 +45,32 @@ main() {
     chmod 0644 "$tmp" # no secrets; rconsole only reads it
     mv -fT "$tmp" "$status"
     echo "self-update: $1: $2"
+  }
+
+  # The Node.js the checked-out version needs (engines.node in its
+  # package.json): installed from NodeSource (bin/node.sh) when the one
+  # rconsole runs with is older. Sets node_error when it can't.
+  ensure_node() {
+    local need have bin out
+    # Versions before 4.7 have no bin/node.sh and run on any supported node.
+    [ -f "$dir/bin/node.sh" ] || return 0
+    # shellcheck source=node.sh
+    source "$dir/bin/node.sh"
+    bin="${NODE_BIN:-$NODESOURCE_BIN}"
+    need="$(node_required "$dir")"
+    have="$(node_major "$bin")"
+    [ "$have" -ge "$need" ] && return 0
+    if [ "$bin" != "$NODESOURCE_BIN" ]; then
+      node_error="rconsole needs Node.js $need but $bin is v$have; install a newer one there (NODE_BIN in /etc/rconsole.env)"
+      return 1
+    fi
+    report running "Installing Node.js $need (this system has v$have)"
+    if ! out="$(install_nodesource "$need" 2>&1)"; then
+      node_error="rconsole needs Node.js $need; installing it from NodeSource failed: $(tail -n 1 <<<"$out")"
+      return 1
+    fi
+    installed+=("Node.js $("$NODESOURCE_BIN" -v) from NodeSource")
+    node_changed=1
   }
 
   mkdir -p -m 0755 "$status_dir"
@@ -93,8 +122,7 @@ main() {
       exit 1
     fi
     if "${git[@]}" merge-base --is-ancestor "$target" HEAD; then
-      report done "Already up to date ($what)"
-      exit 0
+      target=HEAD note=" ($what)"
     fi
   fi
   if ! "${git[@]}" merge --ff-only --quiet "$target"; then
@@ -102,9 +130,33 @@ main() {
     exit 1
   fi
   after="$("${git[@]}" rev-parse HEAD)"
+
+  # Up to date: only the Node.js it needs may be missing (the update to
+  # 4.7 ran with the old script, which didn't install it).
   if [ "$before" = "$after" ]; then
-    report done "Already up to date"
+    if ! ensure_node; then
+      report failed "$node_error"
+      exit 1
+    fi
+    if [ "$node_changed" = 0 ]; then
+      report done "Already up to date$note"
+      exit 0
+    fi
+    report running "Restarting rconsole"
+    systemctl restart "$service" || true
+    sleep 6
+    if ! systemctl is-active --quiet "$service"; then
+      report failed "rconsole didn't start on Node.js $("$NODESOURCE_BIN" -v) (see journalctl -u $service)"
+      exit 1
+    fi
+    report done "Installed Node.js $("$NODESOURCE_BIN" -v); rconsole is up to date$note"
     exit 0
+  fi
+
+  if ! ensure_node; then
+    "${git[@]}" reset --quiet --hard "$before"
+    report failed "$node_error; stayed on the old version"
+    exit 1
   fi
 
   report running "Checking the new version"

@@ -13,7 +13,7 @@
   <a href="#quick-install"><img alt="Install in one command" src="https://img.shields.io/badge/install-one%20command-7c3aed"></a>
   <a href="https://github.com/iamozyth/rconsole/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/iamozyth/rconsole/actions/workflows/test.yml/badge.svg"></a>
   <a href="https://github.com/iamozyth/rconsole/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/iamozyth/rconsole?color=7c3aed"></a>
-  <img alt="Node.js 18+" src="https://img.shields.io/badge/node-%E2%89%A518-339933">
+  <img alt="Node.js 24+" src="https://img.shields.io/badge/node-%E2%89%A524-339933">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen">
   <img alt="Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge, vanilla" src="https://img.shields.io/badge/servers-Paper%20%C2%B7%20Spigot%20%C2%B7%20Fabric%20%C2%B7%20Forge%20%C2%B7%20vanilla-555">
   <a href="LICENSE"><img alt="License: PolyForm Strict 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Strict-555"></a>
@@ -119,7 +119,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 ## Requirements
 
 - Linux with systemd: Debian or Ubuntu for the installer (developed on Debian); other distributions with the manual setup.
-- Node.js 18 or newer (installed automatically if missing).
+- Node.js 24 or newer. The installer adds it from [NodeSource](https://github.com/nodesource/distributions) when the system has none or an older one (Debian 12 ships 18, Debian 13 ships 20).
 - x86-64 or ARM64 for the servers rconsole installs (Java comes from Adoptium for both).
 - Or an existing Minecraft server running as a systemd service under its own user, with RCON (the installer turns it on).
 
@@ -185,7 +185,7 @@ With no Minecraft server on the machine (or with `--new`), the installer sets rc
 
 For an existing server, the installer finds the server (its service, folder, user, jar and software: Paper, Purpur, Folia, Spigot, Fabric, Quilt, Forge, NeoForge or vanilla) and shows what it found before changing anything. Then it:
 
-- installs Node.js, git and polkit if missing;
+- installs git, polkit, zstd and nftables if missing, and Node.js 24 from NodeSource unless Node.js 24 or newer is already there;
 - clones rconsole to `/opt/rconsole` and creates the `rconsole` system user;
 - turns on RCON with a generated password if needed (the old file is kept as `server.properties.before-rconsole`);
 - makes the server folder group-readable, creates the backup folder, and adds `Restart=always` to the Minecraft service if it has no restart policy (rconsole restarts the server by stopping it);
@@ -232,8 +232,13 @@ RestartSec=10
 
 ### 3. Install
 
+Node.js 24 from NodeSource (Debian's own `nodejs` is too old), then git:
+
 ```sh
-sudo apt install -y nodejs git
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo tee /etc/apt/keyrings/nodesource.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_24.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
+sudo apt update && sudo apt install -y nodejs git
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin rconsole
 sudo mkdir -p /opt/rconsole && sudo chown $USER: /opt/rconsole
 gh repo clone iamozyth/rconsole /opt/rconsole
@@ -397,9 +402,10 @@ World uploads need no extra settings (see [Importing a world](#importing-a-world
 rconsole checks GitHub every 6 hours for new commits on `main` (Server → Updates shows the changelog, the rail shows a notice) and can update itself with one click. The update runs in `rconsole-selfupdate.service` as root, a fixed script (`bin/self-update.sh`) that takes no input from rconsole:
 
 1. fetches and fast-forwards `/opt/rconsole` (refuses if the checkout has local changes or has diverged),
-2. checks the new code parses, otherwise stays on the old version,
-3. installs changed unit files and the polkit rule, unless your installed copy was customized (then it tells you what to merge),
-4. restarts rconsole, and rolls back if it doesn't come up.
+2. installs the Node.js the new version needs from NodeSource when the system's is older (also when there are no new commits), otherwise stays on the old version,
+3. checks the new code parses, otherwise stays on the old version,
+4. installs changed unit files and the polkit rule, unless your installed copy was customized (then it tells you what to merge),
+5. restarts rconsole, and rolls back if it doesn't come up.
 
 One-time setup (rconsole must be a `git clone` in `/opt/rconsole`):
 

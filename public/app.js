@@ -2987,10 +2987,15 @@ async function loadSelfUpdate(refresh) {
     const c = o.check || {};
     $('self-current').textContent = o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}` : 'Unknown version';
     const behind = c.status === 'ahead' ? c.behind : 0;
+    // Too old a Node.js: Update installs the right one even with no new commits.
+    const nodeOld = o.node && !o.node.ok ? o.node : null;
     $('self-pill').hidden = !o.current || Boolean(c.error && !c.status);
     $('self-pill').className = `pill ${behind ? 'own' : 'ok'}`;
     $('self-pill').replaceChildren(icon(behind ? 'updates' : 'check'), behind ? `${behind} new commit${behind === 1 ? '' : 's'}` : c.status === 'diverged' ? 'Diverged from GitHub' : 'Up to date');
-    $('self-info').textContent = c.error ? `Can't check github.com/${o.repo}: ${c.error}` : '';
+    $('self-info').textContent = [
+      c.error ? `Can't check github.com/${o.repo}: ${c.error}` : '',
+      nodeOld ? `rconsole needs Node.js ${nodeOld.need} or newer and runs on ${nodeOld.version}. Server → Updates → Update installs Node.js ${nodeOld.need} from NodeSource and restarts rconsole.` : '',
+    ].filter(Boolean).join(' ');
     // Only a status about the installed version is news: a finished update
     // must have ended on it, a failed one must have started from it.
     const cur = o.current?.sha || '';
@@ -3007,15 +3012,15 @@ async function loadSelfUpdate(refresh) {
       el('a', { class: 'mono', href: `https://github.com/${o.repo}/commit/${x.sha}`, target: '_blank', rel: 'noopener' }, x.sha),
       el('span', {}, x.message),
       x.date ? el('span', { class: 'note' }, fmt.relative(x.date)) : null)));
-    $('self-note').hidden = !behind;
+    $('self-note').hidden = !behind && !nodeOld;
     // The overview row says "up to date"; the panel only appears when there is more to show.
-    $('self-panel').hidden = !behind && $('self-status').hidden && !(c.error && !c.status);
+    $('self-panel').hidden = !behind && !nodeOld && $('self-status').hidden && !(c.error && !c.status);
     $('self-update').disabled = !o.canUpdate || u?.state === 'running';
     $('self-update').title = o.canUpdate ? '' : 'Needs the systemd install (see README)';
     summaryRow('self', {
       version: o.current ? `${o.current.sha}${o.current.branch ? ` on ${o.current.branch}` : ''}${updatedAgo}` : 'Unknown version',
-      state: u?.state === 'running' ? ['own', 'updates', 'Updating…'] : c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
-      action: behind && o.canUpdate
+      state: u?.state === 'running' ? ['own', 'updates', 'Updating…'] : nodeOld ? ['own', 'updates', `Needs Node.js ${nodeOld.need}`] : c.error && !c.status ? ['bad', 'alert', "Can't reach GitHub"] : behind ? ['own', 'updates', `${behind} new commit${behind === 1 ? '' : 's'}`] : c.status === 'diverged' ? ['', 'alert', 'Diverged from GitHub'] : ['ok', 'check', 'Up to date'],
+      action: (behind || nodeOld) && o.canUpdate
         ? el('button', { class: 'btn btn-sm btn-primary', disabled: u?.state === 'running' || undefined, onclick: () => $('self-update').click() }, icon('updates'), 'Update')
         : el('a', { class: 'btn btn-sm', href: `https://github.com/${o.repo}/commits/${o.branch}`, target: '_blank', rel: 'noopener' }, 'Changes'),
     });
