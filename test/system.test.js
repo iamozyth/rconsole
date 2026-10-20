@@ -22,7 +22,15 @@ const freePort = () => new Promise((resolve) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const reachable = (port, host = '127.0.0.1') => new Promise((resolve) => {
   const s = net.connect(port, host, () => (s.destroy(), resolve(true)));
+  s.setTimeout(2000, () => (s.destroy(), resolve(false)));
   s.on('error', () => resolve(false));
+});
+// Stops a child and waits for it, also when it has already exited; never hangs.
+const stop = (child) => new Promise((resolve) => {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return resolve();
+  const t = setTimeout(() => child.kill('SIGKILL'), 5000);
+  child.once('exit', () => (clearTimeout(t), resolve()));
+  child.kill();
 });
 
 test('system: saved values win over the env file, reset brings it back', () => {
@@ -84,7 +92,7 @@ function listenerWithConfirm() {
 }
 const post = (port, token, host = '127.0.0.1') => fetch(`http://${host}:${port}/`, { method: 'POST', body: token }).then(async (r) => [r.status, await r.text()]);
 
-test('listener: a new port is kept only when confirmed through it', async () => {
+test('listener: a new port is kept only when confirmed through it', { timeout: 20000 }, async () => {
   const l = listenerWithConfirm();
   l.trialMs = 5000;
   const [a, b] = [await freePort(), await freePort()];
@@ -102,7 +110,7 @@ test('listener: a new port is kept only when confirmed through it', async () => 
   await l.close();
 });
 
-test('listener: an unconfirmed trial goes back on its own', async () => {
+test('listener: an unconfirmed trial goes back on its own', { timeout: 20000 }, async () => {
   const l = listenerWithConfirm();
   const [a, b] = [await freePort(), await freePort()];
   await l.start('127.0.0.1', a);
@@ -115,7 +123,7 @@ test('listener: an unconfirmed trial goes back on its own', async () => {
   await l.close();
 });
 
-test('listener: same port on another address swaps, and swaps back', async () => {
+test('listener: same port on another address swaps, and swaps back', { timeout: 20000 }, async () => {
   const l = listenerWithConfirm();
   const a = await freePort();
   await l.start('127.0.0.1', a);
@@ -128,7 +136,7 @@ test('listener: same port on another address swaps, and swaps back', async () =>
   await l.close();
 });
 
-test('listener: a port in use fails the trial and keeps the old one; a saved one falls back at start', async () => {
+test('listener: a port in use fails the trial and keeps the old one; a saved one falls back at start', { timeout: 20000 }, async () => {
   const l = listenerWithConfirm();
   const [a, busy] = [await freePort(), await freePort()];
   const other = http.createServer().listen(busy, '127.0.0.1');
@@ -179,6 +187,7 @@ test('server: Settings → System changes apply live, a new port needs confirmin
   await users.setPassword('bob', 'password-1234');
   const [a, b] = [await freePort(), await freePort()];
   let child = await startRconsole(root, a);
+  let blocker = null;
   try {
     assert.ok(await waitUp(a), child.output());
     const base = `http://127.0.0.1:${a}`;
@@ -240,27 +249,25 @@ test('server: Settings → System changes apply live, a new port needs confirmin
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(state, 'system.json'), 'utf8')).webPort, b);
 
     // Restart: the saved port wins over WEB_PORT.
-    child.kill();
-    await new Promise((r) => child.once('exit', r));
+    await stop(child);
     child = await startRconsole(root, a);
     assert.ok(await waitUp(b), child.output());
     assert.strictEqual(await reachable(a), false);
 
     // A saved port that can't be opened falls back to the env file's.
-    child.kill();
-    await new Promise((r) => child.once('exit', r));
-    const blocker = http.createServer().listen(b, '127.0.0.1');
+    await stop(child);
+    blocker = http.createServer().listen(b, '127.0.0.1');
     await new Promise((r) => blocker.once('listening', r));
     child = await startRconsole(root, a);
     assert.ok(await waitUp(a), child.output());
     assert.match(child.output(), /listening on 127\.0\.0\.1:\d+ from \/etc\/rconsole\.env instead/);
-    blocker.close();
 
     // The CLI resets it.
-    const cli = spawn(process.execPath, ['cli.js', 'system', 'reset', 'webPort'], { cwd: path.join(__dirname, '..'), env: { ...process.env, STATE_DIR: state } });
+    const cli = spawn(process.execPath, ['cli.js', 'system', 'reset', 'webPort'], { cwd: path.join(__dirname, '..'), env: { ...process.env, STATE_DIR: state }, stdio: 'ignore' });
     await new Promise((r) => cli.once('exit', r));
     assert.ok(!('webPort' in JSON.parse(fs.readFileSync(path.join(state, 'system.json'), 'utf8'))));
   } finally {
-    child.kill();
+    await stop(child);
+    blocker?.close();
   }
 });
