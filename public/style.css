@@ -2013,3 +2013,31 @@ td.nowrap { white-space: nowrap; }
 .dialog.player-sheet[open] { animation: drawer-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 a.sw-item { text-decoration: none; }
 .when { white-space: nowrap; }
+
+/* 4.6 automation: task steps ------------------------------------------------- */
+.steps-fld { gap: 8px; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.step { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 8px 10px 12px; }
+.step + .step { border-top: 1px solid var(--line); }
+.step-n { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--sunken); color: var(--text-2); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.step-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.step-label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; }
+.step-label svg { width: 14px; height: 14px; color: var(--text-3); fill: currentColor; }
+.step-fields { display: flex; align-items: center; gap: 8px; }
+.step-fields .field { flex: 1; min-width: 0; }
+.step-fields .field[type='number'] { flex: 0 0 96px; }
+.step-fields .unit { font-size: 13px; color: var(--text-3); white-space: nowrap; }
+.step-tools { display: flex; gap: 2px; }
+.step-tools .btn[aria-label='Move up'] svg { transform: rotate(180deg); }
+.steps-empty { padding: 14px 12px; font-size: 13px; color: var(--text-3); }
+.steps-add { display: flex; gap: 8px; }
+.steps-add .field { flex: 1; min-width: 0; }
+.step-chain { white-space: normal; }
+#task-cron-note.bad { color: var(--c-danger); }
+.table.one-server th:nth-child(2), .table.one-server td.task-server { display: none; }
+@media (max-width: 640px) {
+  .step { grid-template-columns: 22px minmax(0, 1fr); }
+  .step-tools { grid-column: 2; justify-content: flex-end; }
+}
+.task-table td.primary-cell { min-width: 240px; }
+.task-table td.act { white-space: nowrap; }

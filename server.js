@@ -191,7 +191,69 @@ notify.handlers = {
     return 'Starting';
   },
 };
-const scheduler = new Scheduler({ rcon, backups, countdown, stateDir: config.stateDir, log, audit: (e) => audit.record(e) });
+// What a task's steps act on. The server rconsole shows: its RCON, the
+// shared countdown and backups. Another server rconsole installed: its
+// console and unit, without RCON (no replies, player counts or backups).
+// null is the server rconsole attached to in MC_DIR.
+const shownKey = () => config.activeServer ?? null;
+const otherCountdowns = new Map(); // server id -> Countdown
+const taskTargets = {
+  kind(server) {
+    if (server === null) return legacyServer || !config.activeServer ? 'server' : null;
+    try {
+      return servers.get(server).kind;
+    } catch {
+      return null;
+    }
+  },
+  get(server) {
+    if (server === shownKey()) {
+      return {
+        send: (cmd) => rcon.send(cmd),
+        announce: (text) => countdown.announce(text),
+        countdown,
+        power,
+        backup: () => backups.run(),
+        players: async () => {
+          stats.invalidate('players');
+          const s = await stats.get().catch(() => null);
+          return s?.game?.players ? s.game.players.online : null;
+        },
+      };
+    }
+    if (server === null) throw new Error(`rconsole shows ${config.activeServer} now; tasks of ${path.basename(legacy.mcDir)} run while it is shown`);
+    const i = servers.get(server);
+    const fifo = { send: async (cmd) => (await servers.send(i.id, cmd), '') };
+    if (!otherCountdowns.has(i.id)) otherCountdowns.set(i.id, new Countdown({ rcon: fifo, log, power: servers.power(i.id) }));
+    const cd = otherCountdowns.get(i.id);
+    return {
+      send: fifo.send,
+      announce: (text) => (i.kind === 'proxy' ? Promise.resolve() : cd.announce(text)),
+      countdown: cd,
+      power: servers.power(i.id),
+      backup: () => Promise.reject(new Error(`backups run on the server rconsole shows; show ${i.id} under Servers first`)),
+      players: async () => null,
+    };
+  },
+};
+const scheduler = new Scheduler({ stateDir: config.stateDir, log, audit: (e) => audit.record(e), targets: taskTargets, defaultServer: shownKey() });
+// Start and crash events: every server's unit, every 30 s, while a task
+// waits for one.
+const powerSeen = new Map(); // server key -> last state
+async function watchPower() {
+  if (!scheduler.tasks.some((t) => t.enabled && t.trigger.type === 'event' && ['start', 'crash'].includes(t.trigger.event))) return powerSeen.clear();
+  const watched = [[shownKey(), power, () => ops.busy() || countdown.endsAt != null || Boolean(updates.running)]];
+  for (const i of instances.list(config.serversDir)) {
+    if (i.id !== config.activeServer) watched.push([i.id, servers.power(i.id), () => serverOps.busy() || otherCountdowns.get(i.id)?.endsAt != null]);
+  }
+  for (const [key, p, planned] of watched) {
+    const st = await p.state().catch(() => null);
+    if (!st?.available) continue;
+    const prev = powerSeen.get(key);
+    powerSeen.set(key, st);
+    scheduler.onPower(key, prev, st, { planned: planned() });
+  }
+}
 const users = new Users(config.stateDir);
 const sessions = new Sessions(path.join(config.stateDir, 'sessions.json'));
 const throttle = new Throttle();
@@ -640,6 +702,13 @@ const route = (method, pattern, handler, audited = true) => routes.push({ method
 
 // Audit names for state-changing requests: [method, path, (params, body, query) => [action, target]].
 const dec = decodeURIComponent;
+const taskName = (id) => {
+  try {
+    return scheduler.label(scheduler.get(id));
+  } catch {
+    return id;
+  }
+};
 const AUDIT_NAMES = [
   ['POST', /^\/api\/command$/, (p, b) => ['command', `/${String(b.command || '').replace(/^\//, '')}`]],
   ['POST', /^\/api\/server\/power$/, (p, b) => [`server ${b.action}`, b.seconds ? `in ${b.seconds}s` : '']],
@@ -684,10 +753,10 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b, q) => ['server delete', `${id}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
-  ['POST', /^\/api\/tasks$/, (p, b) => ['task create', `${b.type} ${b.time || ''}`.trim()]],
-  ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task edit', id]],
-  ['DELETE', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task delete', id]],
-  ['POST', /^\/api\/tasks\/([\w-]+)\/run$/, ([id]) => ['task run', id]],
+  ['POST', /^\/api\/tasks$/, (p, b) => ['task create', String(b.name || (b.steps || []).map((x) => x?.type).join(' → '))]],
+  ['PATCH', /^\/api\/tasks\/([\w-]+)$/, ([id], b) => [b.enabled !== undefined && Object.keys(b).length === 1 ? `task ${b.enabled ? 'resume' : 'pause'}` : 'task edit', taskName(id)]],
+  ['DELETE', /^\/api\/tasks\/([\w-]+)$/, ([id]) => ['task delete', taskName(id)]],
+  ['POST', /^\/api\/tasks\/([\w-]+)\/run$/, ([id]) => ['task run', taskName(id)]],
 ];
 
 // Who may call what. Reading needs a viewer, changing anything an admin,
@@ -1372,13 +1441,39 @@ route('POST', /^\/api\/updates$/, async (req) => {
   return [202, updates.start({ version: String(version || ''), build: b, rollback: Boolean(rollback), backup: backup !== false, restartSeconds, user: req.user })];
 });
 
-route('GET', /^\/api\/tasks$/, async () => ({ tasks: scheduler.list() }));
+// Automation: tasks for every server, plus the servers they can be for.
+route('GET', /^\/api\/tasks$/, async () => ({
+  tasks: scheduler.list(),
+  shown: shownKey(),
+  servers: [
+    ...(legacyServer ? [{ id: null, name: path.basename(legacy.mcDir), kind: 'server' }] : []),
+    ...instances.list(config.serversDir).map((i) => ({ id: i.id, name: i.name || i.id, kind: i.kind })),
+  ],
+  events: require('./lib/scheduler').EVENTS,
+}));
+// The next runs of a cron expression, for the form.
+route('GET', /^\/api\/tasks\/preview$/, async (req) => {
+  const cron = require('./lib/cron');
+  let c;
+  try {
+    c = cron.parse(new URL(req.url, 'http://x').searchParams.get('cron'));
+  } catch (err) {
+    throw httpError(400, err.message);
+  }
+  const next = [];
+  for (let d = new Date(); next.length < 3;) {
+    d = cron.next(c, d);
+    if (!d) break;
+    next.push(d.toISOString());
+  }
+  return { next };
+});
 route('POST', /^\/api\/tasks$/, async (req) => {
-  const task = await scheduler.create(await readJson(req));
-  log(`${req.user}: created task ${task.type} ${task.time}`);
+  const task = await scheduler.create(await readJson(req, 32 * 1024));
+  log(`${req.user}: created task "${scheduler.label(task)}"`);
   return [201, task];
 });
-route('PATCH', /^\/api\/tasks\/([\w-]+)$/, async (req, res, [id]) => scheduler.update(id, await readJson(req)));
+route('PATCH', /^\/api\/tasks\/([\w-]+)$/, async (req, res, [id]) => scheduler.update(id, await readJson(req, 32 * 1024)));
 route('DELETE', /^\/api\/tasks\/([\w-]+)$/, async (req, res, [id]) => {
   await scheduler.remove(id);
   log(`${req.user}: deleted task ${id}`);
@@ -1386,8 +1481,9 @@ route('DELETE', /^\/api\/tasks\/([\w-]+)$/, async (req, res, [id]) => {
 });
 route('POST', /^\/api\/tasks\/([\w-]+)\/run$/, async (req, res, [id]) => {
   scheduler.get(id);
+  if (scheduler.running.has(id)) throw httpError(409, 'This task is running right now');
   log(`${req.user}: ran task ${id}`);
-  scheduler.run(id).catch(() => {}); // restarts and backups can take minutes
+  scheduler.run(id, { user: req.user }).catch(() => {}); // restarts and backups can take minutes
   return [202, { ok: true }];
 });
 
@@ -1683,6 +1779,9 @@ scheduler.load().then(() => {
     wasUp = up;
   });
   logTail.on('line', (line) => problems.onLogLine(line));
+  logTail.on('line', (line) => problems.ready && scheduler.onLogLine(shownKey(), line));
+  metrics.onSample((sample) => scheduler.onPlayers(shownKey(), sample.up === 1 ? sample.players : null));
+  setInterval(() => watchPower().catch((err) => log(`scheduler: ${err.message}`)), 30 * 1000).unref();
   setTimeout(() => (problems.ready = true), 5000).unref(); // after the tail's first read of old lines
   logTail.on('line', (line) => notify.onLogLine(line));
   const updateCheck = () => notify.checkUpdates({ updates, plugins, selfUpdate }).catch((err) => log(`notify: ${err.message}`));

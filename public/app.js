@@ -2435,16 +2435,24 @@ $('plugin-search').addEventListener('submit', async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Schedule
+// Automation: tasks with a trigger and a chain of steps
 // ---------------------------------------------------------------------------
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const TYPE = {
-  restart: { label: 'Restart', icon: 'restart' },
-  backup: { label: 'Backup', icon: 'backups' },
-  command: { label: 'Command', icon: 'console' },
+const STEP = {
+  say: { label: 'Tell players', icon: 'send' },
+  command: { label: 'Run a command', icon: 'console' },
+  wait: { label: 'Wait', icon: 'history' },
+  backup: { label: 'Back up the world', icon: 'backups' },
+  restart: { label: 'Restart with countdown', icon: 'restart' },
+  stop: { label: 'Stop with countdown', icon: 'stop' },
+  start: { label: 'Start the server', icon: 'play' },
+  'if-empty': { label: 'Only go on if nobody is online', icon: 'players' },
 };
+const EVENT_LABEL = { start: 'When the server starts', crash: 'When the server crashes', empty: 'When nobody is online', log: 'When the log shows a line' };
 let tasksLoaded = false;
+let taskMeta = { servers: [], shown: null, events: {} };
+let editingTask = null; // id while editing
 
 function describeDays(days) {
   if (!days.length || days.length === 7) return 'Daily';
@@ -2453,43 +2461,76 @@ function describeDays(days) {
   return [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => DAY_NAMES[d]).join(', ');
 }
 
+const secs = (s) => (s >= 60 && s % 60 === 0 ? `${s / 60} min` : `${s} s`);
+function describeStep(st) {
+  switch (st.type) {
+    case 'say': return `Tell players “${st.message}”`;
+    case 'command': return `/${st.command}`;
+    case 'wait': return `Wait ${secs(st.seconds)}`;
+    case 'restart': return st.warnSeconds ? `Restart after ${secs(st.warnSeconds)} warning` : 'Restart now';
+    case 'stop': return st.warnSeconds ? `Stop after ${secs(st.warnSeconds)} warning` : 'Stop now';
+    default: return STEP[st.type]?.label || st.type;
+  }
+}
+
+function describeTrigger(t) {
+  if (t.type === 'time') return [t.time, describeDays(t.days)];
+  if (t.type === 'cron') return [el('span', { class: 'mono' }, t.cron), 'Cron'];
+  const extra = t.event === 'empty' ? `for ${t.minutes} min` : t.event === 'log' ? `“${t.match}”` : '';
+  return [EVENT_LABEL[t.event] || t.event, [extra, `at most every ${t.cooldownMinutes} min`].filter(Boolean).join(', ')];
+}
+
+const serverLabel = (id) => (id === null ? (taskMeta.shown === null && lastStatus?.platform?.name) || 'Attached server' : taskMeta.servers.find((x) => x.id === id)?.name || id);
+const taskTitle = (t) => t.name || t.steps.map((st) => STEP[st.type]?.label || st.type).join(', ');
+
 async function loadTasks() {
-  if (!tasksLoaded) skeletonRows($('task-list'), 5);
+  if (!tasksLoaded) skeletonRows($('task-list'), 6);
   try {
-    const { tasks } = await api('GET', '/api/tasks');
+    const { tasks, servers, shown, events } = await api('GET', '/api/tasks');
+    taskMeta = { servers, shown, events };
     tasksLoaded = true;
     $('n-tasks').textContent = tasks.length || '';
+    const many = servers.length > 1;
+    $('task-list').closest('table').classList.toggle('one-server', !many);
+    $('task-list').closest('table').classList.add('task-table');
     $('task-list').replaceChildren(...(tasks.length
       ? tasks.map((t) => {
-          const detail = t.type === 'command' ? `/${t.command}` : t.type === 'restart' ? `${t.warnMinutes} min warning` : 'World, nether and end';
           const failed = /^error/i.test(t.lastResult || '');
+          const [whenMain, whenSub] = describeTrigger(t.trigger);
+          const running = t.running ? `Running: step ${t.running.step + 1} of ${t.steps.length}` : null;
           return el('tr', {},
             el('td', { class: 'primary-cell', 'data-label': 'Task' },
-              t.name || TYPE[t.type].label, ' ',
-              el('span', { class: `pill ${t.enabled ? 'own' : ''}` }, t.enabled ? 'Active' : 'Paused'),
-              el('span', { class: `sub ${t.type === 'command' ? 'mono' : ''}` }, detail)),
-            el('td', { 'data-label': 'When' }, `${t.time}`, el('span', { class: 'sub' }, describeDays(t.days))),
-            el('td', { 'data-label': 'Next run' }, t.enabled && t.nextRun ? when(t.nextRun) : '–'),
-            el('td', { 'data-label': 'Last result' }, t.lastRun
-              ? el('span', { class: `result ${failed ? 'bad' : ''}` }, t.lastResult, el('span', { class: 'sub' }, fmt.relative(t.lastRun)))
-              : el('span', { class: 'result' }, 'Not run yet')),
+              taskTitle(t), ' ',
+              el('span', { class: `pill ${t.enabled ? 'own' : ''}` }, running ? 'Running' : t.enabled ? 'Active' : 'Paused'),
+              el('span', { class: 'sub step-chain' }, t.steps.map(describeStep).join(' → '))),
+            el('td', { 'data-label': 'Server', class: 'task-server' }, serverLabel(t.server), t.server !== shown && t.steps.some((st) => st.type === 'backup' || st.type === 'if-empty') ? el('span', { class: 'sub' }, 'Runs while shown') : ''),
+            el('td', { 'data-label': 'When' }, whenMain, el('span', { class: 'sub' }, whenSub)),
+            el('td', { 'data-label': 'Next run' }, t.enabled && t.nextRun ? when(t.nextRun) : t.trigger.type === 'event' && t.enabled ? 'On event' : '–'),
+            el('td', { 'data-label': 'Last result' }, running
+              ? el('span', { class: 'result' }, running)
+              : t.lastRun
+                ? el('span', { class: `result ${failed ? 'bad' : ''}` }, t.lastResult, el('span', { class: 'sub' }, fmt.relative(t.lastRun)))
+                : el('span', { class: 'result' }, 'Not run yet')),
             el('td', { class: 'act' },
-              taskButton(t.enabled ? 'Pause' : 'Resume', t.enabled ? 'pause' : 'play', () => taskAction('PATCH', t, { enabled: !t.enabled })),
               taskButton('Run now', 'play', () => runTask(t)),
+              taskButton('Edit', 'settings', () => editTask(t), false, true),
+              taskButton(t.enabled ? 'Pause' : 'Resume', t.enabled ? 'pause' : 'play', () => taskAction('PATCH', t, { enabled: !t.enabled }), false, true),
               taskButton('Delete', 'delete', async () => {
-                if (await confirmAction({ title: `Delete “${t.name || TYPE[t.type].label}”?`, body: `${TYPE[t.type].label} at ${t.time}, ${describeDays(t.days).toLowerCase()}.`, confirm: 'Delete task', tone: 'danger', icon: 'delete' })) await taskAction('DELETE', t);
-              }, true)));
+                if (await confirmAction({ title: `Delete “${taskTitle(t)}”?`, body: `${typeof whenMain === 'string' ? whenMain : t.trigger.cron}${typeof whenSub === 'string' ? `, ${whenSub.toLowerCase()}` : ''}.`, confirm: 'Delete task', tone: 'danger', icon: 'delete' })) await taskAction('DELETE', t);
+              }, true, true)));
         })
-      : [emptyRow(5, el('b', {}, 'No scheduled tasks. '), 'A nightly restart at 04:00 and a backup at 04:30 keep the server fresh and recoverable. Press New task.')]));
+      : [emptyRow(6, el('b', {}, 'No tasks yet. '), 'A nightly restart at 04:00 and a backup at 04:30 keep the server fresh and recoverable. Press New task and start from one of the ready-made ones.')]));
   } catch (e) {
-    $('task-list').replaceChildren(emptyRow(5, `Can't load tasks: ${e.message}`));
+    $('task-list').replaceChildren(emptyRow(6, `Can't load tasks: ${e.message}`));
   }
 }
 tabLoaders.automation = loadTasks;
-$('task-new').addEventListener('click', () => openDrawer('drawer-task', taskForm.elements.type));
+$('task-new').addEventListener('click', () => openTaskForm(null));
 
-function taskButton(label, iconName, fn, danger) {
-  const btn = el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}` }, icon(iconName), label);
+function taskButton(label, iconName, fn, danger, iconOnly) {
+  const btn = iconOnly
+    ? el('button', { class: `btn btn-quiet btn-sm btn-icon${danger ? ' danger' : ''}`, 'aria-label': label, title: label }, icon(iconName))
+    : el('button', { class: `btn btn-quiet btn-sm${danger ? ' danger' : ''}` }, icon(iconName), label);
   btn.addEventListener('click', () => busy(btn, fn));
   return btn;
 }
@@ -2506,11 +2547,14 @@ async function taskAction(method, task, body) {
 }
 
 async function runTask(task) {
-  const label = task.name || TYPE[task.type].label;
-  const opts = task.type === 'restart'
-    ? { title: `Restart now?`, body: `Starts the ${task.warnMinutes}-minute countdown with chat warnings, then restarts the server.`, confirm: 'Start countdown', tone: 'primary', icon: 'restart' }
-    : { title: `Run “${label}” now?`, body: task.type === 'command' ? `/${task.command}` : 'Takes a world backup now.', confirm: 'Run now', tone: 'primary', icon: TYPE[task.type].icon };
-  if (!(await confirmAction(opts))) return;
+  const label = taskTitle(task);
+  const hasCountdown = task.steps.find((st) => st.type === 'restart' || st.type === 'stop');
+  const ok = await confirmAction({
+    title: `Run “${label}” now?`,
+    body: `${task.steps.map(describeStep).join(' → ')}${hasCountdown ? '. Players see the countdown in chat.' : '.'}`,
+    confirm: 'Run now', tone: 'primary', icon: 'play',
+  });
+  if (!ok) return;
   try {
     await api('POST', `/api/tasks/${task.id}/run`);
     toast(`Started “${label}”.`);
@@ -2521,12 +2565,39 @@ async function runTask(task) {
   refreshStatus(true);
 }
 
+// --- the task form ---
+
 const taskForm = $('task-form');
-function syncTaskForm() {
-  const type = taskForm.elements.type.value;
-  taskForm.querySelectorAll('[data-for]').forEach((l) => (l.hidden = l.dataset.for !== type));
+let taskSteps = [];
+let taskTrigger = 'time';
+
+const PRESETS = {
+  nightly: { name: 'Nightly restart', trigger: { type: 'time', time: '04:00', days: [] }, steps: [{ type: 'restart', warnSeconds: 300 }] },
+  'backup-restart': { name: 'Backup and restart', trigger: { type: 'time', time: '04:00', days: [] }, steps: [{ type: 'say', message: 'Backup and restart in 5 minutes' }, { type: 'backup' }, { type: 'restart', warnSeconds: 300 }] },
+  'empty-restart': { name: 'Restart when empty', trigger: { type: 'event', event: 'empty', minutes: 30, cooldownMinutes: 360 }, steps: [{ type: 'if-empty' }, { type: 'restart', warnSeconds: 0 }] },
+  'crash-start': { name: 'Start after a crash', trigger: { type: 'event', event: 'crash', cooldownMinutes: 10 }, steps: [{ type: 'wait', seconds: 30 }, { type: 'start' }] },
+  'hourly-backup': { name: 'Backup every 2 hours', trigger: { type: 'cron', cron: '0 */2 * * *' }, steps: [{ type: 'backup' }] },
+};
+const STEP_DEFAULTS = { say: { message: '' }, command: { command: '' }, wait: { seconds: 60 }, restart: { warnSeconds: 300 }, stop: { warnSeconds: 300 } };
+
+function setTrigger(type) {
+  taskTrigger = type;
+  $('task-trigger').querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.trigger === type)));
+  syncTaskForm();
 }
-taskForm.elements.type.addEventListener('change', syncTaskForm);
+$('task-trigger').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-trigger]');
+  if (b) setTrigger(b.dataset.trigger);
+});
+
+function syncTaskForm() {
+  const ev = taskForm.elements.event.value;
+  taskForm.querySelectorAll('[data-trigger-for]').forEach((l) => {
+    l.hidden = l.dataset.triggerFor !== taskTrigger || (l.dataset.eventFor && l.dataset.eventFor !== ev);
+  });
+  if (taskTrigger === 'cron') previewCron();
+}
+taskForm.elements.event.addEventListener('change', syncTaskForm);
 // "Every day" and single days exclude each other; no day picked means every day.
 taskForm.querySelector('.days').addEventListener('change', (e) => {
   const all = taskForm.querySelector('.days input[value=all]');
@@ -2535,25 +2606,139 @@ taskForm.querySelector('.days').addEventListener('change', (e) => {
   all.checked = !days.some((d) => d.checked);
 });
 
+let cronTimer = null;
+function previewCron() {
+  clearTimeout(cronTimer);
+  const note = $('task-cron-note');
+  const expr = taskForm.elements.cron.value.trim();
+  if (!expr) {
+    note.textContent = 'Minute, hour, day of month, month, weekday. Server time.';
+    note.classList.remove('bad');
+    return;
+  }
+  cronTimer = setTimeout(async () => {
+    try {
+      const { next } = await api('GET', `/api/tasks/preview?cron=${encodeURIComponent(expr)}`);
+      note.textContent = next.length ? `Next: ${next.map((d) => fmt.date(d)).join(' · ')}` : 'This expression never runs.';
+      note.classList.toggle('bad', !next.length);
+    } catch (e) {
+      note.textContent = e.message;
+      note.classList.add('bad');
+    }
+  }, 300);
+}
+taskForm.elements.cron.addEventListener('input', previewCron);
+
+function stepField(st, key, attrs, label) {
+  const input = el('input', { class: `field${key === 'command' ? ' mono' : ''}`, value: st[key] ?? '', 'aria-label': label, ...attrs });
+  input.addEventListener('input', () => (st[key] = attrs.type === 'number' ? Number(input.value) : input.value));
+  return input;
+}
+
+function renderSteps() {
+  const list = $('task-steps');
+  list.replaceChildren(...taskSteps.map((st, i) => {
+    const move = (d) => {
+      const j = i + d;
+      if (j < 0 || j >= taskSteps.length) return;
+      [taskSteps[i], taskSteps[j]] = [taskSteps[j], taskSteps[i]];
+      renderSteps();
+    };
+    const fields = [];
+    if (st.type === 'say') fields.push(stepField(st, 'message', { placeholder: 'Restart in 5 minutes', maxlength: 200 }, 'Message'));
+    if (st.type === 'command') fields.push(stepField(st, 'command', { placeholder: 'save-all', maxlength: 1000, spellcheck: 'false' }, 'Command'));
+    if (st.type === 'wait') fields.push(stepField(st, 'seconds', { type: 'number', min: 1, max: 3600 }, 'Seconds'), el('span', { class: 'unit' }, 'seconds'));
+    if (st.type === 'restart' || st.type === 'stop') fields.push(stepField(st, 'warnSeconds', { type: 'number', min: 0, max: 3600 }, 'Warning in seconds'), el('span', { class: 'unit' }, 's warning'));
+    const btn = (label, iconName, fn, disabled) => {
+      const b = el('button', { type: 'button', class: 'btn btn-quiet btn-icon btn-sm', 'aria-label': label, title: label, ...(disabled ? { disabled: '' } : {}) }, icon(iconName));
+      b.addEventListener('click', fn);
+      return b;
+    };
+    return el('li', { class: 'step' },
+      el('span', { class: 'step-n' }, String(i + 1)),
+      el('div', { class: 'step-main' }, el('span', { class: 'step-label' }, icon(STEP[st.type].icon), STEP[st.type].label), fields.length ? el('div', { class: 'step-fields' }, ...fields) : ''),
+      el('div', { class: 'step-tools' },
+        btn('Move up', 'chev', () => move(-1), i === 0),
+        btn('Move down', 'chev', () => move(1), i === taskSteps.length - 1),
+        btn('Remove step', 'remove', () => {
+          taskSteps.splice(i, 1);
+          renderSteps();
+        })));
+  }));
+  if (!taskSteps.length) list.append(el('li', { class: 'steps-empty' }, 'No steps yet. Add the first one below.'));
+}
+
+$('task-step-add').addEventListener('click', () => {
+  const type = $('task-step-type').value;
+  taskSteps.push({ type, ...(STEP_DEFAULTS[type] || {}) });
+  renderSteps();
+  $('task-steps').lastElementChild?.querySelector('input')?.focus();
+});
+
+function fillTaskForm(t) {
+  const f = taskForm.elements;
+  f.name.value = t.name || '';
+  const tr = t.trigger || { type: 'time', time: '04:00', days: [] };
+  f.time.value = tr.time || '04:00';
+  const days = tr.days || [];
+  taskForm.querySelectorAll('.days input').forEach((i) => (i.checked = i.value === 'all' ? !days.length : days.includes(Number(i.value))));
+  f.cron.value = tr.cron || '';
+  f.event.value = tr.event || 'crash';
+  f.minutes.value = tr.minutes ?? 30;
+  f.match.value = tr.match || '';
+  f.cooldownMinutes.value = tr.cooldownMinutes ?? 10;
+  taskSteps = (t.steps || []).map((st) => ({ ...st }));
+  setTrigger(tr.type);
+  renderSteps();
+}
+
+function openTaskForm(task) {
+  editingTask = task?.id || null;
+  const f = taskForm.elements;
+  f.server.replaceChildren(...taskMeta.servers.map((x) => el('option', { value: x.id ?? '' }, `${serverLabel(x.id)}${x.id === taskMeta.shown ? ' (shown)' : ''}${x.kind === 'proxy' ? ' · proxy' : ''}`)));
+  f.event.replaceChildren(...Object.keys(EVENT_LABEL).map((k) => el('option', { value: k }, EVENT_LABEL[k])));
+  f.server.value = String((task ? task.server : taskMeta.shown) ?? '');
+  f.server.disabled = taskMeta.servers.length < 2;
+  $('task-preset-fld').hidden = Boolean(task);
+  f.preset.value = '';
+  $('drawer-task-title').textContent = task ? 'Edit task' : 'New task';
+  $('task-save').replaceChildren(icon(task ? 'check' : 'add'), task ? 'Save task' : 'Add task');
+  $('task-error').textContent = '';
+  fillTaskForm(task || { trigger: { type: 'time', time: '04:00', days: [] }, steps: [] });
+  openDrawer('drawer-task', task ? f.name : f.preset);
+}
+const editTask = (t) => openTaskForm(t);
+
+taskForm.elements.preset.addEventListener('change', () => {
+  const p = PRESETS[taskForm.elements.preset.value];
+  if (!p) {
+    fillTaskForm({ trigger: { type: taskTrigger, time: taskForm.elements.time.value }, steps: [] });
+    return;
+  }
+  fillTaskForm(p);
+  taskForm.elements.name.value = p.name;
+});
+
+function taskBody() {
+  const f = taskForm.elements;
+  const trigger = taskTrigger === 'time'
+    ? { type: 'time', time: f.time.value, days: [...taskForm.querySelectorAll('.days input:checked')].filter((i) => i.value !== 'all').map((i) => Number(i.value)) }
+    : taskTrigger === 'cron'
+      ? { type: 'cron', cron: f.cron.value }
+      : { type: 'event', event: f.event.value, minutes: Number(f.minutes.value), match: f.match.value, cooldownMinutes: Number(f.cooldownMinutes.value) };
+  return { name: f.name.value, server: f.server.value === '' ? null : f.server.value, trigger, steps: taskSteps };
+}
+
 taskForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const f = taskForm.elements;
-  const body = {
-    type: f.type.value,
-    time: f.time.value,
-    name: f.name.value,
-    days: [...taskForm.querySelectorAll('.days input:checked')].filter((i) => i.value !== 'all').map((i) => Number(i.value)),
-    warnMinutes: Number(f.warnMinutes.value),
-    command: f.command.value,
-  };
-  await busy(taskForm.querySelector('.form-actions .btn'), async () => {
+  const body = taskBody();
+  await busy($('task-save'), async () => {
     try {
-      await api('POST', '/api/tasks', body);
+      const saved = editingTask ? await api('PATCH', `/api/tasks/${editingTask}`, body) : await api('POST', '/api/tasks', body);
       $('task-error').textContent = '';
-      f.name.value = '';
-      f.command.value = '';
       closeDrawer('drawer-task');
-      toast(`${TYPE[body.type].label} scheduled at ${body.time}, ${describeDays(body.days).toLowerCase()}.`);
+      const [main, sub] = describeTrigger(saved.trigger);
+      toast(`${editingTask ? 'Saved' : 'Added'} “${taskTitle(saved)}”: ${typeof main === 'string' ? main : saved.trigger.cron}${typeof sub === 'string' && saved.trigger.type === 'time' ? `, ${sub.toLowerCase()}` : ''}.`);
       await loadTasks();
     } catch (err) {
       $('task-error').textContent = err.message;
@@ -4175,7 +4360,7 @@ function paletteActions() {
   act('Show problems and errors', 'alert', 'problems errors crash exception plugin failed bell', openProblems);
   act('Review unknown connection attempts', 'ban', 'security scanner ban ip firewall whitelist addresses', () => showTab('players/addresses'));
   act('Search the logs…', 'search', 'logs grep find error', () => { showTab('insights/logs'); $('ls-form').elements.q.focus(); });
-  act('Add a scheduled task…', 'schedule', 'cron schedule task timer automation', () => { showTab('automation'); openDrawer('drawer-task', taskForm.elements.type); });
+  act('Add a scheduled task…', 'schedule', 'cron schedule task timer automation event chain', () => { showTab('automation'); loadTasks().then(() => openTaskForm(null)); });
   act('Refresh the command list from the server', 'refresh', 'commands autocomplete reload plugins', () => loadServerCommands(true).then(() => toast(`${serverCommands?.length || 0} commands from the server.`)));
   act('Sign out', 'signout', 'logout sign out', signOut);
   for (const c of commandCatalog().values()) {
