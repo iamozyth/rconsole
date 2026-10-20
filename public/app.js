@@ -187,23 +187,32 @@ const AREAS = {
   insights: { name: 'Insights', icon: 'insights' },
   settings: { name: 'Settings', icon: 'settings' },
   servers: { name: 'Servers', icon: 'server', hidden: true },
+  noaccess: { name: 'No access', icon: 'key', hidden: true },
 };
 // Roles: what the signed-in account may do. The server enforces it; the UI
 // hides what would only fail. Mirrors MODERATOR_COMMANDS in server.js.
+// myRole is the role on the server rconsole shows (it can differ per
+// server); myGlobalRole, the account's own, covers rconsole's settings.
 let myRole = 'admin';
-const ROLE_RANK = { viewer: 0, moderator: 1, admin: 2 };
+let myGlobalRole = 'admin';
+const ROLE_RANK = { none: -1, viewer: 0, moderator: 1, admin: 2 };
 const atLeast = (role) => ROLE_RANK[myRole] >= ROLE_RANK[role];
+const globalAtLeast = (role) => ROLE_RANK[myGlobalRole] >= ROLE_RANK[role];
+const allowedHere = (node) => (!node.dataset.minRole || atLeast(node.dataset.minRole)) && (!node.dataset.minGlobalRole || globalAtLeast(node.dataset.minGlobalRole));
 const MOD_COMMANDS = new Set(['say', 'me', 'tell', 'msg', 'w', 'tellraw', 'list', 'tps', 'mspt', 'help', 'kick', 'ban', 'ban-ip', 'pardon', 'pardon-ip', 'banlist', 'whitelist', 'tp', 'teleport', 'gamemode', 'spectate', 'mute', 'unmute', 'tempban', 'tempmute', 'warn', 'unban']);
 const roleForCommand = (cmd) => {
   const name = String(cmd).trim().split(/\s+/)[0].toLowerCase().replace(/^[a-z0-9_.-]+:/, '');
   return MOD_COMMANDS.has(name) && !/^whitelist\s+(on|off|reload)\b/i.test(cmd) ? 'moderator' : 'admin';
 };
-function applyRole(role) {
+function applyRole(role, globalRole = role) {
   myRole = ROLE_RANK[role] != null ? role : 'admin';
+  myGlobalRole = ROLE_RANK[globalRole] != null && globalRole !== 'none' ? globalRole : 'admin';
   document.body.dataset.role = myRole;
+  document.body.dataset.globalRole = myGlobalRole;
   // Forms that change things are read-only below their role.
-  for (const id of ['settings-form', 'notify-form', 'task-form', 'os-form', 'world-new', 'server-new', 'sys-web', 'sys-security', 'sys-backups']) if ($(id)) $(id).inert = !atLeast('admin');
-  if (!atLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
+  for (const id of ['settings-form', 'task-form', 'world-new']) if ($(id)) $(id).inert = !atLeast('admin');
+  for (const id of ['notify-form', 'os-form', 'server-new', 'sys-web', 'sys-security', 'sys-backups']) if ($(id)) $(id).inert = !globalAtLeast('admin');
+  if (!atLeast('admin') || !globalAtLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
 }
 
 // On phones the tab bar shows these four; the rest live under "More".
@@ -237,7 +246,7 @@ function currentView(area) {
 
 function showView(area, view) {
   const section = $(`tab-${area}`);
-  const tabs = [...(section?.querySelectorAll('.subnav [role=tab]') || [])].filter((t) => !t.dataset.minRole || atLeast(t.dataset.minRole));
+  const tabs = [...(section?.querySelectorAll('.subnav [role=tab]') || [])].filter(allowedHere);
   if (!tabs.length) return;
   if (!tabs.some((t) => t.dataset.view === view)) view = tabs[0].dataset.view;
   for (const t of tabs) t.setAttribute('aria-selected', t.dataset.view === view);
@@ -248,7 +257,9 @@ function showView(area, view) {
 function showTab(route) {
   route = ALIASES[route] || route || '';
   let [name, view] = route.split('/');
-  if (!AREAS[name]) name = 'dashboard';
+  if (!AREAS[name] || (name === 'noaccess' && myRole !== 'none')) name = 'dashboard';
+  // Without a role on the shown server only Settings and the server list are left.
+  if (myRole === 'none' && !['settings', 'servers'].includes(name)) name = 'noaccess';
   // Views that are a mode of an area rather than a sub-page.
   if (name === 'console' && view === 'chat') setLogView('chat');
   if (view === 'problems') {
@@ -967,7 +978,7 @@ function activityItem(when, who, what, detail, bad) {
 
 // Below admin there is no audit log to show: joins and leaves from the log.
 function renderJoins() {
-  if (atLeast('admin')) return;
+  if (globalAtLeast('admin')) return;
   $('dash-activity-title').textContent = 'Joins and leaves';
   const ev = chatEvents.filter((e) => e.kind === 'join' || e.kind === 'leave').slice(-8).reverse();
   $('dash-activity').replaceChildren(...(ev.length
@@ -1009,7 +1020,7 @@ async function loadDashboard() {
     }).catch(() => {}));
   }
   // Recent activity: who changed what (admins), or joins and leaves.
-  if (atLeast('admin')) {
+  if (globalAtLeast('admin')) {
     $('dash-activity-title').textContent = 'Recent activity';
     jobs.push(api('GET', '/api/audit?limit=8').then((r) => {
       $('dash-activity').replaceChildren(...(r.entries.length
@@ -1262,7 +1273,7 @@ async function loadServers() {
           el('td', { class: 'mono num', 'data-label': 'Port' }, String(s.port)),
           el('td', { class: 'nowrap', 'data-label': 'Memory' }, fmt.bytes(s.memoryMb * 1024 * 1024), el('span', { class: 'sub' }, `Java ${s.java}${s.flags === 'zgc' ? ', ZGC' : ''}${s.portLock ? ', ports locked' : ''}`)),
           el('td', { 'data-label': 'State' }, serverStateLabel(s)),
-          el('td', { class: 'act' }, atLeast('admin') ? [
+          el('td', { class: 'act' }, (s.myRole || myRole) === 'admin' ? [
             s.state.active === 'active'
               ? [serverButton('Restart', 'restart', (b) => serverAction(s, 'restart', b)), serverButton('Stop', 'stop', (b) => serverAction(s, 'stop', b))]
               // Starting, or waiting to restart after a crash: Stop ends it.
@@ -1272,10 +1283,10 @@ async function loadServers() {
             serverButton('Settings', 'settings', (b) => serverSettings(s, b)),
             serverButton('Delete', 'delete', (b) => deleteServer(s, b), true),
           ] : null)))
-      : [emptyRow(6, el('b', {}, 'No servers yet. '), atLeast('admin') ? 'Press New server to pick the software and version.' : 'An admin can install one.')]));
+      : [emptyRow(6, el('b', {}, 'No servers yet. '), globalAtLeast('admin') ? 'Press New server to pick the software and version.' : 'An admin can install one.')]));
     renderServersOp(op);
     lastServersOp = op;
-    if (!servers.length && !attached && !op?.running && !op?.result && atLeast('admin') && !$('drawer-server').open && document.body.dataset.area === 'servers') toggleServerForm(true);
+    if (!servers.length && !attached && !op?.running && !op?.result && globalAtLeast('admin') && !$('drawer-server').open && document.body.dataset.area === 'servers') toggleServerForm(true);
     renderSwitcher();
   } catch (e) {
     $('server-list').replaceChildren(emptyRow(6, `Can't list servers: ${e.message}`));
@@ -1299,7 +1310,7 @@ function renderSwitcher() {
       el('div', { id: 'sw-list' }),
       el('hr'),
       el('a', { class: 'sw-item', role: 'menuitem', href: '#servers', onclick: () => closeSwitcher() }, icon('server'), el('span', {}, 'Manage servers')),
-      el('a', { class: 'sw-item', role: 'menuitem', href: '#servers', 'data-min-role': 'admin', onclick: (e) => { e.preventDefault(); closeSwitcher(); showTab('servers'); toggleServerForm(true); } }, icon('add'), el('span', {}, 'New server')));
+      el('a', { class: 'sw-item', role: 'menuitem', href: '#servers', 'data-min-global-role': 'admin', onclick: (e) => { e.preventDefault(); closeSwitcher(); showTab('servers'); toggleServerForm(true); } }, icon('add'), el('span', {}, 'New server')));
   }
   const key = JSON.stringify([serversActive, serversAttached, serversList.map((s) => [s.id, s.name, s.kind, s.distribution, s.version, s.port, s.state?.active])]);
   if (key === switcherKey) return;
@@ -1523,6 +1534,7 @@ setInterval(tickCountdown, 1000);
 let statusTimer;
 async function refreshStatus(soon) {
   clearTimeout(statusTimer);
+  if (myRole === 'none') return;
   if (soon) await new Promise((r) => setTimeout(r, 300));
   try {
     renderStatus(await api('GET', '/api/status'));
@@ -1988,7 +2000,7 @@ function renderOffsiteState(o) {
 }
 
 async function loadOffsite() {
-  if (!atLeast('admin')) return;
+  if (!globalAtLeast('admin')) return;
   try {
     const o = await api('GET', '/api/offsite');
     const was = offsiteView;
@@ -4150,7 +4162,7 @@ function paletteActions() {
     const a = AREAS[area];
     if (!a || (a.hidden && area !== 'servers')) return [];
     return subs.length
-      ? subs.filter((t) => !t.dataset.minRole || atLeast(t.dataset.minRole)).map((t) => ({ group: 'Go to', icon: a.icon, label: `${a.name} → ${t.textContent.trim()}`, keys: `${area} ${t.dataset.view}`, run: () => showTab(`${area}/${t.dataset.view}`) }))
+      ? subs.filter(allowedHere).map((t) => ({ group: 'Go to', icon: a.icon, label: `${a.name} → ${t.textContent.trim()}`, keys: `${area} ${t.dataset.view}`, run: () => showTab(`${area}/${t.dataset.view}`) }))
       : [{ group: 'Go to', icon: a.icon, label: a.name, keys: area, run: () => showTab(area) }];
   });
   items.push(...views);
@@ -4294,7 +4306,7 @@ if (/Mac|iPhone|iPad/.test(navigator.platform)) $('palette-key').textContent = '
 const notifyForm = $('notify-form');
 
 async function loadNotify() {
-  if (!atLeast('admin')) return; // the settings hold the topic and token
+  if (!globalAtLeast('admin')) return; // the settings hold the topic and token
   try {
     const n = await api('GET', '/api/notify');
     const f = notifyForm.elements;
@@ -4437,12 +4449,16 @@ if (new URLSearchParams(location.search).has('linked')) {
   history.replaceState(null, '', `/${location.hash}`);
   setTimeout(() => toast('Linked. From now on, sign in with single sign-on.'), 0);
 }
-api('GET', '/api/me').then(({ user, role, via, name, auth }) => {
-  applyRole(role);
-  me = { user, role, via, name, auth };
+api('GET', '/api/me').then(({ user, role, globalRole, server, via, name, auth }) => {
+  applyRole(role, globalRole);
+  me = { user, role, globalRole, server, via, name, auth };
+  if (role === 'none') {
+    $('conn').dataset.state = 'down';
+    $('status').textContent = 'No access';
+  }
   if (document.body.dataset.area === 'settings') renderAccount();
   const sso = via === 'sso' ? auth?.sso?.name || 'SSO' : null;
-  $('me-role').textContent = role && role !== 'admin' ? role : '';
+  $('me-role').textContent = role === 'none' ? 'no access' : role && role !== 'admin' ? role : '';
   $('me').textContent = user;
   $('me').title = sso ? `${name || user}, signed in with ${sso}` : 'Local account';
   $('me-via').toggleAttribute('hidden', !sso); // SVG elements have no .hidden property
@@ -4466,10 +4482,13 @@ function renderAccount() {
   if (!me) return;
   const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
   const sso = me.via === 'sso' ? me.auth?.sso?.name || 'SSO' : null;
-  $('acct-note').textContent = ROLE_TEXT[me.role] || '';
+  const cap = (r) => r[0].toUpperCase() + r.slice(1);
+  const global = me.globalRole || me.role;
+  $('acct-note').textContent = ROLE_TEXT[me.role] || (me.role === 'none' ? `You have no access to ${me.server?.name}.` : '');
   $('acct-facts').replaceChildren(
     row('Account', me.name ? `${me.name} (${me.user})` : me.user),
-    row('Role', me.role[0].toUpperCase() + me.role.slice(1)),
+    row('Role', cap(global)),
+    me.role !== global ? row(`On ${me.server?.name}`, me.role === 'none' ? 'No access' : cap(me.role)) : null,
     row('Signed in with', sso || 'Username and password'),
     row(sso ? 'Password and 2FA' : 'Password', sso ? `Managed in ${sso}` : el('button', { class: 'btn btn-sm', onclick: changePassword }, icon('key'), 'Change password')),
     sso ? null : row('Two-factor sign-in', el('span', {}, 'On the server: ', el('code', {}, `node cli.js user totp ${me.user}`))),
@@ -4504,25 +4523,73 @@ async function changePassword(e) {
 }
 
 async function loadUsers() {
-  if (!atLeast('admin')) return;
+  if (!globalAtLeast('admin')) return;
   skeletonRows($('users-list'), 4);
   try {
-    const { users: list } = await api('GET', '/api/users');
+    const { users: list, servers } = await api('GET', '/api/users');
+    accessServers = servers;
     $('n-users').textContent = list.length;
     const ssoName = me?.auth?.sso?.name || 'SSO';
-    $('users-list').replaceChildren(...list.map((u) => el('tr', {},
-      el('td', { class: 'primary-cell', 'data-label': 'Account' }, u.name, u.displayName || u.email ? el('span', { class: 'sub' }, [u.displayName, u.email].filter(Boolean).join(' · ')) : null),
-      el('td', { 'data-label': 'Role' }, el('span', { class: `pill${u.role === 'admin' ? ' own' : ''}` }, u.role)),
-      el('td', { 'data-label': 'Sign-in' }, u.source === 'sso' ? ssoName : `Password${u.totp ? ' + 2FA' : ''}`),
-      el('td', { 'data-label': 'Last seen' }, u.lastLogin ? fmt.relative(u.lastLogin) : u.source === 'sso' ? '–' : el('span', { class: 'sub' }, `created ${fmt.relative(u.created)}`)))));
+    const nameOf = (key) => servers.find((x) => x.key === key)?.name || key;
+    $('users-list').replaceChildren(...list.map((u) => {
+      const own = Object.entries(u.servers || {});
+      return el('tr', {},
+        el('td', { class: 'primary-cell', 'data-label': 'Account' }, u.name, u.displayName || u.email ? el('span', { class: 'sub' }, [u.displayName, u.email].filter(Boolean).join(' · ')) : null),
+        el('td', { 'data-label': 'Role' }, el('span', { class: `pill${u.role === 'admin' ? ' own' : ''}` }, u.role)),
+        el('td', { 'data-label': 'Servers' }, own.length
+          ? el('span', { class: 'access-sum' }, ...own.map(([k, r]) => el('span', { class: `pill${r === 'none' ? ' muted' : r === 'admin' ? ' own' : ''}` }, `${nameOf(k)}: ${r === 'none' ? 'no access' : r}`)))
+          : el('span', { class: 'sub' }, servers.length > 1 ? 'Same on all' : '–')),
+        el('td', { 'data-label': 'Sign-in' }, u.source === 'sso' ? ssoName : `Password${u.totp ? ' + 2FA' : ''}`),
+        el('td', { 'data-label': 'Last seen' }, u.lastLogin ? fmt.relative(u.lastLogin) : u.source === 'sso' ? '–' : el('span', { class: 'sub' }, `created ${fmt.relative(u.created)}`)),
+        el('td', { class: 'act' }, u.name === me?.user
+          ? el('span', { class: 'sub', title: 'Change your own access from another admin account, or with cli.js' }, 'You')
+          : el('button', { class: 'btn btn-quiet btn-sm', onclick: () => openAccess(u) }, icon('key'), 'Access')));
+    }));
   } catch (e) {
-    $('users-list').replaceChildren(emptyRow(4, `Can't list accounts: ${e.message}`));
+    $('users-list').replaceChildren(emptyRow(6, `Can't list accounts: ${e.message}`));
   }
 }
 
+// Settings → Users & sign-in → Access: the account role and per-server roles.
+let accessServers = [];
+let accessUser = null;
+const ACCESS_CHOICES = [['', 'Account role'], ['admin', 'Admin'], ['moderator', 'Moderator'], ['viewer', 'Viewer'], ['none', 'No access']];
+function openAccess(u) {
+  accessUser = u;
+  const f = $('access-form');
+  $('drawer-access-title').textContent = `Access for ${u.name}`;
+  f.elements.role.value = u.role;
+  f.elements.role.disabled = u.source === 'sso';
+  $('access-role-note').textContent = u.source === 'sso' ? `${me?.auth?.sso?.name || 'Single sign-on'} sets this role from the account's groups at every sign-in. Per-server roles below stay.` : 'Changing it signs the account out once, so it applies right away.';
+  $('access-servers').replaceChildren(...(accessServers.length
+    ? accessServers.map((x) => el('label', { class: 'access-row' },
+        el('span', {}, el('b', {}, x.name), x.kind === 'proxy' ? el('span', { class: 'sub' }, ' proxy') : null),
+        el('select', { class: 'field', name: `srv:${x.key}` }, ...ACCESS_CHOICES.map(([v, label]) => el('option', { value: v, ...(String(u.servers?.[x.key] ?? '') === v ? { selected: true } : {}) }, label)))))
+    : [el('p', { class: 'note' }, 'No servers yet.')]));
+  $('access-error').textContent = '';
+  openDrawer('drawer-access', f.elements.role.disabled ? f.querySelector('.access-row select') : f.elements.role);
+}
+$('access-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = $('access-form');
+  const servers = {};
+  for (const sel of f.querySelectorAll('.access-row select')) servers[sel.name.slice(4)] = sel.value || null;
+  const body = { servers, ...(f.elements.role.disabled ? {} : { role: f.elements.role.value }) };
+  await busy($('access-save'), async () => {
+    try {
+      await api('PUT', `/api/users/${encodeURIComponent(accessUser.name)}/access`, body);
+      closeDrawer('drawer-access');
+      toast(`Saved access for ${accessUser.name}.`);
+      await loadUsers();
+    } catch (err) {
+      $('access-error').textContent = err.message;
+    }
+  });
+});
+
 const warnFact = (text) => el('span', { class: 'fact-warn' }, icon('alert'), text);
 async function loadAbout() {
-  if (!atLeast('admin')) return;
+  if (!globalAtLeast('admin')) return;
   const row = (k, v) => el('div', {}, el('dt', {}, k), el('dd', {}, v));
   const mono = (v) => el('span', { class: 'mono' }, v);
   const off = (v) => el('span', { class: 'sub' }, v);
@@ -4623,7 +4690,7 @@ function renderSystem() {
 }
 
 async function loadSystem() {
-  if (!atLeast('admin')) return;
+  if (!globalAtLeast('admin')) return;
   try {
     sys = await api('GET', '/api/system');
     renderSystem();
@@ -4804,7 +4871,7 @@ function showSsoFields() {
 }
 
 async function loadSso() {
-  if (!atLeast('admin')) return;
+  if (!globalAtLeast('admin')) return;
   try {
     const v = await api('GET', '/api/sso');
     renderSsoState(v);
@@ -4890,6 +4957,18 @@ ssoForm.addEventListener('submit', async (e) => {
     }
   });
 });
+
+// No access to the shown server: the servers this account may see instead.
+// Showing one switches rconsole for everyone, so it needs admin there.
+tabLoaders.noaccess = async () => {
+  await loadServerList();
+  const here = me?.server?.name || 'this server';
+  $('noaccess-title').textContent = `No access to ${here}`;
+  $('noaccess-note').textContent = `Your account has no role on ${here}, the server rconsole shows right now.${serversList.length ? ' You can use these servers:' : ' Ask an admin for access.'}`;
+  $('noaccess-list').replaceChildren(...serversList.filter((s) => s.kind === 'server').map((s) => el('li', {},
+    el('span', { class: 'sw-item-text' }, el('b', {}, s.name), el('span', { class: 'sub' }, `${s.myRole} · ${s.distribution} ${s.version}`)),
+    s.myRole === 'admin' ? serverButton('Show', 'server', (b) => showServer(s, b)) : el('span', { class: 'note' }, 'An admin of it can show it'))));
+};
 
 connectLogs();
 refreshStatus();

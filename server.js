@@ -44,7 +44,7 @@ const { Notify } = require('./lib/notify');
 const prom = require('./lib/prom');
 const crypto = require('crypto');
 const zlib = require('zlib');
-const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast } = require('./lib/auth');
+const { Users, Sessions, Throttle, verifyPassword, getDummyHash, verifyTotp, roleAtLeast, ROLES, ATTACHED } = require('./lib/auth');
 const { Oidc, roleFor } = require('./lib/oidc');
 const { SsoSettings } = require('./lib/sso');
 const { SystemSettings, LISTEN: LISTEN_KEYS, fromEnv: systemFromEnv } = require('./lib/system');
@@ -497,8 +497,8 @@ async function login(req, res) {
     throw httpError(401, 'Invalid username or password');
   }
 
-  if (!user.totp && config.require2fa.includes(users.roleOf(name))) {
-    log(`auth: ${name} has no 2FA, which is required for ${users.roleOf(name)}s`);
+  if (!user.totp && config.require2fa.includes(users.highestRole(name))) {
+    log(`auth: ${name} has no 2FA, which is required for ${users.highestRole(name)}s`);
     audit.record({ user: name, ip, action: 'login', ok: false, error: '2FA required, not set up' });
     throw httpError(403, `Your role needs two-factor sign-in. On the server, run: node cli.js user totp ${name}`);
   }
@@ -664,6 +664,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/self-update$/, () => ['rconsole update', (({ current }, latest) => (latest && latest !== current ? `${current} → ${latest}` : current))(selfUpdate.summary(), selfUpdate.check?.latest?.sha?.slice(0, 7))]],
   ['POST', /^\/api\/problems\/seen$/, () => ['problems marked as seen', '']],
   ['POST', /^\/api\/me\/password$/, () => ['password change', '']],
+  ['PUT', /^\/api\/users\/([^/]+)\/access$/, ([n], b) => ['access change', `${n}${b.role ? `: ${b.role}` : ''}${Object.entries(b.servers || {}).map(([k, r]) => `, ${serverName(k)}=${r ?? 'default'}`).join('')}`]],
   ['POST', /^\/api\/problems\/mute$/, (p, b) => [b.all ? 'problems unmuted' : b.muted === false ? 'problem unmuted' : 'problem muted', String(b.key || '').slice(0, 120)]],
   ['PUT', /^\/api\/offsite$/, () => ['offsite settings', '']],
   ['PUT', /^\/api\/system$/, (p, b) => ['system settings', [...Object.keys(b.set || {}).map((k) => (k === 'metricsToken' ? (b.set[k] ? 'metrics on' : 'metrics off') : `${k}=${JSON.stringify(b.set[k])}`)), ...(b.reset || []).map((k) => `${k} reset`)].join(', ').slice(0, 300)]],
@@ -710,6 +711,18 @@ const ROLE_RULES = [
   ['GET', /^\/api\/backups\/[^/]+$/, 'admin'], // downloads whole worlds
 ];
 const requiredRole = (method, pathname) => ROLE_RULES.find(([m, re]) => m === method && re.test(pathname))?.[2] || (method === 'GET' || method === 'HEAD' ? 'viewer' : 'admin');
+
+// Whose role a request is checked against. rconsole's own settings, users
+// and the server list: the account's role. /api/servers/<id>/…: the role
+// on that server. Everything else works on the server rconsole shows.
+const SHOWN = config.activeServer || ATTACHED;
+const GLOBAL_ROUTES = /^\/api\/(me(\/.*)?|logout|users(\/.*)?|sso|notify(\/.*)?|about|self-update|system(\/.*)?|audit|offsite(\/.*)?|distributions\/.*|servers)$/;
+function scopeOf(pathname) {
+  const m = pathname.match(/^\/api\/servers\/([a-z0-9-]+)(\/|$)/);
+  if (m) return m[1];
+  return GLOBAL_ROUTES.test(pathname) ? null : SHOWN;
+}
+const serverName = (key) => (key === ATTACHED ? path.basename(legacy.mcDir) : key);
 
 // Console commands a moderator may run: talking to players and moderation.
 const MODERATOR_COMMANDS = new Set([
@@ -885,8 +898,45 @@ route('GET', /^\/api\/users$/, () => ({
     displayName: u.sso?.name || null,
     created: u.created || null,
     lastLogin: u.lastLogin || null,
+    servers: u.servers || {},
   })).sort((a, b) => a.name.localeCompare(b.name)),
+  // The servers access can be set for.
+  servers: accessServers(),
 }));
+
+function accessServers() {
+  return [
+    ...(legacyServer ? [{ key: ATTACHED, name: serverName(ATTACHED), kind: 'server' }] : []),
+    ...instances.list(config.serversDir).map((i) => ({ key: i.id, name: i.name || i.id, kind: i.kind })),
+  ];
+}
+
+// Settings → Users & sign-in → Access: an account's role, and its role on
+// each server (or no access). Not for your own account: an admin can't
+// lock themselves out from here.
+route('PUT', /^\/api\/users\/([a-z0-9_.-]{2,32})\/access$/, async (req, res, [name]) => {
+  const { role, servers: wanted } = await readJson(req);
+  const u = users.get(name);
+  if (!u) throw httpError(404, `No such user: ${name}`);
+  if (name === req.user) throw httpError(409, 'Change your own access from another admin account, or on the server with cli.js.');
+  if (role !== undefined && role !== users.roleOf(name)) {
+    if (!ROLES.includes(role)) throw httpError(400, `Role must be one of: ${ROLES.join(', ')}`);
+    if (u.sso) throw httpError(409, `${name} signs in with single sign-on; their role follows the provider's groups.`);
+    users.setRole(name, role);
+  }
+  if (wanted !== undefined) {
+    if (!wanted || typeof wanted !== 'object' || Array.isArray(wanted)) throw httpError(400, 'servers must be an object');
+    const known = new Set(accessServers().map((x) => x.key));
+    for (const [key, r] of Object.entries(wanted)) {
+      // Entries of deleted servers can always be cleared.
+      if (!known.has(key) && r !== null) throw httpError(400, `No server named ${key}`);
+      if (r !== null && r !== 'none' && !ROLES.includes(r)) throw httpError(400, `Role on ${key} must be one of: ${ROLES.join(', ')}, none`);
+    }
+    for (const [key, r] of Object.entries(wanted)) users.setServerRole(name, key, r);
+  }
+  log(`${req.user}: access of ${name}: ${users.roleOf(name)}${Object.entries(users.get(name).servers || {}).map(([k, r]) => `, ${serverName(k)}=${r}`).join('')}`);
+  return { name, role: users.roleOf(name), servers: users.get(name).servers || {} };
+});
 
 // Settings → About: version and the settings that live in /etc/rconsole.env.
 route('GET', /^\/api\/about$/, () => ({
@@ -1043,7 +1093,9 @@ route('GET', /^\/api\/me$/, (req) => {
   const u = users.get(req.user);
   return {
     user: req.user,
-    role: req.role,
+    role: users.serverRole(req.user, SHOWN),
+    globalRole: req.globalRole,
+    server: { key: SHOWN, name: serverName(SHOWN) },
     via: s?.via || 'password',
     name: u?.sso?.name || null,
     auth: {
@@ -1104,12 +1156,14 @@ route('GET', /^\/api\/status$/, async () => ({
 // --- servers rconsole installs (SERVERS_DIR) ------------------------------------
 // Everything but reading is admin-only (the default for non-GET routes).
 
-route('GET', /^\/api\/servers$/, async () => {
-  const list = await servers.list();
+route('GET', /^\/api\/servers$/, async (req) => {
+  // Only the servers this account may see, each with the account's role there.
+  const all = await servers.list();
+  const list = all.map((i) => ({ ...i, myRole: users.serverRole(req.user, i.id) })).filter((i) => i.myRole !== 'none');
   // Game ports in use, so the form suggests a free one.
-  const usedPorts = list.map((s) => s.port);
+  const usedPorts = all.map((s) => s.port); // hidden ones too
   if (legacyServer && !config.activeServer) usedPorts.push(Number((await readProperties(config.mcDir))['server-port']) || 25565);
-  return { dir: config.serversDir, active: config.activeServer, attached: legacyServer && !config.activeServer, servers: list, usedPorts, distributions: distributions.list(), op: serverOps.state, memTotalMb: servers.memTotalMb() };
+  return { dir: config.serversDir, active: config.activeServer, attached: legacyServer && !config.activeServer, attachedRole: legacyServer ? users.serverRole(req.user, ATTACHED) : null, servers: list, usedPorts, distributions: distributions.list(), op: serverOps.state, memTotalMb: servers.memTotalMb() };
 });
 
 // Publisher lists change a few times a day; asked at most every 10 minutes.
@@ -1642,8 +1696,11 @@ async function dispatch(req, res) {
     return send(res, 401, { error: 'Not signed in' });
   }
 
-  req.role = users.roleOf(req.user);
+  req.globalRole = users.roleOf(req.user);
+  const scope = scopeOf(pathname);
+  req.role = scope === null ? req.globalRole : users.serverRole(req.user, scope);
   if (isRead && APP_FILES[pathname]) return serveStatic(req, res, APP_FILES[pathname]);
+  if (req.role === 'none' && pathname.startsWith('/api/')) return send(res, 403, { error: `You have no access to ${serverName(scope)}`, noAccess: true });
   if (req.method === 'GET' && pathname === '/api/logs') return streamLogs(req, res);
 
   for (const { method, pattern, handler, audited } of routes) {

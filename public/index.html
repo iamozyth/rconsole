@@ -159,7 +159,7 @@
           <div class="panel-body"><div class="chart" id="ph-daily"></div></div>
         </section>
         <section class="panel" id="dash-activity-panel">
-          <header class="panel-head"><h2 id="dash-activity-title">Recent activity</h2><a class="btn btn-quiet btn-sm" id="dash-activity-more" href="#insights/activity" data-min-role="admin">All activity</a></header>
+          <header class="panel-head"><h2 id="dash-activity-title">Recent activity</h2><a class="btn btn-quiet btn-sm" id="dash-activity-more" href="#insights/activity" data-min-global-role="admin">All activity</a></header>
           <ol class="activity" id="dash-activity"></ol>
         </section>
       </div>
@@ -334,7 +334,7 @@
           <tbody id="backup-list"></tbody>
         </table>
       </section>
-      <section class="panel" id="os-panel" data-min-role="admin">
+      <section class="panel" id="os-panel" data-min-global-role="admin">
         <header class="panel-head">
           <div class="head-text"><h2>Offsite copies</h2><p class="note" id="os-info">Keep copies of your backups outside this machine, in any S3-compatible bucket: Backblaze B2, Cloudflare R2, AWS S3, Wasabi or MinIO.</p></div>
           <button class="btn" id="os-edit" aria-haspopup="dialog"><svg><use href="#pg-settings"/></svg><span>Set up</span></button>
@@ -542,11 +542,19 @@
     </section>
 
     <!-- Servers: every server rconsole runs (reached from the switcher) -->
+    <!-- No access: the account has no role on the server rconsole shows -->
+    <section class="area" id="tab-noaccess" role="tabpanel" hidden>
+      <section class="panel noaccess">
+        <header class="panel-head"><div class="head-text"><h2 id="noaccess-title">No access to this server</h2><p class="note" id="noaccess-note">Your account has no role on the server rconsole shows right now.</p></div></header>
+        <ul class="noaccess-list" id="noaccess-list"></ul>
+      </section>
+    </section>
+
     <section class="area" id="tab-servers" role="tabpanel" hidden>
       <section class="panel">
         <header class="panel-head">
           <div class="head-text"><h2>Servers</h2><p class="note" id="servers-info">Servers rconsole installed and runs itself.</p></div>
-          <button class="btn btn-primary" id="server-new-toggle" aria-haspopup="dialog" data-min-role="admin"><svg><use href="#pg-add"/></svg>New server</button>
+          <button class="btn btn-primary" id="server-new-toggle" aria-haspopup="dialog" data-min-global-role="admin"><svg><use href="#pg-add"/></svg>New server</button>
         </header>
         <div class="job" id="servers-op" role="status" hidden></div>
         <table class="table">
@@ -561,7 +569,7 @@
       <div class="subnav segmented" role="tablist" aria-label="Insights sections">
         <button role="tab" data-view="metrics" aria-selected="true">Metrics</button>
         <button role="tab" data-view="logs" aria-selected="false">Logs</button>
-        <button role="tab" data-view="activity" aria-selected="false" data-min-role="admin">Activity</button>
+        <button role="tab" data-view="activity" aria-selected="false" data-min-global-role="admin">Activity</button>
       </div>
 
       <div class="view" data-view="metrics">
@@ -625,9 +633,9 @@
     <section class="area" id="tab-settings" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Settings sections">
         <button role="tab" data-view="account" aria-selected="true">Account</button>
-        <button role="tab" data-view="signin" aria-selected="false" data-min-role="admin">Users &amp; sign-in</button>
-        <button role="tab" data-view="notifications" aria-selected="false" data-min-role="admin">Notifications</button>
-        <button role="tab" data-view="system" aria-selected="false" data-min-role="admin">System</button>
+        <button role="tab" data-view="signin" aria-selected="false" data-min-global-role="admin">Users &amp; sign-in</button>
+        <button role="tab" data-view="notifications" aria-selected="false" data-min-global-role="admin">Notifications</button>
+        <button role="tab" data-view="system" aria-selected="false" data-min-global-role="admin">System</button>
       </div>
 
       <div class="view" data-view="account">
@@ -641,7 +649,7 @@
       </div>
 
       <div class="view" data-view="signin" hidden>
-        <section class="panel" data-min-role="admin">
+        <section class="panel" data-min-global-role="admin">
           <header class="panel-head">
             <div class="head-text"><h2>Single sign-on</h2><p class="note" id="sso-note">Let people sign in with authentik, Keycloak, Auth0 or another OpenID Connect provider. Their groups there decide their role here.</p></div>
             <span class="pill" id="sso-state"></span>
@@ -685,17 +693,17 @@
             <div class="form-actions"><p class="note" id="sso-msg"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save and test</button></div>
           </form>
         </section>
-        <section class="panel" data-min-role="admin">
-          <header class="panel-head"><div class="head-text"><h2>Accounts</h2><p class="note" id="users-note">Local accounts are managed on the server with <code>node cli.js user …</code>; single sign-on accounts appear after their first sign-in.</p></div><span class="count" id="n-users"></span></header>
+        <section class="panel" data-min-global-role="admin">
+          <header class="panel-head"><div class="head-text"><h2>Accounts</h2><p class="note" id="users-note">Local accounts are added on the server with <code>node cli.js user add</code>; single sign-on accounts appear after their first sign-in. Access sets each account's role, and a different role (or none) per server.</p></div><span class="count" id="n-users"></span></header>
           <table class="table">
-            <thead><tr><th>Account</th><th>Role</th><th>Sign-in</th><th>Last seen</th></tr></thead>
+            <thead><tr><th>Account</th><th>Role</th><th>Servers</th><th>Sign-in</th><th>Last seen</th><th class="act"><span class="sr">Actions</span></th></tr></thead>
             <tbody id="users-list"></tbody>
           </table>
         </section>
       </div>
 
       <div class="view" data-view="notifications" hidden>
-        <section class="panel" data-min-role="admin">
+        <section class="panel" data-min-global-role="admin">
           <header class="panel-head">
             <div class="head-text"><h2>Notifications</h2><p class="note">Push alerts to your phone through <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a>: install the app, subscribe to a topic, paste its URL here.</p></div>
             <button class="btn" id="ntfy-test"><svg><use href="#pg-bell"/></svg>Send test</button>
@@ -754,7 +762,7 @@
             <p class="note" id="self-info"></p>
           </div>
         </section>
-        <section class="panel" data-min-role="admin">
+        <section class="panel" data-min-global-role="admin">
           <header class="panel-head"><div class="head-text"><h2>Web access</h2><p class="note">Where rconsole listens and how people reach it. Changes apply right away, without a restart.</p></div></header>
           <form class="panel-body sys-form" id="sys-web" autocomplete="off" novalidate>
             <div class="fld wide">
@@ -782,7 +790,7 @@
             <div class="form-actions"><p class="note" id="sys-web-note">A new address or port is tried first: rconsole keeps it once you reach it there, and goes back by itself if you don't within 3 minutes.</p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
           </form>
         </section>
-        <section class="panel" data-min-role="admin">
+        <section class="panel" data-min-global-role="admin">
           <header class="panel-head"><div class="head-text"><h2>Security</h2></div></header>
           <form class="panel-body sys-form" id="sys-security" autocomplete="off" novalidate>
             <label class="fld"><span>Require two-factor sign-in</span>
@@ -801,7 +809,7 @@
             <div class="form-actions"><p class="note" id="sys-security-note"></p><button class="btn btn-primary"><svg><use href="#pg-save"/></svg>Save</button></div>
           </form>
         </section>
-        <section class="panel" data-min-role="admin">
+        <section class="panel" data-min-global-role="admin">
           <header class="panel-head"><div class="head-text"><h2>Backups and updates</h2></div></header>
           <form class="panel-body sys-form" id="sys-backups" autocomplete="off" novalidate>
             <label class="fld"><span>Backups to keep</span><input class="field num" name="backupKeep" type="number" min="0" max="1000"><p class="note">Older ones are deleted after each backup; 0 keeps all. <span class="src" data-src="backupKeep"></span></p></label>
@@ -909,6 +917,33 @@
               <button class="btn btn-primary" data-op><svg><use href="#pg-server"/></svg>Install server</button>
             </div>
           </form>
+  </div>
+</dialog>
+<dialog class="drawer" id="drawer-access" aria-labelledby="drawer-access-title">
+  <header class="drawer-head">
+    <div class="head-text"><h2 id="drawer-access-title">Access</h2><p class="note">A role for rconsole and every server, and where it differs.</p></div>
+    <button class="btn btn-quiet btn-icon btn-sm" data-close aria-label="Close"><svg><use href="#pg-remove"/></svg></button>
+  </header>
+  <div class="drawer-body">
+    <form id="access-form" class="drawer-form">
+      <label class="fld wide"><span>Account role</span>
+        <select class="field" name="role">
+          <option value="admin">Admin: everything, including rconsole's settings</option>
+          <option value="moderator">Moderator: players, chat and moderation</option>
+          <option value="viewer">Viewer: look, don't change</option>
+        </select>
+        <span class="note" id="access-role-note"></span>
+      </label>
+      <fieldset class="fld wide">
+        <legend>Per server</legend>
+        <p class="note">Servers on “Account role” follow the role above. Rights in rconsole's own settings (users, sign-in, notifications, system) always come from the account role.</p>
+        <div class="access-servers" id="access-servers"></div>
+      </fieldset>
+      <div class="form-actions">
+        <p class="form-error" id="access-error" role="alert"></p>
+        <button class="btn btn-primary" id="access-save"><svg><use href="#pg-check"/></svg>Save access</button>
+      </div>
+    </form>
   </div>
 </dialog>
 <dialog class="drawer" id="drawer-task" aria-labelledby="drawer-task-title">
