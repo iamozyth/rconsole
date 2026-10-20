@@ -3328,7 +3328,7 @@ function renderSelfSteps(u, { offline = false, next = null } = {}) {
     if (u.state === 'failed' && i > idx) state = 'skipped';
     let detail = '';
     if (state === 'active') detail = offline ? 'Waiting for rconsole to come back…' : key === 'online' ? '' : `${u.message}…`;
-    else if (state === 'failed') detail = u.message;
+    else if (state === 'failed') detail = 'Failed';
     else if (state === 'done' && at[key]?.end) detail = took(secs(at[key].at, at[key].end));
     if (state === 'active' && at[key]?.at) detail += ` ${took(secs(at[key].at, new Date().toISOString()))}`;
     const mark = state === 'done' ? icon('check') : state === 'failed' ? icon('alert') : el('span', {}, String(i + 1));
@@ -3404,7 +3404,7 @@ function renderSelf(o, { offline = false } = {}) {
   } else if (justDone) {
     $('self-title').textContent = u.from === u.to ? `Installed Node.js for rconsole` : `Updated rconsole${version ? ` to ${version}` : ''}`;
     renderSelfSteps(u, { next });
-  } else if (failed) {
+  } else if (failed && recent(3600000)) {
     $('self-title').textContent = 'The rconsole update failed';
     renderSelfSteps(u);
   } else {
