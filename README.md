@@ -68,6 +68,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 - **Time machine for players**: "my stuff is gone" gets a two-minute answer. Pick a backup in the player's profile, see what they carried then and what is missing now, and put back the inventory or ender chest without touching the world. Every restore can be undone.
 - **Restore an area**: compare part of the world with a backup chunk by chunk (blocks and chest contents, ignoring what grows or flows by itself), see the griefed chunks on a map and put back only those. Undo included.
 - **Try an update first**: a copy of the server starts with the update next to the real one, cut off from the internet, and rconsole shows what the update changes: whether it comes up, plugins that no longer start, new errors and warnings.
+- **Game rules** with words: keep inventory, mob griefing, players needed to sleep and the rest, explained and changed live in every world.
 - **Explain this problem** (optional, your own Anthropic API key): Claude says in plain words what a crash or error means and what to do, after player names, addresses and secrets are taken out.
 - **Lag detective**: when TPS drops (or on request), rconsole looks at tick times, piles of mobs and items and where they are, players who travel fast, memory and CPU, and says in plain words what is the likely cause and what to do.
 - **Sleep when empty, wake on join**: a server nobody plays on stops after a while and frees its memory and CPU; rconsole answers on its port, shows it as asleep in the multiplayer list, and starts it when one of its players joins.
@@ -538,6 +539,12 @@ The first look at a backup takes the player files out of it once (only `players/
 **Server → Overview → Sleep when empty** (admins switch it) stops a server when nobody has been online for 5 minutes to 2 hours, so a quiet server doesn't hold its memory and CPU all day. While it sleeps, rconsole listens on the server's port itself: the multiplayer list shows it with the message "is asleep. Join to wake it up", and when one of its players joins, rconsole starts the server and tells them to join again in about a minute. With the whitelist on only whitelisted players and operators can wake it; without it, everyone who has played there before (`usercache.json`); or choose **Anyone who joins**. Every server rconsole manages can sleep (switch to it to set it up); proxies don't, since players join the servers behind them, and those wake through the proxy like any other join.
 
 Players are counted over RCON for the server rconsole shows and by a status ping for the others; when neither answers, nothing sleeps. A server never goes to sleep during a backup, an update, a countdown or an operation. Start, Restart and scheduled tasks start a sleeping server as usual: rconsole lets go of the port first, and it also notices within seconds when the service is started some other way (systemctl, a reboot). Commands of scheduled tasks need a running server, so plan them while it's awake or start it first. Sleeping and waking are in the audit log ("server sleep", "server wake"); the "server went down" notification is not sent for a server that went to sleep. Settings and state are in `STATE_DIR/sleep.json`.
+
+## Game rules
+
+**World → Game rules** lists every game rule of the running server, read over RCON: keep inventory, mob griefing, how many players must sleep to skip the night, phantoms, fire spread and the rest, each with a plain description, the most used ones first, and a search. Which rules exist comes from the server itself (`minecraft:help gamerule`), so rules of newer versions, mods and datapacks show up too; both the Minecraft 26 names (`keep_inventory`) and the older ones (`keepInventory`) work.
+
+Changes apply right away, without a restart (admins; everyone else sees the values). Paper keeps game rules per world: rconsole reads them in the Overworld, the Nether and the End, marks rules that differ between them, and applies a change to all three unless you pick the Overworld only. Changes are audited as "game rules".
 
 ## Restore an area
 

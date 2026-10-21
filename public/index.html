@@ -359,7 +359,26 @@
       <div class="subnav segmented" role="tablist" aria-label="World sections">
         <button role="tab" data-view="worlds" aria-selected="true">Worlds</button>
         <button role="tab" data-view="map" aria-selected="false">Map</button>
+        <button role="tab" data-view="gamerules" aria-selected="false">Game rules</button>
         <button role="tab" data-view="area" aria-selected="false" data-min-role="moderator">Restore area</button>
+      </div>
+      <div class="view" data-view="gamerules" hidden>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2>Game rules</h2><p class="note" id="gr-info">Keep inventory, mob griefing, how many players must sleep and the rest. Changes apply right away, without a restart.</p></div>
+            <input class="field gr-search" id="gr-search" type="search" placeholder="Search rules" aria-label="Search game rules" maxlength="40">
+          </header>
+          <div class="job" id="gr-state" hidden></div>
+        </section>
+        <form class="settings" id="gr-form" novalidate>
+          <div class="grid-2" id="gr-groups"></div>
+          <div class="savebar" id="gr-bar" hidden>
+            <span id="gr-dirty"></span>
+            <select class="field" id="gr-scope" aria-label="Apply to"><option value="all">In all worlds</option><option value="overworld">In the Overworld only</option></select>
+            <button type="button" class="btn btn-quiet" id="gr-discard">Discard</button>
+            <button type="submit" class="btn btn-primary"><svg><use href="#pg-check"/></svg>Apply</button>
+          </div>
+        </form>
       </div>
       <div class="view" data-view="worlds">
       <section class="panel">

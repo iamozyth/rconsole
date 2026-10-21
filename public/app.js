@@ -3148,6 +3148,108 @@ async function areaRestore(src, button) {
   });
 }
 viewLoaders['world/area'] = loadArea;
+
+// ---------------------------------------------------------------------------
+// World: game rules (lib/gamerules.js), live over RCON
+// ---------------------------------------------------------------------------
+
+let grRules = [];
+let grLast = null; // the last GET /api/gamerules
+const grForm = $('gr-form');
+
+function grControl(r) {
+  const attrs = { id: `gr-${r.name}`, name: r.name, 'data-initial': r.value, disabled: !atLeast('admin') || undefined };
+  if (r.type === 'bool') return el('label', { class: 'switch' }, el('input', { ...attrs, type: 'checkbox', role: 'switch', checked: r.value === 'true' || undefined }), el('span', {}, r.value === 'true' ? 'On' : 'Off'));
+  return el('input', { ...attrs, class: 'field num', type: 'number', inputmode: 'numeric', step: 1, value: r.value });
+}
+
+function grChanges() {
+  return grRules.map((r) => ({ r, c: grForm.elements[r.name] })).filter(({ c }) => c)
+    .map(({ r, c }) => ({ name: r.name, label: r.label, from: r.value, value: c.type === 'checkbox' ? String(c.checked) : c.value.trim() }))
+    .filter((x) => x.value !== x.from && x.value !== '');
+}
+
+function syncGameRulesBar() {
+  const changes = grChanges();
+  for (const row of grForm.querySelectorAll('.setting')) row.classList.toggle('dirty', changes.some((c) => c.name === row.dataset.key));
+  for (const sw of grForm.querySelectorAll('.switch input')) sw.nextElementSibling.textContent = sw.checked ? 'On' : 'Off';
+  $('gr-bar').hidden = !changes.length;
+  $('gr-dirty').textContent = `${changes.length} change${changes.length === 1 ? '' : 's'}`;
+}
+
+function grRow(r) {
+  return el('div', { class: 'setting', 'data-key': r.name, 'data-search': `${r.label} ${r.name} ${r.description || ''}`.toLowerCase() },
+    el('label', { class: 'setting-label', for: `gr-${r.name}` },
+      el('span', {}, r.label),
+      r.description ? el('span', { class: 'gr-desc' }, r.description) : null,
+      el('span', { class: 'setting-key' }, r.name),
+      r.differs.length ? el('span', { class: 'gr-differs' }, icon('alert'), `${r.differs.map((d) => `${d.world}: ${d.value === 'true' ? 'on' : d.value === 'false' ? 'off' : d.value}`).join(', ')} (the Overworld is shown)`) : null),
+    grControl(r));
+}
+
+function renderGameRules(o) {
+  grLast = o;
+  grRules = o.rules;
+  const section = (title, rules, note) => (rules.length ? el('section', { class: 'panel' },
+    el('header', { class: 'panel-head' }, el('div', { class: 'head-text' }, el('h2', {}, title), note ? el('p', { class: 'note' }, note) : null)),
+    el('div', { class: 'settings-list' }, ...rules.map(grRow))) : null);
+  const common = o.rules.filter((r) => r.common);
+  $('gr-groups').replaceChildren(...[
+    section('Most used', common),
+    ...o.groups.map((g) => section(g, o.rules.filter((r) => r.group === g && !r.common), g === 'Advanced' ? 'Limits for commands, and rules from mods or datapacks.' : null)),
+  ].filter(Boolean));
+  const perWorld = o.rules.some((r) => r.differs.length);
+  $('gr-info').textContent = `${o.rules.length} rules in ${o.worlds.join(', ')}. Changes apply right away, without a restart${o.worlds.length > 1 ? `; ${perWorld ? 'some worlds have their own values, and ' : ''}changes go to all worlds unless you pick the Overworld only` : ''}.`;
+  $('gr-scope').hidden = o.worlds.length < 2;
+  filterGameRules();
+  syncGameRulesBar();
+}
+
+function filterGameRules() {
+  const q = $('gr-search').value.trim().toLowerCase();
+  for (const row of grForm.querySelectorAll('.setting')) row.hidden = Boolean(q) && !row.dataset.search.includes(q);
+  for (const panel of $('gr-groups').children) panel.hidden = ![...panel.querySelectorAll('.setting')].some((r) => !r.hidden);
+}
+
+async function loadGameRules() {
+  if (!serverRunning()) {
+    grRules = [];
+    $('gr-groups').replaceChildren();
+    $('gr-bar').hidden = true;
+    setJob($('gr-state'), 'failed', 'power', 'Game rules are read from the running server. Start it to see and change them.');
+    return;
+  }
+  if (!grRules.length) setJob($('gr-state'), 'running', 'worlds', 'Reading the game rules…');
+  try {
+    const o = await api('GET', '/api/gamerules');
+    setJob($('gr-state'), null);
+    renderGameRules(o);
+  } catch (e) {
+    $('gr-groups').replaceChildren();
+    setJob($('gr-state'), 'failed', 'alert', `Can't read the game rules: ${e.message}`);
+  }
+}
+viewLoaders['world/gamerules'] = loadGameRules;
+
+grForm.addEventListener('input', syncGameRulesBar);
+$('gr-search').addEventListener('input', filterGameRules);
+$('gr-discard').addEventListener('click', () => grLast && renderGameRules(grLast));
+grForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const changes = grChanges();
+  if (!changes.length) return;
+  const all = $('gr-scope').hidden || $('gr-scope').value === 'all';
+  const show = (v) => (v === 'true' ? 'on' : v === 'false' ? 'off' : v);
+  await busy(e.submitter, async () => {
+    try {
+      await api('PUT', '/api/gamerules', { changes: changes.map(({ name, value }) => ({ name, value })), all });
+      toast(changes.length === 1 ? `${changes[0].label}: ${show(changes[0].value)}${all ? '' : ' in the Overworld'}.` : `${changes.length} game rules changed${all ? '' : ' in the Overworld'}.`);
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+    await loadGameRules();
+  });
+});
 tabLoaders.backups = loadBackupsArea;
 $('os-edit').addEventListener('click', () => openDrawer('drawer-offsite'));
 
