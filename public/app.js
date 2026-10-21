@@ -5650,6 +5650,7 @@ async function loadProblems() {
           (x.message && x.kind !== 'host') || x.kind === 'lag'
             ? el('button', { class: 'btn btn-quiet btn-sm', onclick: () => { closeDrawer('drawer-problems'); searchLogsFor(x.kind === 'lag' ? "Can't keep up" : x.message); } }, icon('search'), 'Show in logs')
             : null,
+          x.kind === 'lag' && atLeast('moderator') ? el('button', { class: 'btn btn-quiet btn-sm', onclick: () => { closeDrawer('drawer-problems'); showTab('insights/lag'); } }, icon('insights'), 'Why?') : null,
           x.kind !== 'host' && atLeast('admin') ? el('button', { class: 'btn btn-quiet btn-sm', onclick: (e) => muteProblem(x, e.currentTarget) }, icon('mute'), 'Mute') : null))))
       : [el('li', { class: 'problems-empty' }, el('span', { class: 'problem-icon ok' }, icon('check')), el('div', {}, el('b', {}, 'No problems found. '), `Nothing went wrong in the last ${problemDays === 1 ? '24 hours' : '7 days'}.`))]));
     if (problemDays === 1) renderProblemsBadge({ unseen });
@@ -5713,6 +5714,121 @@ async function loadSpark() {
     $('spark-panel').hidden = true;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Insights: lag detective
+// ---------------------------------------------------------------------------
+
+let lagShown = null; // id of the report on screen
+const LAG_WORLDS = { 'minecraft:overworld': 'Overworld', 'minecraft:the_nether': 'Nether', 'minecraft:the_end': 'End' };
+const lagWorld = (k) => LAG_WORLDS[k] || String(k).replace(/^minecraft:/, '');
+const lagReason = (r) => (r.reason === 'auto' ? 'automatically' : r.by ? `by ${r.by}` : 'on request');
+const LAG_TONE = { critical: 'critical', warning: 'warning' };
+const lagNum = (n) => (n == null ? '–' : Number(n).toLocaleString());
+
+async function loadLag(id) {
+  try {
+    const v = await api('GET', '/api/lag');
+    const pick = id || (v.reports.some((r) => r.id === lagShown) ? lagShown : v.reports[0]?.id);
+    renderLagHistory(v.reports, pick);
+    if (pick) renderLag(await api('GET', `/api/lag/${pick}`));
+    else {
+      $('lag-findings').hidden = true;
+      $('lag-evidence').hidden = true;
+    }
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+viewLoaders['insights/lag'] = () => loadLag();
+
+function renderLagHistory(reports, current) {
+  $('lag-history-panel').hidden = reports.length < 2;
+  $('lag-history').replaceChildren(...reports.map((r) => el('li', {},
+    el('button', { class: `lag-past${r.id === current ? ' current' : ''}`, 'aria-current': r.id === current ? 'true' : undefined, onclick: () => loadLag(r.id) },
+      el('span', { class: `lag-dot ${r.severity}`, 'aria-hidden': 'true' }),
+      el('b', {}, r.headline),
+      el('span', { class: 'note' }, `${fmt.relative(r.at)}, ${lagReason(r)}${r.tps != null ? ` · TPS ${r.tps.toFixed(1)}` : ''}`)))));
+}
+
+async function lagFix(f, btn) {
+  if (!(await confirmAction({ title: `${f.action.label}?`, body: `Runs ${f.action.command} on the server. They are gone for good.`, confirm: f.action.label, tone: 'danger', icon: 'delete' }))) return;
+  await busy(btn, async () => {
+    try {
+      const { output } = await api('POST', '/api/command', { command: f.action.command });
+      toast(output || 'Done.');
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+function renderLag(r) {
+  lagShown = r.id;
+  const tps = r.tps != null ? r.tps.toFixed(1) : null;
+  $('lag-info').textContent = r.reason === 'auto'
+    ? `Investigated automatically ${fmt.relative(r.at)}${tps ? `, when TPS dropped to ${tps}` : ''}.`
+    : `Investigated ${fmt.relative(r.at)} ${lagReason(r)}${tps ? `, at TPS ${tps}` : ''}${r.lagging === false ? ' (not lagging then)' : ''}. It also runs by itself when TPS drops.`;
+  $('lag-findings').hidden = false;
+  $('lag-findings').replaceChildren(...r.findings.map((f) => el('li', { class: `problem ${LAG_TONE[f.severity] || ''}` },
+    el('span', { class: `problem-icon${f.severity === 'ok' ? ' ok' : ''}` }, icon(f.severity === 'ok' ? 'check' : f.kind === 'spark' ? 'insights' : 'alert')),
+    el('div', { class: 'problem-main' },
+      el('div', { class: 'problem-title' }, el('b', {}, f.title), f.severity === 'critical' ? el('span', { class: 'pill bad' }, 'Likely cause') : f.severity === 'warning' && !r.lagging ? el('span', { class: 'pill' }, 'Could cause lag') : null),
+      el('p', { class: 'problem-text' }, f.detail),
+      f.action || f.link || f.spark ? el('div', { class: 'problem-acts' },
+        f.action && atLeast('admin') ? el('button', { class: 'btn btn-sm', onclick: (e) => lagFix(f, e.currentTarget) }, icon('delete'), f.action.label) : null,
+        f.link ? el('a', { class: 'btn btn-quiet btn-sm', href: f.link.href }, f.link.label) : null,
+        f.spark ? el('button', { class: 'btn btn-quiet btn-sm', onclick: () => showTab('insights/metrics') }, icon('insights'), 'Profile with spark') : null) : null))));
+
+  $('lag-evidence').hidden = false;
+  const facts = (id, rows) => $(id).replaceChildren(...rows.filter(Boolean).map(([k, v]) => el('div', {}, el('dt', {}, k), el('dd', {}, v))));
+  const ms = (v) => (v == null ? '–' : `${v < 10 ? v.toFixed(1) : Math.round(v)} ms`);
+  const m = r.mspt || {};
+  facts('lag-ticks', [
+    ['TPS', r.tps != null ? r.tps.toFixed(1) : '–'],
+    ['Average tick', ms(m.avg)],
+    m.max != null ? ['Slowest tick, last minute', ms(m.max)] : null,
+    m.p95 != null ? ['95th / 99th percentile', `${ms(m.p95)} / ${ms(m.p99)}`] : null,
+    ['Budget per tick', '50 ms'],
+  ]);
+  const chunks = (r.worlds || []).filter((w) => w.total);
+  facts('lag-machine', [
+    r.heap ? ['Java memory', `${Math.round((r.heap.used / r.heap.max) * 100)}% of ${fmt.bytes(r.heap.max)}`] : ['Server memory', r.rss ? fmt.bytes(r.rss) : 'Not known'],
+    ['Server CPU', r.cpu?.process != null ? `${r.cpu.process.toFixed(1)} of ${r.cpu.cores} cores` : '–'],
+    ['Machine CPU', r.cpu?.host != null ? `${Math.round(r.cpu.host * 100)}%` : '–'],
+    r.cpu?.steal != null ? ['Steal (VM host)', `${Math.round(r.cpu.steal * 100)}%`] : null,
+    ...chunks.map((w) => [`Chunks, ${lagWorld(w.key)}`, `${lagNum(w.total)} loaded, ${lagNum(w.entityTicking)} simulated${w.added ? `, +${lagNum(w.added)}` : ''}`]),
+    r.settings?.simulationDistance ? ['View / simulation distance', `${r.settings.viewDistance ?? '?'} / ${r.settings.simulationDistance}`] : null,
+  ]);
+
+  const types = (r.worlds || []).flatMap((w) => (w.entities?.types || []).map((t) => ({ ...t, world: w.key })))
+    .sort((a, b) => b.ticking - a.ticking || b.idle - a.idle).slice(0, 10);
+  const total = (r.worlds || []).reduce((a, w) => a + (w.entities?.ticking || 0), 0);
+  $('lag-ent-note').textContent = `${lagNum(total)} ticking`;
+  $('lag-entities').replaceChildren(...(types.length ? types.map((t) => el('tr', {},
+    el('td', { class: 'lag-type' }, t.type.replace(/^minecraft:/, '').replace(/_/g, ' '), t.world !== 'minecraft:overworld' && t.world !== 'all' ? el('span', { class: 'note' }, ` ${lagWorld(t.world)}`) : null),
+    el('td', { class: 'num' }, lagNum(t.ticking)),
+    el('td', { class: 'num' }, r.paper ? lagNum(t.idle) : '–')))
+    : [el('tr', {}, el('td', { colspan: '3', class: 'note' }, 'No entities.'))]));
+
+  const players = r.players || [];
+  $('lag-pl-note').textContent = players.length ? `${players.length} online` : '';
+  $('lag-players').replaceChildren(...(players.length ? players.map((p) => el('tr', {},
+    el('td', {}, p.name),
+    el('td', {}, `${p.pos.join(' ')}${p.dim && p.dim !== 'minecraft:overworld' ? `, ${lagWorld(p.dim)}` : ''}`),
+    el('td', { class: `num${p.speed >= 20 ? ' lag-fast' : ''}` }, p.speed == null ? '–' : p.speed < 1 ? 'Standing' : `${p.speed} blocks/s`)))
+    : [el('tr', {}, el('td', { colspan: '3', class: 'note' }, 'Nobody online.'))]));
+}
+
+$('lag-run').addEventListener('click', (e) => busy(e.currentTarget, async () => {
+  try {
+    const r = await api('POST', '/api/lag');
+    lagShown = r.id;
+    await loadLag(r.id);
+  } catch (err) {
+    toast(err.message, 'bad');
+  }
+}));
 
 
 $('pr-range').addEventListener('click', (e) => {
@@ -5964,6 +6080,7 @@ function paletteActions() {
   act('Edit a plugin config…', 'settings', 'config yml yaml edit plugin mod settings file', () => showTab('server/files'));
   act('Check for plugin updates', 'plugins', 'plugin modrinth update', () => { showTab('server/plugins'); loadPlugins(true); });
   act('Find a plugin on Modrinth…', 'plugins', 'install plugin modrinth search add', () => { showTab('server/plugins'); $('plugin-search').elements.q.focus(); });
+  act('Why is it lagging?', 'insights', 'lag detective tps slow investigate entities', () => showTab('insights/lag'));
   act('Profile the server with spark', 'insights', 'spark profiler lag tps cause', () => showTab('insights/metrics'));
   act('Chat with players', 'send', 'chat message say whisper tell talk', () => showTab('console/chat'));
   act('Show problems and errors', 'alert', 'problems errors crash exception plugin failed bell', openProblems);

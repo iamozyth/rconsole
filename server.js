@@ -31,6 +31,7 @@ const platformLib = require('./lib/platform');
 const settingsSchema = require('./lib/settings');
 const { Audit, summarize } = require('./lib/audit');
 const { Metrics } = require('./lib/metrics');
+const { LagDetective } = require('./lib/lagdetective');
 const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
 const { Scanners } = require('./lib/scanners');
@@ -164,6 +165,8 @@ servers.onDeleted = (id) => {
   restartWhenIdle();
 };
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
+// Lag detective (lib/lagdetective.js): why the shown server lags, on request or when TPS drops.
+const lagDetective = new LagDetective({ rcon, stats, power, stateDir: config.stateDir, mcDir: config.mcDir, log });
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 // Knock to join (lib/joinrequests.js): requests and invites for the server rconsole shows.
 const joinRequests = new JoinRequests({
@@ -845,6 +848,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/files\/place$/, (p, b) => ['file place', `${b.dir ? `${b.dir}/` : ''}${b.name}${b.unpack ? ' (unpacked)' : ''}`]],
   ['POST', /^\/api\/configs\/revert$/, (p, b) => ['config revert', b.path]],
   ['POST', /^\/api\/chat$/, (p, b) => [b.to ? `whisper to ${b.to}` : 'chat', String(b.message || '').slice(0, 120)]],
+  ['POST', /^\/api\/lag$/, () => ['lag investigation', '']],
   ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
   ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
   ['POST', /^\/api\/offsite\/download$/, (p, b) => ['offsite download', b.name]],
@@ -880,6 +884,8 @@ const ROLE_RULES = [
   ['GET', /^\/api\/players\/history$/, 'moderator'], // addresses of players
   ['GET', /^\/api\/join$/, 'moderator'], // their addresses too
   ['GET', /^\/api\/players\/[A-Za-z0-9_]{1,16}\/timemachine/, 'moderator'],
+  ['GET', /^\/api\/lag/, 'moderator'], // where players are
+  ['POST', /^\/api\/lag$/, 'moderator'],
   ['GET', /^\/api\/area/, 'moderator'], // reads backups too // looking back costs a backup's worth of reading
   ['POST', /^\/api\/join\/[a-f0-9]{16}\/(allow|ignore)$/, 'moderator'], // like whitelist add
   ['GET', /^\/api\/audit$/, 'admin'],
@@ -1209,6 +1215,9 @@ route('POST', /^\/api\/files\/place$/, async (req) => {
   return r;
 });
 
+route('GET', /^\/api\/lag$/, () => lagDetective.view());
+route('GET', /^\/api\/lag\/([a-z0-9]{6,20})$/, (req, res, [id]) => lagDetective.report(id));
+route('POST', /^\/api\/lag$/, (req) => lagDetective.investigate({ reason: 'manual', by: req.user }));
 route('GET', /^\/api\/spark$/, () => spark.status());
 route('POST', /^\/api\/spark$/, async (req) => {
   const { kind, seconds } = await readJson(req);
@@ -2269,6 +2278,10 @@ scheduler.load().then(() => {
   metrics.start();
   metrics.onSample((sample) => notify.onSample(sample, { stats, ops, countdown, backups, asleep: () => sleeper.sleeping(SHOWN) }));
   sleeper.start();
+  metrics.onSample((sample) => {
+    if (ops.state?.running || countdown.remaining != null || sleeper.sleeping(SHOWN)) return;
+    lagDetective.onSample(sample, notify.config.tpsBelow || 15);
+  });
   // A server that goes down on its own with a failed systemd result crashed,
   // even when the log shows nothing (killed by the OOM killer, JVM abort).
   let wasUp = null;
