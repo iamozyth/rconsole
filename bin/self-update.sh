@@ -200,7 +200,7 @@ main() {
   fi
   local changed=0 src dest shipped c rendered
   rendered="$(mktemp)"
-  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
+  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-try@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
     [ -f "$dir/$src" ] || continue
     if [ "$src" = 50-rconsole.rules ]; then dest="$polkit_dir/$src"; else dest="$unit_dir/$src"; fi
     render_unit < "$dir/$src" > "$rendered" || continue

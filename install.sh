@@ -83,7 +83,7 @@ main() {
     step "Removing rconsole"
     run systemctl disable --now rconsole.service 2>/dev/null || true
     run systemctl disable rconsole-limits.service 2>/dev/null || true
-    for f in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket; do run rm -f "$UNIT_DIR/$f"; done
+    for f in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-try@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket; do run rm -f "$UNIT_DIR/$f"; done
     run rm -rf "$UNIT_DIR"/rconsole-mc@*.service.d/50-rconsole-limits.conf
     command -v nft >/dev/null && run nft delete table inet rconsole 2>/dev/null || true
     run rm -f "$POLKIT_DIR/50-rconsole.rules"
@@ -359,7 +359,7 @@ main() {
   load_rconsole_env "$ENV_FILE"
   export MC_DIR BACKUP_DIR SERVERS_DIR MC_SERVICE MC_USER MC_GROUP NODE_BIN RCONSOLE_DIR="$DIR"
   local src dest tmp; tmp="$(mktemp)"
-  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
+  for src in rconsole.service rconsole-job@.service rconsole-net@.service rconsole-try@.service rconsole-selfupdate.service rconsole-limits.service rconsole-mc@.service rconsole-mc@.socket 50-rconsole.rules; do
     if [ "$src" = 50-rconsole.rules ]; then dest="$POLKIT_DIR/$src"; else dest="$UNIT_DIR/$src"; fi
     render_unit < "$SRC/$src" > "$tmp" || die "could not render $src"
     if [ -f "$dest" ] && cmp -s "$tmp" "$dest"; then continue; fi

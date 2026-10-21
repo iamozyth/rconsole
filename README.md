@@ -67,6 +67,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 - **Knock to join**: a friend who isn't whitelisted tries to join, you get "Lena tried to join" with an **Allow** button, one tap and they're in. **Invite links** let friends put themselves on the list.
 - **Time machine for players**: "my stuff is gone" gets a two-minute answer. Pick a backup in the player's profile, see what they carried then and what is missing now, and put back the inventory or ender chest without touching the world. Every restore can be undone.
 - **Restore an area**: compare part of the world with a backup chunk by chunk (blocks and chest contents, ignoring what grows or flows by itself), see the griefed chunks on a map and put back only those. Undo included.
+- **Try an update first**: a copy of the server starts with the update next to the real one, cut off from the internet, and rconsole shows what the update changes: whether it comes up, plugins that no longer start, new errors and warnings.
 - **Lag detective**: when TPS drops (or on request), rconsole looks at tick times, piles of mobs and items and where they are, players who travel fast, memory and CPU, and says in plain words what is the likely cause and what to do.
 - **Sleep when empty, wake on join**: a server nobody plays on stops after a while and frees its memory and CPU; rconsole answers on its port, shows it as asleep in the multiplayer list, and starts it when one of its players joins.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
@@ -292,7 +293,7 @@ sudo chmod 2770 /srv/minecraft-backups
 
 ```sh
 sudo apt install -y polkitd
-sudo cp /opt/rconsole/rconsole-job@.service /opt/rconsole/rconsole-net@.service /opt/rconsole/rconsole-selfupdate.service /etc/systemd/system/
+sudo cp /opt/rconsole/rconsole-job@.service /opt/rconsole/rconsole-net@.service /opt/rconsole/rconsole-try@.service /opt/rconsole/rconsole-selfupdate.service /etc/systemd/system/
 sudo cp /opt/rconsole/50-rconsole.rules /etc/polkit-1/rules.d/
 sudo systemctl daemon-reload
 ```
@@ -497,6 +498,17 @@ Cancelling the countdown leaves everything as it was. Without control over the M
 
 If a step fails, the UI shows the error. Details are in `journalctl -u 'rconsole-net@*'` or `journalctl -u 'rconsole-job@*'`.
 
+### Try an update first
+
+For servers rconsole installed (Paper, Folia, Purpur, vanilla, Forge and NeoForge), **Try first** next to a build or version, or **Try** in the *Try an update first* panel (admins), rehearses the update without touching the real server, which keeps running:
+
+1. `rehearsal-prepare` (in `rconsole-net@`) copies the server folder to `BACKUP_DIR/.rehearsals/` with the world only around spawn (the four region files around 0,0 per dimension), without logs, map renderer tiles, backups and links, up to 6 GB. The copy listens on 127.0.0.1 on a free port from 25700, with RCON and query off. The update is downloaded and checked like a real one and put beside the current version; Paper, Folia and Purpur fetch what they need once (paperclip's patch-only run), Forge and NeoForge run their installer in the copy.
+2. `rehearsal-boot` (in `rconsole-try@`) starts the copy with the current version, waits until it is up (at most 6 minutes), lets it run 15 seconds and stops it through its console; then the same with the update. `rconsole-try@` lets it reach this machine only (`IPAddressDeny=any`, `IPAddressAllow=localhost`), so plugins that call home, post to Discord or use a database on another machine can't, the same way for both versions. It sees its copy and the Java runtimes, not the other servers, the attached server or the backups, and is the first to go when memory runs out. Its heap is what the server has, or less when the machine has less free.
+3. rconsole compares the two starts: whether the update comes up at all, how long it takes, which plugins started with the current version and not with the update, and the warnings and errors only the update logs (with their stack traces). Numbers in a message don't count, and what both versions log (an update check that can't reach the internet, a port a plugin can't bind next to the real server) is left out. A start that fails shows its last log lines and the crash report.
+4. The copy is removed (`rehearsal-clean`); results stay in `STATE_DIR/rehearsals.json` (the last 10), and the builds list says how a build did ("Tried: works", "Tried: breaks").
+
+Rehearsals are audited as "update rehearsal". A plugin whose database is on this same machine (MySQL on localhost) does reach it from the copy; rconsole doesn't change anything there itself, but a plugin that migrates its tables on start would.
+
 ## Join requests and invites
 
 When someone who isn't whitelisted tries to join, rconsole sees the kick in the log and lists them under **Players → People → Want to join**, with how often they tried, when and from where. **Allow** runs `whitelist add` and they can join right away; **Ignore** keeps further tries from alerting you for a week. With notifications on, you also get "Lena tried to join" with **Allow** and **Ignore** buttons (one-tap actions and the rconsole URL must be set under Settings → Notifications); the alert is replaced by "Lena is whitelisted" once someone answered it. Requests are counted per server, kept for 14 days and stored in `STATE_DIR/join.json`. Unknown addresses that get past the whitelist message are friends, not scanners, so they don't show up as connection attempts.
@@ -675,7 +687,7 @@ Traefik needs no change for uploads: it has no body size limit by default, and e
 
 ```sh
 cd /opt/rconsole && git pull
-sudo cp rconsole-job@.service rconsole-net@.service /etc/systemd/system/
+sudo cp rconsole-job@.service rconsole-net@.service rconsole-try@.service /etc/systemd/system/
 sudo rm -f /etc/systemd/system/rconsole-backup@.service /etc/systemd/system/rconsole-update@.service
 sudo cp 50-rconsole.rules /etc/polkit-1/rules.d/
 sudo systemctl daemon-reload && sudo systemctl restart rconsole
@@ -695,7 +707,7 @@ Old `world-<date>.tar.gz` backups keep working; new ones are named after their w
 - **Cross-site requests**: state-changing requests must be same-origin and JSON.
 - **Audit**: every state-changing request, sign-in (including failed ones), scheduled task and background operation is recorded with user, IP and outcome in `/var/lib/rconsole/audit.jsonl` (rotated at 5 MB, passwords and codes never stored) and shown under Insights → Audit. The same events also go to `journalctl -u rconsole`.
 - **Process**: runs as its own `rconsole` user with read-only access to the Minecraft directory, write access only to its state and backup directories, and only the capability to bind port 80.
-- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network) and `rconsole-net@` (downloads), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths; uploaded worlds are unpacked by its own code, never through links, within a disk budget) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
+- **Privileged jobs**: anything that writes to the Minecraft directory (backups, restores, world changes, `server.properties`, jar updates) runs as the Minecraft user in sandboxed systemd units, `rconsole-job@` (no network), `rconsole-net@` (downloads) and `rconsole-try@` (update rehearsals: this machine only), executing the fixed script `bin/mc-helper.js`. rconsole only drops a request file; the helper validates it again (typed allowlist for `server.properties`, safe names, archives checked for links and stray paths; uploaded worlds are unpacked by its own code, never through links, within a disk budget) and keeps every path inside the server and backup directories. RCON and port settings can't be changed from rconsole.
 - **Installed servers**: downloads are resolved and checked by the helper, never taken from rconsole; only HTTPS from the publisher's own hosts, only with the publisher's checksum (see [Servers](#servers) for which one). Archives are listed before they are unpacked. `instance.json` is validated wherever it's read, and the java command line is built only from checked values (memory, a fixed flag profile, a plain relative launch path). Each server runs in its own sandboxed `rconsole-mc@` unit without rconsole's environment file, so plugins never see rconsole's secrets; it sees only its own folder, with `instance.json` read-only, no capabilities and its own IPC namespace. Helper jobs get rconsole's settings but not its secrets. Plugins installed by hand, or changed since rconsole installed them, are marked under Plugins.
 - **RCON** is plain text, so `rconsole-limits.service` drops connections to the RCON ports that don't come from this machine. Problems warns when one is reachable anyway.
 - **polkit** lets the `rconsole` user start exactly these job units, start/stop/restart `minecraft.service` and `rconsole-mc@<name>.service`, nothing else. Signed-in users are full admins: RCON commands and plugin installs (from Modrinth) run with the Minecraft server's rights by design. rconsole itself can't make the helper write outside its fixed job types, and updates only install downloads whose hash matches the publisher's API.

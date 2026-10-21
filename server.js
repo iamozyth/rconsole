@@ -14,6 +14,7 @@ const { Backups } = require('./lib/backups');
 const { Scheduler, Countdown } = require('./lib/scheduler');
 const { Jobs } = require('./lib/jobs');
 const { Updates } = require('./lib/updates');
+const { Rehearsal } = require('./lib/rehearsal');
 const { Power } = require('./lib/power');
 const { Ops } = require('./lib/ops');
 const { Servers } = require('./lib/servers');
@@ -105,6 +106,8 @@ const activeInstance$ = () => (config.activeServer ? servers.get(config.activeSe
 // Errors reading the active server's instance.json surface instead of
 // falling back to the MC_DIR updates, which would install the wrong jar.
 const updates = new Updates({ jobs, backups, countdown, mcDir: config.mcDir, mcJar: config.mcJar, log, platform, power, rcon, instance: activeInstance$ });
+// Update rehearsal (lib/rehearsal.js): a copy of the shown server tries an update first.
+const rehearsal = new Rehearsal({ jobs, instance: activeInstance$, stateDir: config.stateDir, log });
 const gameVersion = async () => (await updates.installed())?.version || null;
 const plugins = new Plugins({ mcDir: config.mcDir, jobs, pending, log, gameVersion, platform, hashesFile: path.join(config.backupDir, '.plugin-hashes', `${config.activeServer || 'attached'}.json`) });
 const spark = new Spark({ mcDir: config.mcDir, rcon, plugins, log });
@@ -860,6 +863,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/servers\/([a-z0-9-]+)\/show$/, ([id]) => ['server show', id]],
   ['DELETE', /^\/api\/servers\/([a-z0-9-]+)$/, ([id], b, q) => ['server delete', `${id}${q.get('archive') === '0' ? '' : ' (archived)'}`]],
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
+  ['POST', /^\/api\/rehearsal$/, (p, b) => ['update rehearsal', `${b.version}${b.build != null ? ` #${b.build}` : ''}`]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/join\/([a-f0-9]{16})\/(allow|ignore)$/, ([id, verb]) => [`join request ${verb === 'allow' ? 'allowed' : 'ignored'}`, (() => { try { return joinRequests.get(id).name; } catch { return id; } })()]],
   ['PUT', /^\/api\/sleep$/, (p, b) => ['sleep settings', b.enabled === false ? 'off' : [b.enabled ? 'on' : null, b.minutes ? `after ${b.minutes} min` : null, b.wake ? `woken by ${b.wake === 'anyone' ? 'anyone' : 'known players'}` : null].filter(Boolean).join(', ')]],
@@ -888,6 +892,7 @@ const ROLE_RULES = [
   ['POST', /^\/api\/lag$/, 'moderator'],
   ['GET', /^\/api\/area/, 'moderator'], // reads backups too // looking back costs a backup's worth of reading
   ['POST', /^\/api\/join\/[a-f0-9]{16}\/(allow|ignore)$/, 'moderator'], // like whitelist add
+  ['GET', /^\/api\/rehearsal/, 'admin'], // what the server logs while starting
   ['GET', /^\/api\/audit$/, 'admin'],
   ['GET', /^\/api\/notify$/, 'admin'],
   ['GET', /^\/api\/configs/, 'admin'], // configs often hold passwords
@@ -1867,6 +1872,12 @@ route('DELETE', /^\/api\/restart$/, async (req) => {
 
 route('GET', /^\/api\/updates$/, async (req) => updates.overview({ refresh: new URL(req.url, 'http://x').searchParams.has('refresh') }));
 
+route('GET', /^\/api\/rehearsal$/, () => rehearsal.view());
+route('GET', /^\/api\/rehearsal\/([a-z0-9]{6,20})$/, (req, res, [id]) => rehearsal.result(id));
+route('POST', /^\/api\/rehearsal$/, async (req) => {
+  const { version, build } = await readJson(req);
+  return [202, rehearsal.start({ version: String(version || ''), build: build ?? null }, req.user)];
+});
 route('GET', /^\/api\/updates\/builds$/, async (req) => ({
   builds: await updates.builds(new URL(req.url, 'http://x').searchParams.get('version')),
 }));

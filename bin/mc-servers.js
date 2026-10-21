@@ -696,4 +696,7 @@ module.exports = {
   writeVelocityConfig,
   checkTree,
   findLaunch,
+  javaInstall,
+  download,
+  run,
 };
