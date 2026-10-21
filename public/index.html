@@ -717,6 +717,7 @@
     <section class="area" id="tab-insights" role="tabpanel" hidden>
       <div class="subnav segmented" role="tablist" aria-label="Insights sections">
         <button role="tab" data-view="metrics" aria-selected="true">Metrics</button>
+        <button role="tab" data-view="lag" aria-selected="false" data-min-role="moderator">Lag detective</button>
         <button role="tab" data-view="logs" aria-selected="false">Logs</button>
         <button role="tab" data-view="activity" aria-selected="false" data-min-global-role="admin">Activity</button>
       </div>
@@ -745,6 +746,28 @@
           <section class="panel"><header class="panel-head"><h2>CPU</h2><dl class="chart-stats" id="ms-cpu"></dl></header><div class="chart" id="mc-cpu"></div></section>
           <section class="panel"><header class="panel-head"><h2>Memory</h2><dl class="chart-stats" id="ms-mem"></dl></header><div class="chart" id="mc-mem"></div></section>
         </div>
+      </div>
+
+      <div class="view" data-view="lag" hidden>
+        <section class="panel">
+          <header class="panel-head">
+            <div class="head-text"><h2 id="lag-title">Why is it lagging?</h2><p class="note" id="lag-info">Looks at tick times, piles of mobs and items, players who travel fast, memory and CPU, and says what stands out. It also runs by itself when TPS drops.</p></div>
+            <button class="btn btn-primary" id="lag-run"><svg><use href="#pg-search"/></svg>Investigate now</button>
+          </header>
+          <ul class="problems lag-findings" id="lag-findings" hidden></ul>
+        </section>
+        <div class="lag-evidence" id="lag-evidence" hidden>
+          <section class="panel"><header class="panel-head"><h2>Ticks</h2></header><dl class="lag-facts" id="lag-ticks"></dl></section>
+          <section class="panel"><header class="panel-head"><h2>Machine</h2></header><dl class="lag-facts" id="lag-machine"></dl></section>
+          <section class="panel"><header class="panel-head"><h2>Entities</h2><span class="note" id="lag-ent-note"></span></header>
+            <table class="table lag-table"><thead><tr><th>Type</th><th class="num">Ticking</th><th class="num">Idle</th></tr></thead><tbody id="lag-entities"></tbody></table></section>
+          <section class="panel"><header class="panel-head"><h2>Players</h2><span class="note" id="lag-pl-note"></span></header>
+            <table class="table lag-table"><thead><tr><th>Player</th><th>Where</th><th class="num">Speed</th></tr></thead><tbody id="lag-players"></tbody></table></section>
+        </div>
+        <section class="panel" id="lag-history-panel" hidden>
+          <header class="panel-head"><h2>Earlier investigations</h2></header>
+          <ul class="lag-history" id="lag-history"></ul>
+        </section>
       </div>
 
       <div class="view" data-view="logs" hidden>

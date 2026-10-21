@@ -67,6 +67,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 - **Knock to join**: a friend who isn't whitelisted tries to join, you get "Lena tried to join" with an **Allow** button, one tap and they're in. **Invite links** let friends put themselves on the list.
 - **Time machine for players**: "my stuff is gone" gets a two-minute answer. Pick a backup in the player's profile, see what they carried then and what is missing now, and put back the inventory or ender chest without touching the world. Every restore can be undone.
 - **Restore an area**: compare part of the world with a backup chunk by chunk (blocks and chest contents, ignoring what grows or flows by itself), see the griefed chunks on a map and put back only those. Undo included.
+- **Lag detective**: when TPS drops (or on request), rconsole looks at tick times, piles of mobs and items and where they are, players who travel fast, memory and CPU, and says in plain words what is the likely cause and what to do.
 - **Sleep when empty, wake on join**: a server nobody plays on stops after a while and frees its memory and CPU; rconsole answers on its port, shows it as asleep in the multiplayer list, and starts it when one of its players joins.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
 - **Modpacks** from Modrinth in one step: loader, mods and settings, every file checked.
@@ -551,6 +552,14 @@ Settings live in `/var/lib/rconsole/offsite.json` (mode 600; secrets are never s
 - **Metrics** are sampled every 30 seconds while rconsole runs: TPS/MSPT, players online, host CPU and memory, and the Minecraft process's CPU and RSS (from `/proc/<MainPID>`, so it needs `MC_SERVICE` to be readable via `systemctl show`). 24 hours are kept at full resolution and 7 days as 5-minute averages, in `/var/lib/rconsole/metrics.json`.
 - **Player history** is rebuilt from `logs/latest.log` and `logs/*.log.gz`. What has been read from rotated logs is cached in `/var/lib/rconsole/players.json`, so history survives old logs being deleted. Log lines only carry a time of day; dates come from the rotated file names and the last write of `latest.log`.
 - **Log search** reads newest first and stops at 500 matches or after 8 seconds; use the date range to reach further back.
+
+## Lag detective
+
+**Insights → Lag detective** (moderators and admins) answers "why is it lagging?". **Investigate now** asks the server, over RCON and in a few seconds: tick times (Paper's `mspt` and `tick query`), loaded and simulated chunks per world (`paper chunkinfo`), entities by type and the chunks they pile up in (`paper entity list`; on vanilla and other servers counts by type), and where every online player is, twice, to see who travels fast. It adds the server's memory and CPU, the machine's CPU and steal time (a busy VM host), and the view and simulation distance.
+
+Each finding says what it saw, where (chunk, coordinates and which player is near) and what to do: remove dropped items, orbs or arrows (admins, one click), find the farm, pre-generate the world when players explore fast, give the server more memory, look at the VM host, lower the simulation distance. While the server runs at full speed, what it finds is shown as "could cause lag" rather than the cause. When nothing stands out, a spark profile is the next step.
+
+It also runs by itself when two samples in a row are below the TPS threshold of the low TPS notification (15 unless changed), at most every 15 minutes, so the report shows the moment of the lag; the "Can't keep up" problem links to it. The last 20 reports are kept in `STATE_DIR/lag.json`; investigations by hand are audited as "lag investigation".
 
 ## spark profiler
 

@@ -2345,3 +2345,32 @@ body[data-role='none'] .nav .nav-group { display: none !important; }
 .fm-facts dd { margin: 0; }
 .cfg-panel.fm-drop { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .fm-up svg { transform: rotate(180deg); }
+
+/* Insights → Lag detective */
+.lag-findings { border-top: 1px solid var(--line); }
+.lag-findings .problem-acts { margin-top: 2px; }
+.lag-evidence { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.lag-evidence .panel { margin: 0; min-width: 0; }
+.lag-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin: 0; padding: 14px 18px 18px; }
+.lag-facts dt { color: var(--text-3); font-size: 12px; }
+.lag-facts dd { margin: 3px 0 0; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.lag-table td, .lag-table th { white-space: nowrap; }
+.lag-table .lag-type { text-transform: capitalize; }
+.lag-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.lag-table .lag-fast { color: var(--warn); font-weight: 600; }
+.lag-history { list-style: none; margin: 0; padding: 6px; }
+.lag-past { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 9px 12px; border: 0; border-radius: var(--r); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.lag-past:hover { background: var(--surface-2); }
+.lag-past.current { background: var(--sunken); }
+.lag-past b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lag-past .note { font-size: 12.5px; white-space: nowrap; }
+.lag-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.lag-dot.critical { background: var(--c-danger); }
+.lag-dot.warning { background: var(--warn); }
+.lag-dot.ok { background: var(--ok); }
+@media (max-width: 760px) {
+  .lag-evidence { grid-template-columns: minmax(0, 1fr); }
+  .lag-facts { grid-template-columns: minmax(0, 1fr); }
+  .lag-past { grid-template-columns: 10px minmax(0, 1fr); }
+  .lag-past .note { grid-column: 2; white-space: normal; }
+}
