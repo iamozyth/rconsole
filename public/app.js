@@ -211,7 +211,7 @@ function applyRole(role, globalRole = role) {
   document.body.dataset.globalRole = myGlobalRole;
   // Forms that change things are read-only below their role.
   for (const id of ['settings-form', 'task-form', 'world-new', 'world-import']) if ($(id)) $(id).inert = !atLeast('admin');
-  for (const id of ['notify-form', 'os-form', 'server-new', 'sys-web', 'sys-security', 'sys-backups']) if ($(id)) $(id).inert = !globalAtLeast('admin');
+  for (const id of ['notify-form', 'os-form', 'server-new', 'sys-web', 'sys-security', 'sys-backups', 'sys-explain']) if ($(id)) $(id).inert = !globalAtLeast('admin');
   if (!atLeast('admin') || !globalAtLeast('admin')) showTab(location.hash.slice(1)); // falls back from views this role can't open
 }
 
@@ -5780,6 +5780,7 @@ async function loadProblems() {
             ? el('button', { class: 'btn btn-quiet btn-sm', onclick: () => { closeDrawer('drawer-problems'); searchLogsFor(x.kind === 'lag' ? "Can't keep up" : x.message); } }, icon('search'), 'Show in logs')
             : null,
           x.kind === 'lag' && atLeast('moderator') ? el('button', { class: 'btn btn-quiet btn-sm', onclick: () => { closeDrawer('drawer-problems'); showTab('insights/lag'); } }, icon('insights'), 'Why?') : null,
+          o.explain && atLeast('admin') ? el('button', { class: 'btn btn-quiet btn-sm', onclick: () => openExplain(x) }, icon('explain'), 'Explain') : null,
           x.kind !== 'host' && atLeast('admin') ? el('button', { class: 'btn btn-quiet btn-sm', onclick: (e) => muteProblem(x, e.currentTarget) }, icon('mute'), 'Mute') : null))))
       : [el('li', { class: 'problems-empty' }, el('span', { class: 'problem-icon ok' }, icon('check')), el('div', {}, el('b', {}, 'No problems found. '), `Nothing went wrong in the last ${problemDays === 1 ? '24 hours' : '7 days'}.`))]));
     if (problemDays === 1) renderProblemsBadge({ unseen });
@@ -5788,6 +5789,107 @@ async function loadProblems() {
   }
 }
 
+
+// "Explain this problem": Claude's take on one entry, with what would be
+// sent shown first (lib/explain.js). Admins only, and only once turned on
+// under Settings → System.
+const EX_SEVERITY = {
+  ignore: ['ok', 'Safe to ignore'],
+  minor: ['', 'Minor'],
+  important: ['warn', 'Important'],
+  urgent: ['bad', 'Urgent'],
+};
+let exProblem = null;
+
+function renderExplanation(a) {
+  const box = $('ex-answer');
+  box.hidden = !a;
+  if (!a) return;
+  const [tone, label] = EX_SEVERITY[a.severity] || EX_SEVERITY.minor;
+  const model = (lastExplainModels || []).find((m) => m.id === a.model)?.name || a.model;
+  box.replaceChildren(
+    el('div', { class: 'ex-head' }, el('span', { class: `pill ${tone}` }, label)),
+    el('p', { class: 'ex-summary' }, a.summary),
+    a.cause ? el('div', { class: 'ex-part' }, el('h3', {}, 'Likely cause'), el('p', {}, a.cause)) : null,
+    a.steps?.length ? el('div', { class: 'ex-part' }, el('h3', {}, 'What to do'), el('ol', { class: 'ex-steps' }, ...a.steps.map((t) => el('li', {}, t)))) : null,
+    el('p', { class: 'note ex-meta' }, `${model} · ${fmt.relative(a.at)}${a.by ? ` · asked by ${a.by}` : ''}`));
+}
+let lastExplainModels = null;
+
+async function openExplain(x) {
+  exProblem = x;
+  closeDrawer('drawer-problems');
+  $('ex-problem').textContent = problemTitle(x);
+  $('ex-answer').hidden = true;
+  $('ex-send').hidden = true;
+  setJob($('ex-state'), 'running', 'explain', 'Collecting what would be sent…');
+  openDrawer('drawer-explain', $('ex-run'));
+  try {
+    const p = await api('POST', '/api/explain/preview', { key: x.key });
+    if (exProblem !== x) return;
+    setJob($('ex-state'), null);
+    $('ex-preview').textContent = p.text;
+    $('ex-send-note').textContent = `${p.answer ? 'Ask again to get a new answer. ' : ''}This text goes to Anthropic with your API key${p.players ? `; ${p.players} player name${p.players === 1 ? ' was' : 's were'} replaced` : ''}. Addresses, UUIDs, chat and anything that looks like a password or key were taken out.`;
+    $('ex-run').lastChild.textContent = p.answer ? 'Ask again' : 'Explain';
+    $('ex-run').disabled = !p.on;
+    $('ex-send').hidden = false;
+    renderExplanation(p.answer);
+  } catch (e) {
+    setJob($('ex-state'), 'failed', 'alert', e.message);
+  }
+}
+
+$('ex-run').addEventListener('click', (e) => busy(e.currentTarget, async () => {
+  const x = exProblem;
+  if (!x) return;
+  setJob($('ex-state'), 'running', 'explain', 'Claude is reading the log. This takes up to a minute…');
+  $('ex-send').hidden = true;
+  try {
+    const a = await api('POST', '/api/explain', { key: x.key });
+    if (exProblem !== x) return;
+    setJob($('ex-state'), null);
+    renderExplanation(a);
+    $('ex-run').lastChild.textContent = 'Ask again';
+  } catch (err) {
+    setJob($('ex-state'), 'failed', 'alert', err.message);
+  } finally {
+    $('ex-send').hidden = false;
+  }
+}));
+$('ex-back').addEventListener('click', () => {
+  closeDrawer('drawer-explain');
+  openProblems();
+});
+
+// Settings → System → Explain problems with Claude.
+async function loadExplainSettings() {
+  try {
+    const v = await api('GET', '/api/system/explain');
+    lastExplainModels = v.models;
+    const f = $('sys-explain').elements;
+    f.enabled.checked = v.enabled;
+    f.apiKey.value = v.apiKey;
+    f.apiKey.placeholder = v.keyFromEnv ? 'From ANTHROPIC_API_KEY in /etc/rconsole.env' : 'sk-ant-…';
+    $('sys-explain-model').replaceChildren(...v.models.map((m) => el('option', { value: m.id, selected: m.id === v.model || undefined }, `${m.name} (${m.note})`)));
+    $('sys-explain-note').textContent = v.on ? 'On: Problems shows an Explain button to admins.' : v.enabled ? 'Needs an API key.' : 'Off.';
+  } catch (e) {
+    $('sys-explain-note').textContent = `Can't load: ${e.message}`;
+  }
+}
+
+$('sys-explain').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = e.currentTarget.elements;
+  busy(e.submitter, async () => {
+    try {
+      await api('PUT', '/api/system/explain', { enabled: f.enabled.checked, apiKey: f.apiKey.value, model: f.model.value });
+      toast(f.enabled.checked ? 'Explanations are on.' : 'Saved.');
+      loadExplainSettings();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Insights: spark profiler
@@ -6645,7 +6747,7 @@ async function loadAbout() {
 
 viewLoaders['settings/account'] = renderAccount;
 viewLoaders['settings/signin'] = () => { loadSso(); loadUsers(); };
-viewLoaders['settings/system'] = () => { loadAbout(); loadSystem(); };
+viewLoaders['settings/system'] = () => { loadAbout(); loadSystem(); if (globalAtLeast('admin')) loadExplainSettings(); };
 
 // Settings → System: rconsole's own settings (lib/system.js). A value saved
 // here wins over /etc/rconsole.env; each field says where its value comes

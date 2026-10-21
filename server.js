@@ -33,6 +33,7 @@ const settingsSchema = require('./lib/settings');
 const { Audit, summarize } = require('./lib/audit');
 const { Metrics } = require('./lib/metrics');
 const { LagDetective } = require('./lib/lagdetective');
+const { Explainer, logContext } = require('./lib/explain');
 const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
 const { Scanners } = require('./lib/scanners');
@@ -170,6 +171,16 @@ servers.onDeleted = (id) => {
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 // Lag detective (lib/lagdetective.js): why the shown server lags, on request or when TPS drops.
 const lagDetective = new LagDetective({ rcon, stats, power, stateDir: config.stateDir, mcDir: config.mcDir, log });
+// Problems explained by Claude, off until an admin adds their own API key.
+const explainer = new Explainer({
+  stateDir: config.stateDir, mcDir: config.mcDir, log,
+  problem: async (key) => (await problems.scan({ days: 7 })).groups.find((g) => g.key === key) || null,
+  context: async (p) => ({
+    server: await updates.installed().catch(() => null),
+    plugins: await plugins.local().then((l) => l.map(({ name, version, enabled }) => ({ name, version, enabled }))).catch(() => []),
+    lines: p.kind === 'host' ? [] : await logContext(path.join(config.mcDir, 'logs'), p.kind === 'lag' ? "Can't keep up!" : p.message).catch(() => []),
+  }),
+});
 const playerHistory = new PlayerHistory({ mcDir: config.mcDir, stateDir: config.stateDir, log });
 // Knock to join (lib/joinrequests.js): requests and invites for the server rconsole shows.
 const joinRequests = new JoinRequests({
@@ -852,6 +863,8 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/configs\/revert$/, (p, b) => ['config revert', b.path]],
   ['POST', /^\/api\/chat$/, (p, b) => [b.to ? `whisper to ${b.to}` : 'chat', String(b.message || '').slice(0, 120)]],
   ['POST', /^\/api\/lag$/, () => ['lag investigation', '']],
+  ['POST', /^\/api\/explain$/, (p, b) => ['problem explained', String(b.key || '').slice(0, 120)]],
+  ['PUT', /^\/api\/system\/explain$/, (p, b) => ['explain settings', b.enabled === false ? 'off' : b.enabled ? 'on' : '']],
   ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
   ['POST', /^\/api\/offsite\/upload$/, (p, b) => ['offsite upload', b.file]],
   ['POST', /^\/api\/offsite\/download$/, (p, b) => ['offsite download', b.name]],
@@ -893,6 +906,8 @@ const ROLE_RULES = [
   ['GET', /^\/api\/area/, 'moderator'], // reads backups too // looking back costs a backup's worth of reading
   ['POST', /^\/api\/join\/[a-f0-9]{16}\/(allow|ignore)$/, 'moderator'], // like whitelist add
   ['GET', /^\/api\/rehearsal/, 'admin'], // what the server logs while starting
+  ['GET', /^\/api\/system\/explain$/, 'admin'],
+  ['GET', /^\/api\/explain/, 'admin'], // what would go to Anthropic
   ['GET', /^\/api\/audit$/, 'admin'],
   ['GET', /^\/api\/notify$/, 'admin'],
   ['GET', /^\/api\/configs/, 'admin'], // configs often hold passwords
@@ -1223,6 +1238,13 @@ route('POST', /^\/api\/files\/place$/, async (req) => {
 route('GET', /^\/api\/lag$/, () => lagDetective.view());
 route('GET', /^\/api\/lag\/([a-z0-9]{6,20})$/, (req, res, [id]) => lagDetective.report(id));
 route('POST', /^\/api\/lag$/, (req) => lagDetective.investigate({ reason: 'manual', by: req.user }));
+route('GET', /^\/api\/system\/explain$/, () => explainer.view());
+route('PUT', /^\/api\/system\/explain$/, async (req) => explainer.update(await readJson(req)));
+route('POST', /^\/api\/explain\/preview$/, async (req) => {
+  const { key } = await readJson(req);
+  return { ...(await explainer.preview(String(key || ''))), on: explainer.on, answer: explainer.cached(String(key || '')) };
+});
+route('POST', /^\/api\/explain$/, async (req) => explainer.explain(String((await readJson(req)).key || ''), req.user));
 route('GET', /^\/api\/spark$/, () => spark.status());
 route('POST', /^\/api\/spark$/, async (req) => {
   const { kind, seconds } = await readJson(req);
@@ -1236,7 +1258,7 @@ route('POST', /^\/api\/offsite\/upload$/, async (req) => [202, offsite.enqueue(S
 route('POST', /^\/api\/offsite\/download$/, async (req) => offsite.download(String((await readJson(req)).name || '')));
 route('DELETE', /^\/api\/offsite\/([^/]+)$/, (req, res, [name]) => offsite.remove(decodeURIComponent(name)));
 const forRole = (req, data) => (roleAtLeast(req.role, 'moderator') ? data : maskDeep(data)); // player addresses
-route('GET', /^\/api\/problems$/, async (req) => forRole(req, await problems.scan({ days: new URL(req.url, 'http://x').searchParams.get('days') })));
+route('GET', /^\/api\/problems$/, async (req) => ({ ...forRole(req, await problems.scan({ days: new URL(req.url, 'http://x').searchParams.get('days') })), explain: explainer.on }));
 route('POST', /^\/api\/problems\/seen$/, async () => problems.markSeen());
 route('POST', /^\/api\/problems\/mute$/, async (req) => {
   const { key, muted = true, all } = await readJson(req);

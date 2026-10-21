@@ -68,6 +68,7 @@ Then open `http://<your-server>:8080`, sign in, and create your server with **Ne
 - **Time machine for players**: "my stuff is gone" gets a two-minute answer. Pick a backup in the player's profile, see what they carried then and what is missing now, and put back the inventory or ender chest without touching the world. Every restore can be undone.
 - **Restore an area**: compare part of the world with a backup chunk by chunk (blocks and chest contents, ignoring what grows or flows by itself), see the griefed chunks on a map and put back only those. Undo included.
 - **Try an update first**: a copy of the server starts with the update next to the real one, cut off from the internet, and rconsole shows what the update changes: whether it comes up, plugins that no longer start, new errors and warnings.
+- **Explain this problem** (optional, your own Anthropic API key): Claude says in plain words what a crash or error means and what to do, after player names, addresses and secrets are taken out.
 - **Lag detective**: when TPS drops (or on request), rconsole looks at tick times, piles of mobs and items and where they are, players who travel fast, memory and CPU, and says in plain words what is the likely cause and what to do.
 - **Sleep when empty, wake on join**: a server nobody plays on stops after a while and frees its memory and CPU; rconsole answers on its port, shows it as asleep in the multiplayer list, and starts it when one of its players joins.
 - **Web chat**: follow chat, joins and leaves live, talk to everyone as **[Web] you**, whisper to a player, kick from a message.
@@ -586,6 +587,14 @@ The **bell** in the top bar lists what went wrong in the last 24 hours or 7 days
 - **warnings:** "Can't keep up", with the worst delay.
 
 Repeats are grouped (numbers, UUIDs and names don't split a group), with the plugin, the exception line from the stack trace, counts and times, and a jump into log search. New errors put a red dot on Insights until you mark them as seen. With notifications on, crashes and plugin failures alert at once, other errors arrive as one daily digest.
+
+### Explain this problem
+
+Optional, and off unless an admin turns it on: **Settings → System → Explain problems with Claude** takes your own Anthropic API key (from [platform.claude.com](https://platform.claude.com/settings/keys), or `ANTHROPIC_API_KEY` in `/etc/rconsole.env`) and a model (Claude Opus 5.5 by default; Sonnet 5.5 and Haiku 5.5 cost less). Each problem then gets an **Explain** button (admins): Claude says what happened, how serious it is (safe to ignore, minor, important, urgent), the likely cause and what to do.
+
+What is sent: the problem as listed, up to 20 log lines before and 30 after its last occurrence, the server software and version, and the names and versions of its plugins or mods. Before that, rconsole replaces player names with Player1, Player2, … (names from `usercache.json`, the whitelist, ops and bans, and those the log itself gives away), removes chat lines, and masks IP addresses, UUIDs, e-mail addresses, credentials in URLs, `password=`/`token=`/`Authorization` values and long key-like strings. The drawer shows the exact text before you press Explain.
+
+Requests go straight from this machine to `api.anthropic.com` (with a server-side fallback model if Claude declines); there is no rconsole service in between. At most 20 explanations an hour; the last 50 answers are kept with the settings in `STATE_DIR/explain.json` (mode 600, the key is never sent back to the browser). Each one is audited as "problem explained". Claude can be wrong: check its advice before deleting anything.
 
 ## Connection attempts
 
