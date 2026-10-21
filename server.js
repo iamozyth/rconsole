@@ -44,6 +44,7 @@ const { Spark } = require('./lib/spark');
 const { PlayerInfo } = require('./lib/playerinfo');
 const { TimeMachine, readState: readPlayerState } = require('./lib/timemachine');
 const { AreaRestore } = require('./lib/arearestore');
+const { Sleeper, knownPlayers } = require('./lib/sleep');
 const { Configs, MAX_BYTES: CONFIG_MAX } = require('./lib/configs');
 const { Files, MAX_EDIT: FILE_MAX } = require('./lib/files');
 const { CommandCatalog } = require('./lib/commands');
@@ -295,6 +296,48 @@ async function watchPower() {
     scheduler.onPower(key, prev, st, { planned: planned() });
   }
 }
+// Sleep when empty, wake on join (lib/sleep.js): every game server, the
+// shown one counted over RCON, the others by status ping.
+const propsOf = (dir) => {
+  try {
+    return properties.toObject(properties.parse(fs.readFileSync(path.join(dir, 'server.properties'), 'utf8')));
+  } catch {
+    return {};
+  }
+};
+// The shown server's players over RCON, or by status ping without it.
+const shownPlayers = (fallback) => async () => {
+  const s = await stats.get().catch(() => null);
+  return s?.rcon?.ok && s.game?.players ? s.game.players.online : fallback();
+};
+async function sleepTargets() {
+  const shownBusy = () => ops.busy() || countdown.endsAt != null || Boolean(updates.running) || Boolean(backups.state.running);
+  const target = (key, name, dir, port, p, own) => ({
+    key, name, port, host: p['server-ip'] || null, max: Number(p['max-players']) || 20, ...own,
+    known: (n) => knownPlayers(dir, p['white-list'] === 'true').has(n.toLowerCase()),
+  });
+  const ping = (p, port) => () => slp.ping({ host: p['server-ip'] || '127.0.0.1', port }).then((r) => r.online);
+  const out = [];
+  if (legacyServer && !config.activeServer) {
+    const p = propsOf(config.mcDir);
+    const port = Number(p['server-port']) || 25565;
+    // Named after its message of the day: its folder name means nothing to players.
+    const motd = String(p.motd || '').replace(/§./g, '').replace(/\\u00a7./gi, '').trim().slice(0, 40);
+    out.push(target(ATTACHED, motd || 'The server', config.mcDir, port, p, { power, busy: shownBusy, players: shownPlayers(ping(p, port)) }));
+  }
+  for (const i of instances.list(config.serversDir)) {
+    if (i.kind === 'proxy') continue; // players join the servers behind it
+    const dir = path.join(config.serversDir, i.id);
+    const p = propsOf(dir);
+    const shown = i.id === config.activeServer;
+    out.push(target(i.id, i.name || i.id, dir, i.port, p, shown
+      ? { power, busy: shownBusy, players: shownPlayers(ping(p, i.port)) }
+      : { power: servers.power(i.id), busy: () => serverOps.busy() || otherCountdowns.get(i.id)?.endsAt != null, players: ping(p, i.port) }));
+  }
+  return out;
+}
+const sleeper = new Sleeper({ stateDir: config.stateDir, targets: sleepTargets, log, audit: (e) => audit.record(e) });
+
 const users = new Users(config.stateDir);
 const sessions = new Sessions(path.join(config.stateDir, 'sessions.json'));
 const throttle = new Throttle();
@@ -815,6 +858,7 @@ const AUDIT_NAMES = [
   ['DELETE', /^\/api\/offsite\/([^/]+)$/, ([n]) => ['offsite delete', dec(n)]],
   ['POST', /^\/api\/updates$/, (p, b) => ['update', b.rollback ? 'rollback' : `${b.version} #${b.build}`]],
   ['POST', /^\/api\/join\/([a-f0-9]{16})\/(allow|ignore)$/, ([id, verb]) => [`join request ${verb === 'allow' ? 'allowed' : 'ignored'}`, (() => { try { return joinRequests.get(id).name; } catch { return id; } })()]],
+  ['PUT', /^\/api\/sleep$/, (p, b) => ['sleep settings', b.enabled === false ? 'off' : [b.enabled ? 'on' : null, b.minutes ? `after ${b.minutes} min` : null, b.wake ? `woken by ${b.wake === 'anyone' ? 'anyone' : 'known players'}` : null].filter(Boolean).join(', ')]],
   ['POST', /^\/api\/area\/restore$/, (p, b) => ['area restore', b.undo ? `undo the restore of ${b.undo}` : `${Array.isArray(b.chunks) ? b.chunks.length : 0} chunks of the ${b.dimension} from ${b.backup}${b.entities === false ? ', blocks only' : ''}`]],
   ['POST', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/timemachine\/restore$/, ([n], b) => ['player restore', `${n}: ${(b.parts || []).join(' + ')} from ${b.undo ? `before the restore of ${b.undo}` : b.backup}${b.kick ? ' (kicked)' : ''}`]],
   ['POST', /^\/api\/invites$/, (p, b) => ['invite create', `${String(b.label || '').slice(0, 60) || 'invite'}: ${b.uses || 1} use(s), ${Number(b.days) === 0 ? 'no expiry' : `${b.days ?? 7} days`}${b.auto ? ', whitelists right away' : ''}`]],
@@ -1015,6 +1059,10 @@ route('POST', /^\/api\/players\/([A-Za-z0-9_]{1,16})\/timemachine\/restore$/, as
   const result = await timeMachine.restore(uuid, { backup: b.backup, undo: b.undo, parts: b.parts });
   return { ...result, kicked: Boolean(online) };
 });
+
+// Sleep when empty (lib/sleep.js), for the shown server.
+route('GET', /^\/api\/sleep$/, () => sleeper.view(SHOWN));
+route('PUT', /^\/api\/sleep$/, async (req) => sleeper.setConfig(SHOWN, await readJson(req)));
 
 // Area restore (lib/arearestore.js): chunks of the world back from a backup.
 route('GET', /^\/api\/area$/, async (req) => {
@@ -1473,6 +1521,7 @@ route('GET', /^\/api\/status$/, async () => ({
   self: selfUpdate.summary(),
   security: scanners.summary(),
   joinRequests: joinRequests.pendingCount(),
+  sleep: (({ enabled, sleeping, since, sleepsAt, woken }) => ({ enabled, sleeping, since, sleepsAt, woken }))(sleeper.view(SHOWN)),
   problems: await problems.summary().catch(() => null),
   platform: (({ id, name, family, mcVersion, build, loaderVersion, addons, updates: auto }) => ({ id, name, family, mcVersion, build, loaderVersion, addons: addons?.kind || null, updates: Boolean(auto) }))(platform()),
 }));
@@ -1483,7 +1532,7 @@ route('GET', /^\/api\/status$/, async () => ({
 route('GET', /^\/api\/servers$/, async (req) => {
   // Only the servers this account may see, each with the account's role there.
   const all = await servers.list();
-  const list = all.map((i) => ({ ...i, myRole: users.serverRole(req.user, i.id) })).filter((i) => i.myRole !== 'none');
+  const list = all.map((i) => ({ ...i, myRole: users.serverRole(req.user, i.id), sleeping: sleeper.sleeping(i.id) })).filter((i) => i.myRole !== 'none');
   // ?live: what each running server does right now, for the dashboard.
   if (new URL(req.url, 'http://x').searchParams.has('live')) {
     await Promise.all(list.filter((i) => i.state.active === 'active').map(async (i) => {
@@ -2218,7 +2267,8 @@ process.on('unhandledRejection', (err) => log(`unhandled rejection: ${err?.stack
 scheduler.load().then(() => {
   logTail.start();
   metrics.start();
-  metrics.onSample((sample) => notify.onSample(sample, { stats, ops, countdown, backups }));
+  metrics.onSample((sample) => notify.onSample(sample, { stats, ops, countdown, backups, asleep: () => sleeper.sleeping(SHOWN) }));
+  sleeper.start();
   // A server that goes down on its own with a failed systemd result crashed,
   // even when the log shows nothing (killed by the OOM killer, JVM abort).
   let wasUp = null;
