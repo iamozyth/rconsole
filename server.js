@@ -34,6 +34,7 @@ const { Audit, summarize } = require('./lib/audit');
 const { Metrics } = require('./lib/metrics');
 const { LagDetective } = require('./lib/lagdetective');
 const { Explainer, logContext } = require('./lib/explain');
+const { GameRules } = require('./lib/gamerules');
 const { PlayerHistory } = require('./lib/players');
 const { searchLogs } = require('./lib/logsearch');
 const { Scanners } = require('./lib/scanners');
@@ -171,6 +172,7 @@ servers.onDeleted = (id) => {
 const metrics = new Metrics({ stats, power, stateDir: config.stateDir, log });
 // Lag detective (lib/lagdetective.js): why the shown server lags, on request or when TPS drops.
 const lagDetective = new LagDetective({ rcon, stats, power, stateDir: config.stateDir, mcDir: config.mcDir, log });
+const gameRules = new GameRules({ rcon, log });
 // Problems explained by Claude, off until an admin adds their own API key.
 const explainer = new Explainer({
   stateDir: config.stateDir, mcDir: config.mcDir, log,
@@ -863,6 +865,7 @@ const AUDIT_NAMES = [
   ['POST', /^\/api\/configs\/revert$/, (p, b) => ['config revert', b.path]],
   ['POST', /^\/api\/chat$/, (p, b) => [b.to ? `whisper to ${b.to}` : 'chat', String(b.message || '').slice(0, 120)]],
   ['POST', /^\/api\/lag$/, () => ['lag investigation', '']],
+  ['PUT', /^\/api\/gamerules$/, (p, b) => ['game rules', `${(Array.isArray(b.changes) ? b.changes : []).map((c) => `${c?.name} = ${c?.value}`).join(', ').slice(0, 300)}${b.all === false ? ' (overworld)' : ''}`]],
   ['POST', /^\/api\/explain$/, (p, b) => ['problem explained', String(b.key || '').slice(0, 120)]],
   ['PUT', /^\/api\/system\/explain$/, (p, b) => ['explain settings', b.enabled === false ? 'off' : b.enabled ? 'on' : '']],
   ['POST', /^\/api\/spark$/, (p, b) => [`spark ${b.kind === 'health' ? 'health report' : 'profile'}`, '']],
@@ -1238,6 +1241,11 @@ route('POST', /^\/api\/files\/place$/, async (req) => {
 route('GET', /^\/api\/lag$/, () => lagDetective.view());
 route('GET', /^\/api\/lag\/([a-z0-9]{6,20})$/, (req, res, [id]) => lagDetective.report(id));
 route('POST', /^\/api\/lag$/, (req) => lagDetective.investigate({ reason: 'manual', by: req.user }));
+route('GET', /^\/api\/gamerules$/, () => gameRules.view());
+route('PUT', /^\/api\/gamerules$/, async (req) => {
+  const { changes, all } = await readJson(req);
+  return gameRules.set(changes, { all: all !== false });
+});
 route('GET', /^\/api\/system\/explain$/, () => explainer.view());
 route('PUT', /^\/api\/system\/explain$/, async (req) => explainer.update(await readJson(req)));
 route('POST', /^\/api\/explain\/preview$/, async (req) => {
