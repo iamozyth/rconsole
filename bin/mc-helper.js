@@ -27,6 +27,7 @@ const { FILE_RE: PLUGIN_FILE_RE } = require('../lib/plugins');
 const platform = require('../lib/platform');
 const configs = require('../lib/configs');
 const servers = require('./mc-servers');
+const rehearsal = require('./mc-rehearsal');
 const instances = require('../lib/instances');
 const archive = require('../lib/archive');
 const worldImport = require('../lib/worldimport');
@@ -1075,6 +1076,7 @@ const TASKS = {
   'player-restore': playerRestore,
   'area-restore': areaRestore,
   ...servers.TASKS,
+  ...rehearsal.TASKS,
 };
 
 function writeResult(file, result) {
@@ -1142,7 +1144,7 @@ async function main() {
   try {
     // The active server rconsole works on. Only a valid instance in
     // SERVERS_DIR is accepted; every path check then applies to its folder.
-    if (instance !== null && !Object.hasOwn(servers.TASKS, kind)) {
+    if (instance !== null && !Object.hasOwn(servers.TASKS, kind) && !Object.hasOwn(rehearsal.TASKS, kind)) {
       const i = instances.read(config.serversDir, instance);
       MC = path.join(config.serversDir, i.id);
       jar = path.join(MC, i.launch?.type === 'jar' ? i.launch.path : 'server.jar');

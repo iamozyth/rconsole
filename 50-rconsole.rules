@@ -6,7 +6,7 @@ polkit.addRule(function (action, subject) {
   if (action.id !== "org.freedesktop.systemd1.manage-units" || subject.user !== "rconsole") return;
   var unit = action.lookup("unit");
   var verb = action.lookup("verb");
-  if (verb === "start" && /^rconsole-(job|net)@[a-f0-9]{32}\.service$/.test(unit)) return polkit.Result.YES;
+  if (verb === "start" && /^rconsole-(job|net|try)@[a-f0-9]{32}\.service$/.test(unit)) return polkit.Result.YES;
   if (verb === "start" && unit === "rconsole-selfupdate.service") return polkit.Result.YES;
   // Legacy units from rconsole 1.x, kept until they are removed.
   if (verb === "start" && /^rconsole-(backup|update)@[A-Za-z0-9._-]+\.service$/.test(unit)) return polkit.Result.YES;

@@ -24,7 +24,7 @@ function secretNames() {
 test('helper jobs run without any of rconsole\'s secrets in their environment', () => {
   const secrets = secretNames();
   assert.ok(secrets.includes('RCON_PASSWORD') && secrets.includes('OIDC_CLIENT_SECRET'), secrets.join(' '));
-  for (const name of ['rconsole-job@.service', 'rconsole-net@.service']) {
+  for (const name of ['rconsole-job@.service', 'rconsole-net@.service', 'rconsole-try@.service']) {
     const unset = values(unit(name), 'UnsetEnvironment');
     for (const s of secrets) assert.ok(unset.includes(s), `${name} must unset ${s}`);
   }
@@ -63,4 +63,19 @@ test('polkit lets rconsole start the limits helper and clear a crash loop, nothi
   assert.ok(allow('rconsole-mc@survival.service', 'reset-failed'));
   assert.ok(!allow('sshd.service', 'reset-failed'));
   assert.ok(!allow('rconsole-limits.service', 'start', 'minecraft'));
+  assert.ok(allow(`rconsole-try@${'a'.repeat(32)}.service`, 'start'));
+  assert.ok(!allow(`rconsole-try@${'a'.repeat(32)}.service`, 'stop'));
+});
+
+test('an update rehearsal reaches this machine only and sees its copy, not the servers or backups', () => {
+  const t = unit('rconsole-try@.service');
+  assert.deepStrictEqual(values(t, 'IPAddressDeny'), ['any']);
+  assert.deepStrictEqual(values(t, 'IPAddressAllow'), ['localhost']);
+  assert.deepStrictEqual(values(t, 'TemporaryFileSystem'), ['/srv/minecraft-servers:ro', '/srv/minecraft-backups:ro']);
+  assert.deepStrictEqual(values(t, 'BindPaths'), ['-/srv/minecraft-backups/.jobs', '-/srv/minecraft-backups/.rehearsals']);
+  assert.deepStrictEqual(values(t, 'BindReadOnlyPaths'), ['-/srv/minecraft-servers/.java', '-/srv/minecraft-backups/.requests']);
+  const render = (env) => execFileSync('bash', ['-c', `source ${ROOT}/bin/units.sh && render_unit < ${ROOT}/rconsole-try@.service`], { env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' });
+  assert.deepStrictEqual(values(render({ MC_DIR: '/data/mc', SERVERS_DIR: '/data/servers', BACKUP_DIR: '/data/bk' }), 'InaccessiblePaths'), ['-/data/mc']);
+  assert.deepStrictEqual(values(render({ MC_DIR: '/srv/mc', SERVERS_DIR: '/srv/mc/servers', BACKUP_DIR: '/srv/bk' }), 'InaccessiblePaths'), []);
+  for (const f of ['install.sh', 'bin/self-update.sh']) assert.match(fs.readFileSync(path.join(ROOT, f), 'utf8'), /rconsole-try@\.service/, f);
 });

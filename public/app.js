@@ -3915,7 +3915,7 @@ async function loadUpdates(refresh) {
           el('td', { class: 'primary-cell', 'data-label': 'Build' }, `#${b.id}`, i === 0 ? el('span', { class: 'sub' }, 'Newest') : null),
           el('td', { 'data-label': 'Channel' }, el('span', { class: `pill ${b.channel === 'STABLE' ? 'own' : ''}` }, (b.channel || 'unknown').toLowerCase())),
           el('td', { 'data-label': 'Released' }, when(b.time)),
-          el('td', { class: 'act' }, el('button', {
+          el('td', { class: 'act' }, rehearseButton({ version: o.current.version, build: b.id }), el('button', {
             class: `btn btn-sm ${i === 0 ? 'btn-primary' : ''}`, 'data-update': true, disabled: updateBusy || undefined,
             onclick: () => startUpdate({ version: o.current.version, build: b.id }, { title: `Update to build ${b.id}?`, body: `${name} ${o.current.version} #${o.current.build} → #${b.id} (${(b.channel || '').toLowerCase()}). The previous jar is kept for rollback.`, confirm: 'Update', icon: 'updates' }),
           }, icon('updates'), 'Update'))))
@@ -3924,8 +3924,10 @@ async function loadUpdates(refresh) {
     $('upd-versions').replaceChildren(...(o.newerVersions.length
       ? o.newerVersions.map((v) => el('tr', {},
           el('td', { class: 'primary-cell', 'data-label': 'Version' }, `Minecraft ${v}`),
-          el('td', { class: 'act' }, el('button', { class: 'btn btn-sm', 'data-update': true, disabled: updateBusy || undefined, onclick: (e) => upgradeVersion(v, e.currentTarget) }, icon('updates'), 'Upgrade…'))))
+          el('td', { class: 'act' }, rehearseButton({ version: v, build: null }), el('button', { class: 'btn btn-sm', 'data-update': true, disabled: updateBusy || undefined, onclick: (e) => upgradeVersion(v, e.currentTarget) }, icon('updates'), 'Upgrade…'))))
       : [emptyRow(2, o.current ? `Minecraft ${o.current.version} is the newest version ${name} supports.` : '–')]));
+    rhTarget = o.current && o.newerBuilds[0] ? { version: o.current.version, build: o.newerBuilds[0].id } : null;
+    loadRehearsal();
     return { updates: o.newerBuilds.length, error: o.error };
   } catch (e) {
     $('upd-source').textContent = e.message;
@@ -4008,6 +4010,133 @@ async function checkAll(refresh) {
   }
 }
 viewLoaders['server/updates'] = () => checkAll(false);
+
+// ---------------------------------------------------------------------------
+// Server → Updates: try an update first (update rehearsal)
+// ---------------------------------------------------------------------------
+
+let rhTimer = null;
+let rhWasRunning = false;
+let rhShown = null; // id of the result on screen
+let rhTarget = null; // { version, build } the Try button tries
+const rhLabel = (t) => (t ? `${t.version}${t.build != null ? ` ${typeof t.build === 'number' ? '#' : ''}${t.build}` : ''}` : '');
+const RH_SHORT = { works: 'works', warnings: 'warnings', problems: 'breaks', fails: "doesn't start", inconclusive: 'unclear', error: 'failed' };
+const RH_VERDICT = {
+  works: ['ok', 'check', 'The update starts like the current version'],
+  warnings: ['warning', 'alert', 'The update starts, with new warnings'],
+  problems: ['critical', 'alert', 'The update starts, but something breaks'],
+  fails: ['critical', 'alert', "The update doesn't start"],
+  inconclusive: ['warning', 'alert', "Couldn't tell"],
+  error: ['critical', 'alert', "The rehearsal didn't finish"],
+};
+
+async function rehearse(target, btn) {
+  const ok = await confirmAction({
+    title: `Try ${rhLabel(target)} first?`,
+    body: 'rconsole copies this server (its worlds only around spawn), starts the copy with the current version and then with the update, and compares the two. Players are not affected and nothing changes on the real server. It uses some CPU and memory for a few minutes.',
+    confirm: 'Try it', icon: 'play',
+  });
+  if (!ok) return;
+  await busy(btn, async () => {
+    try {
+      renderRehearsalState(await api('POST', '/api/rehearsal', target));
+      loadRehearsal();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  });
+}
+
+// A "Try" button for a build or version row.
+// Shown once rconsole knows this server can be rehearsed (loadRehearsal).
+const rehearseButton = (target) => (atLeast('admin') ? el('button', { class: 'btn btn-sm btn-quiet', 'data-rehearse': rhLabel(target), hidden: !rehearsalOn || undefined, title: `Try ${rhLabel(target)} on a copy first`, disabled: rehearsalBusy || undefined, onclick: (e) => rehearse(target, e.currentTarget) }, 'Try first') : null);
+let rehearsalOn = false;
+let rehearsalBusy = false;
+
+function renderRehearsalState(st) {
+  rehearsalBusy = Boolean(st?.running);
+  if (st?.running) setJob($('rh-status'), 'running', 'play', `Trying ${st.target}: ${st.step}…`);
+  else setJob($('rh-status'), null);
+  document.querySelectorAll('[data-rehearse]').forEach((b) => (b.disabled = rehearsalBusy));
+  $('rh-run').disabled = rehearsalBusy;
+}
+
+async function loadRehearsal(id) {
+  clearTimeout(rhTimer);
+  if (!atLeast('admin')) return;
+  try {
+    const v = await api('GET', '/api/rehearsal');
+    rehearsalOn = v.available;
+    // A build tried before says how it went.
+    document.querySelectorAll('[data-rehearse]').forEach((b) => {
+      b.hidden = !v.available;
+      const last = v.results.find((r) => rhLabel(r.to) === b.dataset.rehearse);
+      b.textContent = last ? `Tried: ${RH_SHORT[last.verdict] || 'failed'}` : 'Try first';
+      b.dataset.verdict = last?.verdict || '';
+    });
+    $('rh-panel').hidden = !v.available && !v.results.length;
+    if (!v.available) $('rh-note').textContent = v.reason;
+    renderRehearsalState(v.state);
+    $('rh-run').hidden = !v.available || !rhTarget;
+    $('rh-run').querySelector('span').textContent = rhTarget ? `Try ${rhLabel(rhTarget)}` : 'Try it';
+    const pick = id || (v.results.some((r) => r.id === rhShown) && !(rhWasRunning && !v.state.running) ? rhShown : v.results[0]?.id);
+    $('rh-earlier').hidden = v.results.length < 2;
+    $('rh-history').replaceChildren(...v.results.map((r) => el('li', {},
+      el('button', { class: `lag-past${r.id === pick ? ' current' : ''}`, onclick: () => loadRehearsal(r.id) },
+        el('span', { class: `lag-dot ${RH_VERDICT[r.verdict]?.[0] === 'ok' ? 'ok' : RH_VERDICT[r.verdict]?.[0] || ''}`, 'aria-hidden': 'true' }),
+        el('b', {}, `${rhLabel(r.from)} → ${rhLabel(r.to)}: ${(RH_VERDICT[r.verdict] || RH_VERDICT.error)[2].replace(/^The update /, '')}`),
+        el('span', { class: 'note' }, `${fmt.relative(r.at)}${r.by ? `, by ${r.by}` : ''}`)))));
+    if (rhWasRunning && !v.state.running) toast(`Rehearsal of ${v.state.target} finished.`);
+    rhWasRunning = v.state.running;
+    if (pick) renderRehearsal(await api('GET', `/api/rehearsal/${pick}`));
+    else $('rh-result').hidden = true;
+    if (v.state.running && currentView('server') === 'updates') rhTimer = setTimeout(loadRehearsal, 3000);
+  } catch (e) {
+    $('rh-panel').hidden = true;
+  }
+}
+
+function renderRehearsal(r) {
+  rhShown = r.id;
+  const [tone, ic, title] = RH_VERDICT[r.verdict] || RH_VERDICT.error;
+  const secs = (s) => (s == null ? '–' : `${s < 10 ? s.toFixed(1) : Math.round(s)} s`);
+  const lead = {
+    works: `${rhLabel(r.to)} came up in ${secs(r.next?.seconds)} (${rhLabel(r.from)}: ${secs(r.current?.seconds)}), with the same plugins and no warning or error the current version doesn't have.`,
+    warnings: `${rhLabel(r.to)} came up in ${secs(r.next?.seconds)}, and logged ${r.added?.length} warning${r.added?.length === 1 ? '' : 's'} the current version doesn't. Look at them before updating.`,
+    problems: `${rhLabel(r.to)} came up, but ${r.lostPlugins?.length ? `${r.lostPlugins.join(', ')} didn't start with it` : `it logged ${r.added?.filter((p) => p.level === 'error').length} new error${r.added?.filter((p) => p.level === 'error').length === 1 ? '' : 's'}`}. Update those plugins first, or wait for the next build.`,
+    fails: `${rhLabel(r.to)} didn't come up. ${r.next?.why || ''} The current version did (${secs(r.current?.seconds)}). Don't update yet; the last lines it logged are below.`,
+    inconclusive: `The current version didn't start in the copy either (${r.current?.why || 'see below'}), so the rehearsal can't say what the update changes.`,
+    error: r.error || 'Something went wrong.',
+  }[r.verdict] || '';
+  const facts = r.current ? [
+    ['Start time', `${secs(r.current.seconds)} → ${secs(r.next?.seconds)}`],
+    ['Plugins started', `${r.current.plugins} → ${r.next?.plugins ?? '–'}`],
+    ['Warnings and errors both have', String(Math.max(0, (r.next?.problems ?? 0) - (r.added?.length ?? 0)))],
+    r.gone ? ['Gone with the update', String(r.gone)] : null,
+    r.copied ? ['Copied', `${fmt.bytes(r.copied.bytes)}${r.copied.worldRegionsLeftOut ? ', world around spawn' : ''}`] : null,
+  ].filter(Boolean) : [];
+  const lines = r.tail || r.currentTail;
+  $('rh-result').hidden = false;
+  $('rh-result').replaceChildren(
+    el('div', { class: `problem ${tone === 'ok' ? '' : tone}` },
+      el('span', { class: `problem-icon${tone === 'ok' ? ' ok' : ''}` }, icon(ic)),
+      el('div', { class: 'problem-main' },
+        el('div', { class: 'problem-title' }, el('b', {}, title), el('span', { class: 'pill' }, `${rhLabel(r.from)} → ${rhLabel(r.to)}`)),
+        el('p', { class: 'problem-text' }, lead),
+        el('span', { class: 'problem-meta' }, `Tried ${fmt.relative(r.at)}${r.by ? ` by ${r.by}` : ''}`))),
+    facts.length ? el('dl', { class: 'lag-facts rh-facts' }, ...facts.map(([k, v]) => el('div', {}, el('dt', {}, k), el('dd', {}, v)))) : '',
+    r.lostPlugins?.length ? el('p', { class: 'rh-lost' }, el('b', {}, 'Not started with the update: '), r.lostPlugins.join(', ')) : '',
+    r.added?.length ? el('ul', { class: 'problems rh-added' }, ...r.added.map((p) => el('li', { class: `problem ${p.level === 'error' ? 'critical' : 'warning'}` },
+      el('span', { class: 'problem-icon' }, icon('alert')),
+      el('div', { class: 'problem-main' },
+        el('div', { class: 'problem-title' }, el('span', { class: `pill ${p.level === 'error' ? 'bad' : ''}` }, p.level === 'error' ? 'New error' : 'New warning'), p.count > 1 ? el('span', { class: 'note' }, `${p.count}×`) : null),
+        el('code', { class: 'problem-msg' }, p.text),
+        p.detail?.length ? el('code', { class: 'problem-detail' }, p.detail.join('\n')) : null)))) : '',
+    lines?.length ? el('pre', { class: 'rh-tail' }, lines.join('\n')) : '',
+    r.crash ? el('details', { class: 'rh-crash' }, el('summary', {}, 'Crash report'), el('pre', { class: 'rh-tail' }, r.crash)) : '');
+}
+
+$('rh-run').addEventListener('click', (e) => rhTarget && rehearse(rhTarget, e.currentTarget));
 // ---------------------------------------------------------------------------
 // rconsole's own updates
 // ---------------------------------------------------------------------------

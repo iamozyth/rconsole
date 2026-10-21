@@ -34,7 +34,11 @@ render_unit() {
   local hide=()
   [[ "$sv/" == "$mc/"* ]] || hide+=("-$mc")
   [[ "$sv/" == "$bk/"* ]] || hide+=("-$bk")
+  # rconsole-try@ hides MC_DIR, unless the servers or backups lie inside it.
+  local tryhide="-$mc"
+  [[ "$sv/" == "$mc/"* || "$bk/" == "$mc/"* ]] && tryhide=""
   sed -e "s#^InaccessiblePaths=-/srv/minecraft -/srv/minecraft-backups\$#InaccessiblePaths=${hide[*]}#" \
+      -e "s#^InaccessiblePaths=-/srv/minecraft\$#InaccessiblePaths=${tryhide}#" \
       -e "s#/srv/minecraft-backups#@BK@#g" \
       -e "s#/srv/minecraft-servers#@SV@#g" \
       -e "s#/srv/minecraft#${mc}#g" \

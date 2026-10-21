@@ -2374,3 +2374,21 @@ body[data-role='none'] .nav .nav-group { display: none !important; }
   .lag-past { grid-template-columns: 10px minmax(0, 1fr); }
   .lag-past .note { grid-column: 2; white-space: normal; }
 }
+
+/* Server → Updates → Try an update first */
+.rh-result { border-top: 1px solid var(--line); }
+.rh-result > .problem { border: 0; }
+.rh-facts { padding-top: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rh-lost { margin: 0 20px 14px; color: var(--c-danger); font-size: 13px; }
+.rh-added { border-top: 1px solid var(--line); }
+.rh-added .problem-title .note { font-size: 12px; }
+.rh-tail { margin: 0 20px 16px; padding: 10px 12px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--log-bg); font: 12px/1.5 var(--mono); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rh-crash { margin: 0 20px 16px; }
+.rh-crash summary, .rh-earlier summary { cursor: pointer; color: var(--text-2); font-size: 13px; }
+.rh-crash .rh-tail { margin: 8px 0 0; }
+.rh-earlier { border-top: 1px solid var(--line); padding: 12px 20px; }
+.rh-earlier .lag-history { padding: 6px 0 0; }
+@media (max-width: 760px) { .rh-facts { grid-template-columns: minmax(0, 1fr); } }
+[data-rehearse][data-verdict='works'] { color: var(--ok); }
+[data-rehearse]:is([data-verdict='problems'], [data-verdict='fails']) { color: var(--c-danger); }
+[data-rehearse][data-verdict='warnings'] { color: var(--warn); }

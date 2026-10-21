@@ -1,0 +1,58 @@
+# Update rehearsal (lib/rehearsal.js): starts a copy of a server, made by the
+# rehearsal-prepare job in BACKUP_DIR/.rehearsals/, with its current version
+# or the update, then stops it. The request is BACKUP_DIR/.requests/%i.json.
+#
+# The copy may connect to this machine only (it listens on 127.0.0.1, and
+# plugins that call home or use a database elsewhere fail, the same way with
+# both versions). It sees its copy and the Java runtimes, not the servers,
+# the attached server or the backups.
+[Unit]
+Description=rconsole update rehearsal %i
+
+[Service]
+Type=oneshot
+User=minecraft
+Group=minecraft
+UMask=0027
+EnvironmentFile=/etc/rconsole.env
+UnsetEnvironment=RCON_PASSWORD WEB_PASSWORD OIDC_CLIENT_SECRET METRICS_TOKEN NTFY_TOKEN OFFSITE_ACCESS_KEY_ID OFFSITE_SECRET_ACCESS_KEY OFFSITE_PASSPHRASE
+Environment=UV_USE_IO_URING=0
+ExecStart=/usr/bin/node /opt/rconsole/bin/mc-helper.js job %i
+# Two minutes of starting, a few seconds up, and the stop: well within this.
+TimeoutStartSec=12min
+# The real servers come first; when memory runs out, this goes before them.
+Nice=10
+CPUWeight=10
+IOWeight=10
+OOMScoreAdjust=800
+LimitNOFILE=65536
+
+TemporaryFileSystem=/srv/minecraft-servers:ro /srv/minecraft-backups:ro
+BindReadOnlyPaths=-/srv/minecraft-servers/.java -/srv/minecraft-backups/.requests
+BindPaths=-/srv/minecraft-backups/.jobs -/srv/minecraft-backups/.rehearsals
+InaccessiblePaths=-/srv/minecraft
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressAllow=localhost
+IPAddressDeny=any
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateIPC=true
+ProtectProc=invisible
+CapabilityBoundingSet=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# Not set: MemoryDenyWriteExecute (the JIT compiler needs it).

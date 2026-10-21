@@ -650,6 +650,16 @@
           </div>
         </section>
 
+        <section class="panel rh-panel" id="rh-panel" hidden data-min-role="admin">
+          <header class="panel-head">
+            <div class="head-text"><h2>Try an update first</h2><p class="note" id="rh-note">A copy of this server starts with the update next to the running one, without players and cut off from the internet, and rconsole compares it with how the server starts now. It takes a few minutes; the real server keeps running.</p></div>
+            <button class="btn" id="rh-run" hidden><svg><use href="#pg-play"/></svg><span>Try it</span></button>
+          </header>
+          <div class="job" id="rh-status" role="status" hidden></div>
+          <div class="rh-result" id="rh-result" hidden></div>
+          <details class="rh-earlier" id="rh-earlier" hidden><summary>Earlier rehearsals</summary><ul class="lag-history" id="rh-history"></ul></details>
+        </section>
+
         <section class="panel" id="upd-server">
           <header class="panel-head">
             <div class="head-text"><h2>Server software</h2><p class="note">Updates warn players, then disconnect everyone and stop the server. The world is backed up while nobody plays, the new jar goes in, and the server starts again.</p></div>
