@@ -860,6 +860,8 @@ const POWER_LABEL = {
 };
 
 let lastStatus = null;
+// Stopped because nobody played: rconsole answers on the port (lib/sleep.js).
+const asleep = (s) => Boolean(s?.sleep?.sleeping) && ['inactive', 'failed'].includes(s.power?.active);
 
 function renderStatus(s) {
   lastStatus = s;
@@ -867,8 +869,8 @@ function renderStatus(s) {
   const { game, host, rcon, power = {} } = s;
   const conn = $('conn');
   const stopped = power.available && power.active !== 'active';
-  conn.dataset.state = rcon.ok ? 'ok' : 'down';
-  $('status').textContent = rcon.ok ? 'Online' : stopped ? `Server ${POWER_LABEL[power.active]?.toLowerCase() || power.active}` : 'RCON offline';
+  conn.dataset.state = rcon.ok ? 'ok' : asleep(s) ? 'asleep' : 'down';
+  $('status').textContent = rcon.ok ? 'Online' : asleep(s) ? 'Server asleep' : stopped ? `Server ${POWER_LABEL[power.active]?.toLowerCase() || power.active}` : 'RCON offline';
   conn.title = rcon.ok ? 'Server running, RCON connected' : rcon.error || '';
   $('maint-badge').hidden = !s.maintenance?.enabled;
   renderPlatform(s.platform);
@@ -986,9 +988,10 @@ function renderDashHero(s) {
   const state = p.available ? p.active : running ? 'active' : 'inactive';
   $('dh-state').dataset.state = s.maintenance?.enabled ? 'maint' : state === 'active' && running ? 'ok' : state === 'failed' ? 'bad' : state === 'activating' || state === 'deactivating' ? 'busy' : 'off';
   $('dh-name').textContent = shown?.name || s.platform?.name || 'Minecraft';
-  const label = p.available ? POWER_LABEL[p.active] || p.active : running ? 'Running' : 'Offline';
+  const label = asleep(s) ? 'Asleep' : p.available ? POWER_LABEL[p.active] || p.active : running ? 'Running' : 'Offline';
   const facts = [
     el('b', {}, s.maintenance?.enabled ? `${label} · maintenance` : label),
+    asleep(s) ? 'wakes when a player joins' : null,
     running && p.since && Date.parse(p.since) < Date.now() ? `for ${fmt.relative(p.since).replace(/ ago$/, '')}` : p.active === 'failed' && p.result ? p.result : null,
     [s.platform?.name, s.platform?.mcVersion, s.platform?.build ? `#${s.platform.build}` : null].filter(Boolean).join(' ') || null,
     shown ? `port ${shown.port}` : null,
@@ -1446,7 +1449,7 @@ async function loadServerSummary() {
     $('srv-title').textContent = `${pf.name || 'Minecraft'}${pf.mcVersion ? ` ${pf.mcVersion}` : ''}`;
     $('srv-note').textContent = running
       ? `Running${s.state.since ? ` since ${fmt.date(s.state.since)} (${fmt.relative(s.state.since)})` : ''}.`
-      : 'Stopped.';
+      : asleep(lastStatus) ? 'Asleep until a player joins.' : 'Stopped.';
     $('srv-facts').replaceChildren(
       row('Software', [pf.name || '–', pf.build ? sub(` build ${pf.build}`) : null, pf.loaderVersion ? sub(` · loader ${pf.loaderVersion}`) : null]),
       row('World', el('a', { href: '#world/worlds' }, s.world)),
@@ -1499,6 +1502,7 @@ function serverStateLabel(s) {
   if (!s.state.available) return el('span', { class: 'pill bad', title: s.state.error || '' }, 'Not controllable');
   const active = s.state.active;
   const loop = active === 'failed' && s.state.result === 'start-limit-hit';
+  if (s.sleeping && ['inactive', 'failed'].includes(active)) return el('span', { class: 'pill asleep', title: 'Nobody played for a while. It starts when a player joins.' }, icon('moon'), 'Asleep');
   return el('span', { class: `pill ${active === 'active' ? 'ok' : active === 'failed' ? 'bad' : ''}`, title: loop ? 'It crashed 5 times in 10 minutes and was left stopped. Check the log, then press Start.' : null },
     active === 'active' ? 'Running' : active === 'activating' ? 'Starting' : active === 'deactivating' ? 'Stopping' : loop ? 'Crashed repeatedly' : active === 'failed' ? 'Crashed' : 'Stopped');
 }
@@ -3156,9 +3160,11 @@ function renderPower(s) {
   const box = $('power-state');
   const state = p.available ? p.active : 'unknown';
   box.dataset.state = state;
-  $('power-label').textContent = p.available ? POWER_LABEL[p.active] || p.active : 'Not controllable';
+  if (asleep(s)) box.dataset.state = 'asleep';
+  $('power-label').textContent = asleep(s) ? 'Asleep' : p.available ? POWER_LABEL[p.active] || p.active : 'Not controllable';
   $('power-detail').textContent = !p.available
     ? p.error || `rconsole can't control ${p.unit || 'the server service'}. See the README (polkit rule).`
+    : asleep(s) ? `Since ${fmt.date(s.sleep.since)}. It starts when a player joins, or with Start.`
     : p.active === 'active' && p.since ? `Since ${fmt.date(p.since)} (${fmt.relative(p.since)})${p.pid ? ` · PID ${p.pid}` : ''}`
       : p.active === 'failed' ? p.result : '';
   const busyNow = Boolean(p.pending) || s.op?.running || s.restart?.remaining != null;
@@ -3172,7 +3178,52 @@ function renderPower(s) {
   $('maint-info').textContent = m.enabled
     ? `On since ${fmt.date(m.since)}. Only operators can join. Switching it off restores the whitelist.`
     : 'Only operators can stay or join. Whitelisted players are taken off the whitelist and kicked, and put back when you switch it off.';
+  renderSleep(s.sleep, s);
 }
+
+// Sleep when empty: the switch, and what it is doing right now.
+let sleepChoices = null;
+function renderSleep(z, s) {
+  if (!z) return;
+  $('sleep-toggle').checked = z.enabled;
+  $('sleep-state').textContent = z.enabled ? 'On' : 'Off';
+  const st = $('sleep-status');
+  const line = asleep(s)
+    ? [icon('moon'), el('span', {}, el('b', {}, 'Asleep'), ` since ${fmt.date(z.since)}. The first player who joins wakes it.`)]
+    : z.enabled && z.sleepsAt ? [icon('moon'), el('span', {}, `Nobody online. Goes to sleep ${fmt.relative(z.sleepsAt)} unless someone joins.`)]
+      : z.woken && Date.now() - Date.parse(z.woken.at) < 3600000 ? [icon('play'), el('span', {}, `${z.woken.by || 'A player'} woke it ${fmt.relative(z.woken.at)}.`)]
+        : null;
+  st.hidden = !line;
+  if (line) st.replaceChildren(...line);
+}
+
+async function loadSleep() {
+  try {
+    const z = await api('GET', '/api/sleep');
+    if (!sleepChoices) {
+      sleepChoices = z.minutesChoices;
+      $('sleep-minutes').replaceChildren(...sleepChoices.map((m) => el('option', { value: m }, m >= 60 ? `${m / 60} hour${m === 60 ? '' : 's'} without players` : `${m} minutes without players`)));
+    }
+    $('sleep-minutes').value = String(z.minutes);
+    $('sleep-wake').value = z.wake;
+    renderSleep(z, lastStatus);
+  } catch {}
+}
+
+async function saveSleep(change) {
+  try {
+    const z = await api('PUT', '/api/sleep', change);
+    renderSleep(z, lastStatus);
+    if (change.enabled !== undefined) toast(z.enabled ? `The server sleeps after ${z.minutes} minutes without players.` : 'Sleep is off. The server keeps running.');
+  } catch (err) {
+    toast(err.message, 'bad');
+    loadSleep();
+  }
+  refreshStatus(true);
+}
+$('sleep-toggle').addEventListener('change', (e) => saveSleep({ enabled: e.target.checked, minutes: Number($('sleep-minutes').value) || undefined, wake: $('sleep-wake').value }));
+$('sleep-minutes').addEventListener('change', (e) => saveSleep({ minutes: Number(e.target.value) }));
+$('sleep-wake').addEventListener('change', (e) => saveSleep({ wake: e.target.value }));
 
 async function power(action) {
   const seconds = Number($('power-delay').value);
@@ -3209,7 +3260,10 @@ $('maint-toggle').addEventListener('change', async (e) => {
   refreshStatus(true);
 });
 
-tabLoaders.server = () => lastStatus && renderPower(lastStatus);
+tabLoaders.server = () => {
+  if (lastStatus) renderPower(lastStatus);
+  loadSleep();
+};
 
 function renderPending(items = []) {
   $('pending-bar').hidden = !items.length;

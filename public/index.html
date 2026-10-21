@@ -42,6 +42,7 @@
   <symbol id="pg-upload" viewBox="0 0 24 24"><path d="M10.8 16.4h2.4V7l3.4 3.4 1.7-1.7L12 2.4 5.7 8.7l1.7 1.7L10.8 7zM4 18.5h16V21H4z"/></symbol>
   <symbol id="pg-delete" viewBox="0 0 24 24"><path d="M9 2.5h6v2h5.5v2.4h-17V4.5H9zM5 8.5h14L17.8 21.5H6.2zm4 2.5v8h2v-8zm4 0v8h2v-8z" fill-rule="evenodd"/></symbol>
   <symbol id="pg-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+  <symbol id="pg-moon" viewBox="0 0 24 24"><path d="M14.5 2.5A9.5 9.5 0 1 0 21.5 15 7.6 7.6 0 0 1 14.5 2.5z"/></symbol>
   <symbol id="pg-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></symbol>
   <symbol id="pg-signout" viewBox="0 0 24 24"><path d="M3.5 3h10v4.5h-2.4V5.4H5.9v13.2h5.2v-2.1h2.4V21h-10zm12.7 4.7 4.3 4.3-4.3 4.3-1.7-1.7 1.4-1.4H9v-2.4h6.9l-1.4-1.4z"/></symbol>
   <symbol id="pg-alert" viewBox="0 0 24 24"><path d="M12 2.5 22.5 21h-21zm-1.2 6.2v6.1h2.4V8.7zm0 7.6v2.4h2.4v-2.4z" fill-rule="evenodd"/></symbol>
@@ -516,6 +517,26 @@
             <div class="panel-body stack">
               <p class="note" id="maint-info">Only operators can stay or join. Whitelisted players are taken off the whitelist and kicked, and put back when you switch it off.</p>
               <label class="fld"><span>Kick message</span><input class="field" id="maint-message" maxlength="200" value="The server is in maintenance. Back soon!"></label>
+            </div>
+          </section>
+
+          <section class="panel" id="sleep-panel">
+            <header class="panel-head">
+              <h2>Sleep when empty</h2>
+              <label class="switch" data-min-role="admin"><input type="checkbox" role="switch" id="sleep-toggle"><span id="sleep-state">Off</span></label>
+            </header>
+            <div class="panel-body stack">
+              <p class="note" id="sleep-info">When nobody has played for a while, rconsole stops the server and answers on its port instead. In the multiplayer list it shows as asleep, and the first of its players who joins (whitelisted, or who played here before) wakes it up; they join again a minute later.</p>
+              <div class="sleep-status" id="sleep-status" hidden></div>
+              <div class="sleep-fields" data-min-role="admin">
+                <label class="fld"><span>Sleep after</span><select class="field" id="sleep-minutes"></select></label>
+                <label class="fld"><span>Who can wake it</span>
+                  <select class="field" id="sleep-wake">
+                    <option value="known">Its players only</option>
+                    <option value="anyone">Anyone who joins</option>
+                  </select>
+                </label>
+              </div>
             </div>
           </section>
         </div>

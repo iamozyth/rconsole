@@ -266,6 +266,8 @@ svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
 .conn[data-state='ok'] .conn-dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
 .conn[data-state='down'] { color: var(--c-danger); border-color: color-mix(in srgb, var(--c-danger) 40%, var(--line)); }
 .conn[data-state='down'] .conn-dot { background: var(--c-danger); }
+.conn[data-state='asleep'] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.conn[data-state='asleep'] .conn-dot { background: var(--accent); }
 
 .health { display: flex; margin: 0; }
 .readout { padding: 0 16px; border-left: 1px solid var(--line); }
@@ -775,6 +777,7 @@ kbd {
 .power-state[data-state='active'] .power-light { background: var(--c-players); }
 .power-state[data-state='inactive'] .power-light,
 .power-state[data-state='failed'] .power-light { background: var(--c-danger); }
+.power-state[data-state='asleep'] .power-light { background: var(--accent); }
 .power-state[data-state='activating'] .power-light,
 .power-state[data-state='deactivating'] .power-light { background: var(--text-2); animation: pulse 0.8s ease-in-out infinite alternate; }
 .power-actions { flex-wrap: wrap; }
@@ -1436,6 +1439,13 @@ td.nowrap { white-space: nowrap; }
 .tm-then-head h4 { margin: 0; color: var(--text-2); font-weight: 500; }
 .tm-restore { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 .tm-restore .note { flex-basis: 100%; margin: 0; }
+
+/* Server: sleep when empty */
+.sleep-status { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r); background: color-mix(in srgb, var(--accent) 8%, transparent); font-size: 13.5px; }
+.sleep-status svg { width: 16px; height: 16px; fill: var(--accent); flex: none; }
+.sleep-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.pill.asleep { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
+.pill.asleep svg { width: 12px; height: 12px; fill: currentColor; }
 
 /* World: restore an area */
 .area-form { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(110px, 1fr)) minmax(140px, 1.2fr) auto; gap: 12px; align-items: end; }
